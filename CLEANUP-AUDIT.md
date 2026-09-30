@@ -1,6 +1,6 @@
 # RADAZ 0.2.2 — fayl və davranış yoxlaması
 
-2026-10-01 tarixində proqramın 226 mənbə və paylama faylı SHA-256 ilə müqayisə edildi. Eyni məzmunlu fayl qrupu tapılmadı. `node_modules`, yığılmış `dist`, keşlər, yerli çıxışlar və pasiyent arxivləri mənbə yoxlamasına daxil edilmədi.
+2026-10-01 tarixində proqramın 230 mənbə və paylama faylı SHA-256 ilə müqayisə edildi. Eyni məzmunlu fayl qrupu tapılmadı. `node_modules`, yığılmış `dist`, keşlər, yerli çıxışlar və pasiyent arxivləri mənbə yoxlamasına daxil edilmədi.
 
 ## Təmizlənənlər
 
@@ -21,7 +21,7 @@
 ## Yoxlama
 
 - TypeScript və production build keçdi.
-- Node: 43 test; Python: 30 test keçdi.
+- Node: 46 test; Python: əvvəlki tətbiq yoxlamasında 30 test keçdi.
 - Brauzerdə kompakt seçim qutusu görüntünü çap siyahısına əlavə etdi.
 - Viewer-dən hesabatda yalnız ötürülmüş müayinə açıldı; 10 demo görüntünün hamısı bir ZIP paketinə hazırlandı.
 - Arxivdən müayinə mövcud viewer tabına ötürüldü. PACS-in Viewer düyməsi əlavə viewer tabı yaratmadı.
@@ -39,6 +39,15 @@ Canlı PACS serverinə endirmə və ChatGPT hesabında ZIP təhlili bu yoxlaman�
 - Epoint adapteri imzalı checkout və callback yoxlamasını həyata keçirir. Ödəniş məbləği, valyuta, əməliyyat və sifariş uyğunluğu testlərlə yoxlanıldı. Alıcı açarı kopyalaya və TXT kimi saxlaya bilər. Satıcı hesabı, açarlar və HTTPS server hələ qoşulmadığından real ödəniş işləmir.
 - README alıcı quraşdırmasını, DISTRIBUTION satıcı konfiqurasiyasını və GitHub Release paylaşımını izah edir. 0.2.2 Windows preview ZIP-i yaradıldı; məxfi ayarlar və lisenziya imza açarı paketə daxil deyil.
 - GitHub nüsxəsi `Documents/GitHub/mt5trader/RADAZ-D-COM` yolundan `Documents/GitHub/RADAZ-D-COM` yoluna köçürüldü və GitHub Desktop-da yenidən göstərildi.
+
+## Satıcı paneli və yerləşdirmə hazırlığı
+
+- HTML faylı birbaşa açıldıqda və ya xidmətə bağlantı olmadıqda panel artıq sonsuz “Yüklənir…” göstərmir. Launcher təlimatı və yenidən qoşulma düyməsi var; bağlantı qurulana qədər sahələr bağlıdır.
+- Panel tokeni yalnız həmin brauzer sessiyasında saxlanır; səhifəni yenilədikdən sonra saxlama işləyir. Sintetik brauzer sınağında saxlama və reload yoxlanıldı.
+- Natamam və yoxlama rəqəmi səhv olan IBAN, eləcə də hesab sahibinin yerinə valyuta yazılması rədd edilir. Epoint API ünvanı rəsmi sənədlərdəki SDK mənbəyindən yoxlanıb ilkin dəyər kimi əlavə edildi.
+- Render üçün 1 GB daimi diskli, bir instanslı ödəniş serveri konfiqurasiyası hazırlandı. Açarlar olmadan ödənişi bağlı saxlayır; satıcı paneli internetdə təqdim edilmir. HTTP sınağı health/catalog cavablarını, bağlı ödənişi və panel yollarının 404 cavabını yoxladı.
+- Məxfi dəyişənlərlə konfiqurasiya və lisenziya imza açarının mövcud müştəri public açarı ilə uyğunluğu test edildi. Yeni imza açarı yaradılmadı.
+- Render hesabı/servisi və Epoint merchant təsdiqi bu hazırlıqla yaradılmış sayılmır. Həqiqi HTTPS ünvanı, provider açarları və canlı ödəniş hələ təsdiqlənməyib. Təlimat: `billing/RENDER-SETUP.md`.
 
 ## Əvvəlki 0.3.2 düzəlişi (tarixi qeyd)
 

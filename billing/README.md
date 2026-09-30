@@ -13,7 +13,7 @@ Qiymət serverdə 10 AZN × 1–120 ay hesablanır. Müştəridən gələn qiym�
 ## Qoşulma
 
 1. Satıcı hesabı açın; provayderin test və istehsal açarlarını serverdə saxlayın.
-2. Hazır `epoint.mjs` adapteri rəsmi checkout/callback imzasını yoxlayır. Ayar panelinə merchant açarlarını və Epoint-in verdiyi dəqiq API ünvanını yazın. Canlı sınaqdan əvvəl istehsal ödənişini açmayın. Başqa provayder üçün `RADAZ_PAYMENT_ADAPTER` modulu əvvəlki `createCheckout` və `verifyWebhook` müqaviləsini icra etməlidir; imzasız callback qəbul etməyin.
+2. Hazır `epoint.mjs` adapteri rəsmi checkout/callback imzasını yoxlayır. API ünvanı `https://epoint.az/api/1/request` olaraq doldurulur; merchant açarlarını Epoint kabinetindən götürün. Canlı sınaqdan əvvəl istehsal ödənişini açmayın. Başqa provayder üçün `RADAZ_PAYMENT_ADAPTER` modulu əvvəlki `createCheckout` və `verifyWebhook` müqaviləsini icra etməlidir; imzasız callback qəbul etməyin.
 3. Node.js 22.13+ ilə `node billing/server.mjs` başladın. Standart sahib qovluğu `Documents/RADAZ-License-Admin`, bazası onun `billing-data` alt qovluğudur. `RADAZ_OWNER_DIR`, `RADAZ_ISSUER_PRIVATE_KEY`, `RADAZ_BILLING_DATA`, `PORT` ilə yollar dəyişir. Mövcud satıcı imza açarı və müştərilərdəki `license-public.json` uyğun olmalıdır.
 4. HTTPS reverse proxy, sorğu limitləri, server vaxtının sinxronluğu və bazanın ehtiyat nüsxəsini qurun. Webhook ünvanı `/v1/webhooks/provider`-dır. Provayderin callback URL-ləri adapterdə müəyyənləşdirilir.
 5. `public/product.json` daxilində `billingUrl`-ı HTTPS xidmət ünvanına təyin edin. Lokal sınaqda localhost HTTP dəstəklənir. Buraxılış paketində `licenseRequired=true` olur.
@@ -24,3 +24,11 @@ Sifariş izləmə tokeni yerli məhsul qovluğunda saxlanır; yalnız həmin tok
 Private key panelə/API cavabına geri verilmir. Ayarlar dəyişdikdə billing serveri yenidən başladılmalıdır. Açar e-poçt/SMS ilə avtomatik göndərilmir; alıcı onu RADAZ-da görür, kopyalayır və TXT kimi saxlayır. İstehsal merchant hesabı və HTTPS hosting olmadığı üçün real ödəniş hələ sınaqdan keçirilməyib.
 
 Rəsmi protokol: [Epoint başlanğıc](https://developer.epoint.az/az), [ödəniş yaratma](https://developer.epoint.az/ru/checkout/request), [callback](https://developer.epoint.az/en/callbacks).
+
+## Domen və server hazır deyilsə
+
+[Render quraşdırma təlimatı](RENDER-SETUP.md) və kök qovluqdakı `render.yaml` 20 AZN/ay büdcəsinə uyğun baza konfiqurasiyasını verir. HTTPS ünvanı xidmət yaradıldıqda verilir; ayrıca domen tələb olunmur. Açarlar Render Environment bölməsində saxlanır. Yerli panelə yazılmış məlumatlar Render-ə avtomatik göndərilmir.
+
+Server gizli açarlar olmadan ödənişi bağlı saxlayaraq başlaya bilir. `/healthz` yalnız serverin işlədiyini göstərir. `RADAZ_PAYMENTS_ENABLED=false` başlanğıc ayarıdır. `RADAZ_ISSUER_PRIVATE_KEY_PEM` mövcud imza açarını qəbul edir və müştərinin public açarı ilə uyğunluğunu yoxlayır; fərqli açar qəbul edilmir. Ödəniş aktivləşdirilərkən Epoint açarları və callback də qurulmalıdır.
+
+Paneli `OPEN-SELLER-SETTINGS.cmd` ilə açın. HTML faylını ayrıca açmaq ayarları saxlamır. Səhifənin yenilənməsi cari panel sessiyasını qoruyur; server bağlanıbsa launcher-i yenidən açın. Hesab sahibinin adı valyuta adı olmamalıdır; Azərbaycan IBAN-ı 28 simvol və düzgün yoxlama rəqəmləri ilə daxil edilir.

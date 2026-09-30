@@ -10,6 +10,7 @@ import {saveSettings,loadSettings,visibleSettings,validateSettings} from '../bil
 import {createEpointProvider,epointSignature,amountMinor} from '../billing/epoint.mjs';
 import {createLicenseService} from '../billing/license-service.mjs';
 import {sortRows} from '../lib/table-sort.ts';
+import {runtimeConfig} from '../billing/runtime-config.mjs';
 const settings={enabled:true,publicBaseUrl:'https://license.example.test',epointPublicKey:'test-merchant',epointPrivateKey:'test-secret-not-real',epointRequestUrl:'https://epoint.az/test-endpoint'};
 const callback=event=>{const data=Buffer.from(JSON.stringify(event)).toString('base64');return {headers:{'content-type':'application/x-www-form-urlencoded'},rawBody:Buffer.from(new URLSearchParams({data,signature:epointSignature(data,settings.epointPrivateKey)}).toString())};};
 const temporary=()=>mkdtempSync(path.join(os.tmpdir(),'radaz-owner-test-'));
@@ -21,3 +22,18 @@ test('Epoint checkout signs the server price and produces only AZN payments',asy
 test('signed payment callback issues a key only after matching the stored transaction and amount',async()=>{const {privateKey}=generateKeyPairSync('rsa',{modulusLength:2048});const provider=createEpointProvider(settings,async()=>({ok:true,json:async()=>({status:'success',transaction:'tx-one',redirect_url:'https://bank.example.test/pay'})}));const service=createLicenseService({database:':memory:',privateKey,provider});try{const order=await service.checkout(3);const event={order_id:order.id,transaction:'tx-one',status:'success',operation_code:'100',amount:'30.00'};for(const changes of [{amount:'0.01'},{transaction:'wrong'}])assert.throws(()=>service.confirmPayment({...event,orderId:order.id,providerOrder:changes.transaction||'tx-one',id:changes.transaction||'tx-one',status:'paid',currency:'AZN',amountMinor:changes.amount?1:3000}));const confirmed=await provider.verifyWebhook(callback(event));service.confirmPayment(confirmed);const paid=service.status(order.id,order.token);assert.match(paid.activationCode,/^RADAZ-ACT-/);assert.equal(paid.activatedAt,null);service.confirmPayment(confirmed);assert.equal(service.status(order.id,order.token).activationCode,paid.activationCode);}finally{service.close();}});
 test('forged callbacks and non-payment events are rejected',async()=>{const provider=createEpointProvider(settings),event={order_id:'id',transaction:'tx',status:'success',operation_code:'100',amount:'10.00'};const forged=callback(event);forged.rawBody=Buffer.from(forged.rawBody.toString().replace('signature=','signature=wrong'));await assert.rejects(provider.verifyWebhook(forged),/imzası/);for(const changes of [{status:'failed'},{operation_code:'001'},{currency:'USD'},{amount:'1e2'},{public_key:'other'}])await assert.rejects(provider.verifyWebhook(callback({...event,...changes})));assert.equal(amountMinor('10.01'),1001);for(const amount of ['1.001','-1','1e2',NaN])assert.throws(()=>amountMinor(amount));});
 test('table sort is numeric, stable, reversible, leaves source intact and puts blanks last',()=>{const rows=[{name:'Seriya 10',n:10},{name:'Seriya 2',n:2},{name:'Seriya 2',n:2},{name:'',n:null}],values={name:r=>r.name,n:r=>r.n};assert.deepEqual(sortRows(rows,{key:'n',direction:'asc'},values).map(r=>r.n),[2,2,10,null]);assert.deepEqual(sortRows(rows,{key:'name',direction:'desc'},values),[rows[0],rows[1],rows[2],rows[3]]);assert.equal(rows[0].n,10);assert.deepEqual(sortRows(rows,{key:'name',direction:'asc'},values),[rows[1],rows[2],rows[0],rows[3]]);});
+
+test('bank fields reject wrong IBAN check digits and currency in place of recipient name',()=>{
+ assert.throws(()=>validateSettings({iban:'AZ22NABZ00000000137010001944'}),/yoxlama rəqəmləri/);
+ assert.throws(()=>validateSettings({beneficiary:'azn'}),/valyuta deyil/);
+});
+test('cloud configuration derives the real HTTPS host and remains disabled without credentials',()=>{
+ const root=temporary();try{
+  const result=runtimeConfig(root,{RENDER_EXTERNAL_URL:'https://synthetic-radaz.onrender.com',RADAZ_PAYMENTS_ENABLED:'false'});
+  assert.equal(result.settings.publicBaseUrl,'https://synthetic-radaz.onrender.com');assert.equal(result.settings.enabled,false);assert.equal(result.privateKey,null);
+  assert.throws(()=>runtimeConfig(root,{RADAZ_PAYMENTS_ENABLED:'true'}),/API ünvanı/);
+  assert.throws(()=>runtimeConfig(root,{RADAZ_ISSUER_PRIVATE_KEY_PEM:'not-a-key'}),/PEM formatında/);
+  const {privateKey}=generateKeyPairSync('rsa',{modulusLength:2048});
+  assert.throws(()=>runtimeConfig(root,{RADAZ_ISSUER_PRIVATE_KEY_PEM:privateKey.export({format:'pem',type:'pkcs8'})}),/public açara uyğun deyil/);
+ }finally{cleanup(root);}
+});

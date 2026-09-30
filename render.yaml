@@ -1,0 +1,31 @@
+# Seller's license/payment service only. No clinical archive or owner UI is served.
+# Base compute $7/month + 1 GB disk $0.25/month (checked 2026-10-01).
+services:
+  - type: web
+    name: radaz-license
+    runtime: node
+    plan: 0.5c-512mb
+    region: frankfurt
+    rootDir: billing
+    buildCommand: node --check server.mjs
+    startCommand: node server.mjs
+    autoDeployTrigger: off
+    numInstances: 1
+    healthCheckPath: /healthz
+    disk:
+      name: radaz-license-data
+      mountPath: /var/data/radaz
+      sizeGB: 1
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: SKIP_INSTALL_DEPS
+        value: "true"
+      - key: RADAZ_BIND
+        value: 0.0.0.0
+      - key: RADAZ_OWNER_DIR
+        value: /var/data/radaz/owner
+      - key: RADAZ_BILLING_DATA
+        value: /var/data/radaz/orders
+      - key: RADAZ_PAYMENTS_ENABLED
+        value: "false"

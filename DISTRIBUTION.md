@@ -35,7 +35,7 @@ Panel yalnız `127.0.0.1` üzərində açılır. Hər işə salınmada yeni təs
 ## Epoint hesabını necə qoşursunuz?
 
 1. [Epoint](https://epoint.az/az) üzərindən satıcı müraciətini özünüz tamamlayın. Provayder tələb olunan biznes sənədlərini, bank hesabını və müqaviləni yoxlayır. Komissiya və köçürmə vaxtını onların müqaviləsindən dəqiqləşdirin; RADAZ bu şərtləri müəyyən etmir.
-2. Merchant public/private açarlarını və ödəniş yaratma API ünvanını götürün. Rəsmi sənədlərin anonim görünüşündə endpoint ünvanı maskalandığı üçün burada təxmin edilən ünvan yazılmayıb; dəqiq ünvanı Epoint-dən alın.
+2. Merchant public/private açarlarını götürün. API ünvanı `https://epoint.az/api/1/request` olaraq əvvəlcədən doldurulur: Epoint sənədlərində keçid verilən PHP SDK-nın [EpointClient](https://github.com/rafoabbas/epoint-php/blob/main/src/EpointClient.php) və [PaymentRequest](https://github.com/rafoabbas/epoint-php/blob/main/src/Requests/PaymentRequest.php) mənbələrində yoxlanılıb. Merchant hesabınız üçün Epoint başqa endpoint verərsə onu istifadə edin.
 3. HTTPS domenli server ayırın. Epoint lokal kompüterinizdəki `localhost` ünvanına callback göndərə bilməz. GitHub Pages bu Node/SQLite xidmətini işlətdiyi server deyil.
 4. Satıcı panelinə məlumatları yazın. Panelin göstərdiyi `https://SIZIN-DOMEN/v1/webhooks/provider` ünvanını Epoint-də **result URL**, `/payment/return` ünvanını success/error URL kimi qeyd edin.
 5. Sınaq məlumatları ilə ödəniş, yanlış məbləğ, uğursuz ödəniş, təkrar callback və açarın verilməsi yoxlanmalıdır. Sonra istehsal merchant məlumatlarına keçin.
@@ -43,6 +43,8 @@ Panel yalnız `127.0.0.1` üzərində açılır. Hər işə salınmada yeni təs
 [Epoint-in rəsmi başlanğıc qaydası](https://developer.epoint.az/az) merchant qeydiyyatı, açarlar və yönləndirmə/callback axınını təsvir edir. [Callback sənədi](https://developer.epoint.az/en/callbacks) imza yoxlamasını izah edir. `billing/epoint.mjs` bu protokola əsaslanır; bank kartı məlumatı RADAZ serverindən keçmir.
 
 ## Lisenziya serveri
+
+Hazır domen və server olmadıqda [Render quraşdırma təlimatını](billing/RENDER-SETUP.md) istifadə edin. Depoya hazır `render.yaml` əlavə edilib. Bu konfiqurasiya avtomatik HTTPS ünvanı və 1 GB daimi disk verir. Ödəniş ilkin olaraq bağlıdır; Epoint və mövcud lisenziya imza açarı qoşulandan sonra açılır.
 
 Bu xidmət alıcıların kompüterində deyil, sizin nəzarətinizdəki daimi serverdə işləyir. Serverdə Node.js 22.13+ olmalıdır. Mənbədəki `billing` qovluğu lazımdır; əlavə Node paketi tələb olunmur. SQLite Node-un daxili moduludur.
 

@@ -11,7 +11,7 @@ export function createOwnerConsole({root=ownerDirectory(),token=randomBytes(32).
   const origin=`http://127.0.0.1:${server.address().port}`;
   if(req.headers.host!==new URL(origin).host||req.headers.origin&&req.headers.origin!==origin){reply(403,{error:'Yalnız yerli satıcı paneli.'});return;}
   if(req.method==='GET'&&req.url==='/'){res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'",'Referrer-Policy':'no-referrer'});res.end(html);return;}
-  if(req.method==='GET'&&req.url==='/owner.js'){res.writeHead(200,{'Content-Type':'text/javascript; charset=utf-8','Cache-Control':'no-store'});res.end(readFileSync(new URL('./owner-ui.js',import.meta.url)));return;}
+  if(req.method==='GET'&&(req.url==='/owner.js'||req.url==='/owner-ui.js')){res.writeHead(200,{'Content-Type':'text/javascript; charset=utf-8','Cache-Control':'no-store'});res.end(readFileSync(new URL('./owner-ui.js',import.meta.url)));return;}
   const supplied=Buffer.from(req.headers.authorization||''),expected=Buffer.from('Bearer '+token);
   if(supplied.length!==expected.length||!timingSafeEqual(supplied,expected)){reply(401,{error:'Paneli OPEN-SELLER-SETTINGS.cmd ilə açın.'});return;}
   try{
