@@ -1,0 +1,48 @@
+{
+  "manifest_version": 3,
+  "name": "RADAZ → ChatGPT",
+  "version": "0.3.2",
+  "description": "Transfers RADAZ JPEG image attachments plus a complete ZIP to ChatGPT and returns the answer. Never submits a message automatically.",
+  "permissions": [
+    "storage",
+    "scripting",
+    "alarms"
+  ],
+  "host_permissions": [
+    "http://localhost/*",
+    "https://chatgpt.com/*"
+  ],
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "RADAZ ChatGPT bağlantısı"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://localhost/*"
+      ],
+      "js": [
+        "radaz.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://chatgpt.com/*"
+      ],
+      "js": [
+        "vendor/jszip.min.js",
+        "composer-helpers.js",
+        "composer.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}

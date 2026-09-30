@@ -1,0 +1,13 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {registerViewer,openStudyInViewer,focusViewer} from '../lib/viewer-session.ts';
+const events=new EventTarget(),storage=new Map();let opened=[],navigated=[],focus=0;
+const makeTab=name=>({name,closed:false,focus:()=>focus++,location:{href:'http://localhost/',assign:url=>navigated.push(url),replace:url=>navigated.push(url)}});
+globalThis.localStorage={getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,value)};
+globalThis.window={name:'',addEventListener:events.addEventListener.bind(events),removeEventListener:events.removeEventListener.bind(events),focus:()=>focus++,open:(...args)=>{opened.push(args);return makeTab(args[1]);},location:{origin:'http://localhost',assign:url=>navigated.push(url)}};
+globalThis.document={hasFocus:()=>true};
+test('reuse most recent viewer, reserve its tab before discovery',async()=>{const loaded=[];const stopA=registerViewer(async uid=>loaded.push(['a',uid]));window.name='';await new Promise(r=>setTimeout(r,5));const stopB=registerViewer(async uid=>loaded.push(['b',uid]));try{const opening=openStudyInViewer('1.2.3');assert.equal(opened.length,1);assert.equal(await opening,'existing');assert.deepEqual(loaded,[['b','1.2.3']]);assert.equal(opened.length,1);assert.equal(navigated.length,0);assert.ok(focus>=2);}finally{stopA();stopB();}});
+test('PACS reserves once before downloading',async()=>{opened=[];navigated=[];const tab=focusViewer();assert.equal(await openStudyInViewer('1.2.4',tab),'new');assert.equal(opened.length,1);assert.deepEqual(navigated,['/#archive-study=1.2.4']);});
+test('same-origin opener is retargeted during the click gesture',()=>{opened=[];window.opener=makeTab('RADAZ_VIEWER');window.opener.location.origin='http://localhost';try{assert.equal(focusViewer().name,'RADAZ_VIEWER');assert.deepEqual(opened,[['','RADAZ_VIEWER']]);}finally{delete window.opener;}});
+test('blocked popup navigates current page',async()=>{navigated=[];window.open=()=>null;await openStudyInViewer('1.2.5');assert.deepEqual(navigated,['/#archive-study=1.2.5']);});
+test('reject malformed study IDs before opening',async()=>{await assert.rejects(openStudyInViewer('https://external.invalid'));await assert.rejects(openStudyInViewer('1.'.repeat(40)+'2'));});

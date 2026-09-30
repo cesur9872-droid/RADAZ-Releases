@@ -1,0 +1,558 @@
+import * as core from '@cornerstonejs/core';
+import * as tools from '@cornerstonejs/tools';
+import dicomParser from 'dicom-parser';
+import type { ImageGeometry, Point3 } from './localizer';
+
+type DataSet = ReturnType<typeof dicomParser.parseDicom>;
+type RecordItem = { dataSet: DataSet; pixels: Int16Array | Float32Array; rows: number; columns: number; bits: number; min: number; max: number };
+const records = new Map<string, RecordItem>();
+export type MprMode = 'MPR' | 'MIP' | 'MinIP' | 'Avg';
+type MprPlane = 'SAG' | 'COR' | 'AX';
+export type MprSettings = Record<MprPlane, { mode: MprMode; thickness: number }>;
+export type MprAxes = { u: Point3; v: Point3; w: Point3 };
+export type MprOrientation = { normal: Point3; horizontal: Point3; vertical: Point3 };
+export type MprOrientations = Record<MprPlane, MprOrientation>;
+type ObliqueVolume = { source: RecordItem[]; origin: Point3; axes: MprAxes; spacing: Point3; outside: number };
+type Derived = { sourceIds: string[]; plane: MprPlane; index: number; mode: MprMode; thickness: number; geometry: ImageGeometry;
+  superiorFirst: boolean; reverseHorizontal: boolean; oblique?: { volume: ObliqueVolume; normal: Point3; step: number } };
+const derived = new Map<string, Derived>();
+let serial = 0;
+let initialized: Promise<void> | undefined;
+let engine: core.RenderingEngine | undefined;
+
+function asNumber(ds: DataSet, tag: string, fallback: number) {
+  const n = Number(ds.string(tag));
+  return Number.isFinite(n) && ds.string(tag) ? n : fallback;
+}
+function values(ds: DataSet, tag: string, fallback: number[]) {
+  const s = ds.string(tag);
+  return s ? s.split('\\').map(Number) : fallback;
+}
+
+function defaultWindow(item: RecordItem): { wl: number; ww: number } {
+  const ds = item.dataSet;
+  const centers = values(ds, 'x00281050', []);
+  const widths = values(ds, 'x00281051', []);
+  const explanations = (ds.string('x00281055') || '').split('\\').map(value => value.toLowerCase());
+  const description = `${ds.string('x0008103e') || ''} ${ds.string('x00180015') || ''}`.toLowerCase();
+  const lung = /lung|pulmon|chest|thorax|ağciy|akciğ/.test(description);
+  const candidates = centers.map((wl, index) => ({ wl, ww: widths[index], explanation: explanations[index] || '' }))
+    .filter(({ wl, ww }) => Number.isFinite(wl) && Number.isFinite(ww) && ww > 0);
+  const preferred = lung ? candidates.find(candidate => /lung|pulmon|ağciy|akciğ/.test(candidate.explanation)) : undefined;
+  const chosen = preferred || candidates[0];
+  if (chosen) return { wl: chosen.wl, ww: chosen.ww };
+  if (lung && (ds.string('x00080060') || '').toUpperCase() === 'CT') return { wl: -600, ww: 1500 };
+  return { wl: 50, ww: 400 };
+}
+
+export function getDefaultWindow(imageId: string) {
+  const item = records.get(imageId);
+  return item ? defaultWindow(item) : { wl: 50, ww: 400 };
+}
+
+/** Original source bytes; derived MPR frames deliberately have no source DICOM. */
+export function getOriginalDicom(imageId: string): Uint8Array | null {
+  const item = records.get(imageId);
+  return item && !derived.has(imageId) ? new Uint8Array(item.dataSet.byteArray) : null;
+}
+
+export function getLocalizerGeometry(imageId: string): ImageGeometry | null {
+  if (derived.has(imageId)) return derived.get(imageId)!.geometry;
+  const item = records.get(imageId);
+  if (!item) return null;
+  const ds = item.dataSet;
+  const orientation = values(ds, 'x00200037', []);
+  const origin = values(ds, 'x00200032', []);
+  const spacing = values(ds, 'x00280030', []);
+  const studyId = ds.string('x0020000d') || '';
+  if (!studyId || orientation.length !== 6 || origin.length !== 3 || spacing.length !== 2 ||
+      ![...orientation, ...origin, ...spacing].every(Number.isFinite) || spacing.some(value => value <= 0)) return null;
+  const columnDirection = orientation.slice(0, 3) as Point3;
+  const rowDirection = orientation.slice(3, 6) as Point3;
+  if (Math.hypot(...columnDirection) < .9 || Math.hypot(...rowDirection) < .9) return null;
+  return { studyId, frameId: ds.string('x00200052') || '', origin: origin as Point3,
+    columnDirection, rowDirection, rowSpacing: spacing[0], columnSpacing: spacing[1],
+    rows: item.rows, columns: item.columns };
+}
+
+/** Only display physical measurement units when spacing is supplied by the DICOM image. */
+export function getMeasurementUnit(imageId: string): 'mm' | 'px' {
+  const reformat = derived.get(imageId);
+  if (reformat) return reformat.geometry.rowSpacing > 0 && reformat.geometry.columnSpacing > 0 ? 'mm' : 'px';
+  const item = records.get(imageId);
+  if (!item) return 'px';
+  const spacing = values(item.dataSet, 'x00280030', []);
+  return spacing.length === 2 && spacing.every(value => Number.isFinite(value) && value > 0) ? 'mm' : 'px';
+}
+
+export function thumbnailLocalDicom(imageId: string): string | undefined {
+  const item = records.get(imageId);
+  if (!item || typeof document === 'undefined') return;
+  const { rows, columns, pixels, dataSet } = item;
+  const width = Math.min(112, columns), height = Math.min(112, rows);
+  const canvas = document.createElement('canvas');
+  canvas.width = width; canvas.height = height;
+  const context = canvas.getContext('2d');
+  if (!context) return;
+  const image = context.createImageData(width, height);
+  const { wl, ww } = defaultWindow(item);
+  const lower = wl - ww / 2;
+  const invert = dataSet.string('x00280004') === 'MONOCHROME1';
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+    const sample = pixels[Math.min(rows - 1, Math.floor((y + .5) * rows / height)) * columns + Math.min(columns - 1, Math.floor((x + .5) * columns / width))];
+    const level = Math.round(Math.max(0, Math.min(1, (sample - lower) / ww)) * 255);
+    const value = invert ? 255 - level : level;
+    const offset = (y * width + x) * 4;
+    image.data[offset] = image.data[offset + 1] = image.data[offset + 2] = value;
+    image.data[offset + 3] = 255;
+  }
+  context.putImageData(image, 0, 0);
+  return canvas.toDataURL('image/png');
+}
+
+function metadata(type: string, imageId: string) {
+  const item = records.get(imageId);
+  if (!item) return;
+  const { dataSet: ds, rows, columns, bits } = item;
+  const m = core.Enums.MetadataModules;
+  if (type === m.IMAGE_PLANE) {
+    const reformat = derived.get(imageId);
+    if (reformat) {
+      const g = reformat.geometry;
+      return { frameOfReferenceUID: g.frameId || g.studyId, rows: g.rows, columns: g.columns,
+        rowCosines: g.columnDirection, columnCosines: g.rowDirection,
+        imageOrientationPatient: [...g.columnDirection, ...g.rowDirection], imagePositionPatient: g.origin,
+        rowPixelSpacing: g.rowSpacing, columnPixelSpacing: g.columnSpacing,
+        pixelSpacing: [g.rowSpacing, g.columnSpacing], sliceThickness: reformat.thickness, usingDefaultValues: false };
+    }
+    const orientation = values(ds, 'x00200037', [1, 0, 0, 0, 1, 0]);
+    const spacing = values(ds, 'x00280030', [1, 1]);
+    return { frameOfReferenceUID: ds.string('x00200052') || ds.string('x0020000d') || 'local-study',
+      rows, columns, rowCosines: orientation.slice(0, 3), columnCosines: orientation.slice(3, 6),
+      imageOrientationPatient: orientation, imagePositionPatient: values(ds, 'x00200032', [0, 0, 0]),
+      rowPixelSpacing: spacing[0], columnPixelSpacing: spacing[1], pixelSpacing: spacing,
+      sliceThickness: asNumber(ds, 'x00180050', 1), usingDefaultValues: !ds.string('x00280030') };
+  }
+  if (type === m.IMAGE_PIXEL) return { rows, columns, bitsAllocated: bits, bitsStored: bits,
+    highBit: bits - 1, pixelRepresentation: 1,
+    samplesPerPixel: 1, photometricInterpretation: ds.string('x00280004') || 'MONOCHROME2' };
+  if (type === m.VOI_LUT) { const { wl, ww } = defaultWindow(item); return { windowCenter: [wl], windowWidth: [ww] }; }
+  if (type === m.MODALITY_LUT) return { rescaleIntercept: 0, rescaleSlope: 1 };
+  if (type === m.GENERAL_SERIES) return { modality: ds.string('x00080060') || 'OT', seriesInstanceUID: ds.string('x0020000e') };
+  if (type === m.SOP_COMMON) return { sopClassUID: ds.string('x00080016'), sopInstanceUID: ds.string('x00080018') };
+}
+
+function loadImage(imageId: string): core.Types.IImageLoadObject {
+  const item = records.get(imageId);
+  if (!item) return { promise: Promise.reject(new Error('DICOM görüntüsü tapılmadı')) };
+  if (derived.has(imageId) && !item.pixels.length) materialize(imageId);
+  const { pixels, rows, columns, dataSet: ds } = item;
+  const { wl: wc, ww } = defaultWindow(item);
+  const geometry = derived.get(imageId)?.geometry;
+  const spacing = geometry ? [geometry.rowSpacing, geometry.columnSpacing] : values(ds, 'x00280030', [1, 1]);
+  const voxelManager = core.utilities.VoxelManager.createImageVoxelManager({ scalarData: pixels, width: columns, height: rows, numberOfComponents: 1 });
+  const image = {
+    imageId, rows, columns, width: columns, height: rows, color: false,
+    dataType: pixels.constructor.name, sizeInBytes: pixels.byteLength,
+    rowPixelSpacing: spacing[0], columnPixelSpacing: spacing[1],
+    minPixelValue: item.min, maxPixelValue: item.max,
+    slope: 1, intercept: 0,
+    windowCenter: wc, windowWidth: ww, invert: ds.string('x00280004') === 'MONOCHROME1',
+    voxelManager, getPixelData: () => pixels,
+  } as core.Types.IImage;
+  return { promise: Promise.resolve(image) };
+}
+
+/** vtk.js local volumes expose their generated slices through the image cache. */
+function loadCachedVolumeSlice(imageId: string): core.Types.IImageLoadObject {
+  const image = core.cache.getImage(imageId);
+  return image ? { promise: Promise.resolve(image) } : { promise: Promise.reject(new Error(`3D həcm kəsiti cache-də tapılmadı: ${imageId}`)) };
+}
+
+export function addLocalDicom(bytes: Uint8Array, ds: DataSet): string {
+  const syntax = ds.string('x00020010') || '1.2.840.10008.1.2.1';
+  if (!['1.2.840.10008.1.2', '1.2.840.10008.1.2.1'].includes(syntax))
+    throw new Error('Bu prototip sıxılmamış Little Endian DICOM qəbul edir');
+  const rows = ds.uint16('x00280010') || 0;
+  const columns = ds.uint16('x00280011') || 0;
+  const bits = ds.uint16('x00280100') || 0;
+  const signed = !!ds.uint16('x00280103');
+  const pixelElement = ds.elements.x7fe00010;
+  if (!rows || !columns || ![8, 16].includes(bits) || ds.uint16('x00280002') !== 1 || !pixelElement || pixelElement.encapsulatedPixelData)
+    throw new Error('Yalnız sıxılmamış monoxrom 8/16-bit DICOM dəstəklənir');
+  const byteLength = rows * columns * (bits / 8);
+  if (pixelElement.length < byteLength) throw new Error('Piksel məlumatı natamamdır');
+  const raw = bytes.slice(pixelElement.dataOffset, pixelElement.dataOffset + byteLength);
+  const stored = bits === 8 ? raw : signed ? new Int16Array(raw.buffer) : new Uint16Array(raw.buffer);
+  const slope = asNumber(ds, 'x00281053', 1), intercept = asNumber(ds, 'x00281052', 0);
+  let rawMin = Infinity, rawMax = -Infinity;
+  for (const value of stored) { if (value < rawMin) rawMin = value; if (value > rawMax) rawMax = value; }
+  const scaledMin = Math.min(rawMin * slope + intercept, rawMax * slope + intercept);
+  const scaledMax = Math.max(rawMin * slope + intercept, rawMax * slope + intercept);
+  const useInt16 = Number.isInteger(slope) && Number.isInteger(intercept) && scaledMin >= -32768 && scaledMax <= 32767;
+  const pixels = useInt16 ? new Int16Array(stored.length) : new Float32Array(stored.length);
+  let min = Infinity, max = -Infinity;
+  for (let i = 0; i < stored.length; i++) {
+    const hu = stored[i] * slope + intercept;
+    pixels[i] = hu;
+    if (hu < min) min = hu;
+    if (hu > max) max = hu;
+  }
+  const imageId = `localdicom:${serial++}`;
+  records.set(imageId, { dataSet: ds, pixels, rows, columns, bits: useInt16 ? 16 : 32, min, max });
+  return imageId;
+}
+
+export function sampleLocalDicom(imageId: string, world: readonly number[]): number | null {
+  const item = records.get(imageId);
+  if (!item) return null;
+  if (derived.has(imageId) && !item.pixels.length) materialize(imageId);
+  const ds = item.dataSet;
+  const geometry = derived.get(imageId)?.geometry;
+  const origin = geometry?.origin || values(ds, 'x00200032', [0, 0, 0]);
+  const orientation = geometry ? [...geometry.columnDirection, ...geometry.rowDirection] : values(ds, 'x00200037', [1, 0, 0, 0, 1, 0]);
+  const [rowSpacing, columnSpacing] = geometry ? [geometry.rowSpacing, geometry.columnSpacing] : values(ds, 'x00280030', [1, 1]);
+  if (!rowSpacing || !columnSpacing) return null;
+  const delta = [world[0] - origin[0], world[1] - origin[1], world[2] - origin[2]];
+  const column = Math.round(delta.reduce((sum, value, i) => sum + value * orientation[i], 0) / columnSpacing);
+  const row = Math.round(delta.reduce((sum, value, i) => sum + value * orientation[i + 3], 0) / rowSpacing);
+  if (column < 0 || column >= item.columns || row < 0 || row >= item.rows) return null;
+  return item.pixels[row * item.columns + column];
+}
+
+export function releaseLocalDicoms(imageIds: string[]) {
+  for (const imageId of imageIds) {
+    derived.delete(imageId);
+    records.delete(imageId);
+    if (core.cache.getImageLoadObject(imageId)) core.cache.removeImageLoadObject(imageId, { force: true });
+  }
+}
+
+const dot3 = (a: readonly number[], b: readonly number[]) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const plus3 = (a: Point3, b: Point3, multiplier = 1): Point3 => [a[0] + b[0] * multiplier, a[1] + b[1] * multiplier, a[2] + b[2] * multiplier];
+const cross3 = (a: Point3, b: Point3): Point3 => [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
+const normalized = (point: Point3): Point3 => point.map(value => value / Math.hypot(...point)) as Point3;
+
+export function getMprAxes(imageId: string): MprAxes | null {
+  const g = getLocalizerGeometry(imageId);
+  if (!g) return null;
+  return { u: normalized(g.columnDirection), v: normalized(g.rowDirection), w: normalized(cross3(g.columnDirection, g.rowDirection)) };
+}
+
+/** Initial patient-oriented MPR planes; each plane can subsequently turn independently. */
+export function getMprOrientations(imageId: string): MprOrientations | null {
+  const frame = getMprAxes(imageId);
+  if (!frame) return null;
+  const vertical: Point3 = frame.w.map(value => value * (frame.w[2] >= 0 ? -1 : 1)) as Point3;
+  const geometry = getLocalizerGeometry(imageId)!;
+  return {
+    SAG: { normal: frame.u, horizontal: frame.v.map(value => value * (geometry.rowDirection[1] >= 0 ? 1 : -1)) as Point3, vertical },
+    COR: { normal: frame.v, horizontal: frame.u.map(value => value * (geometry.columnDirection[0] >= 0 ? 1 : -1)) as Point3, vertical },
+    AX: { normal: frame.w, horizontal: frame.u, vertical: frame.v },
+  };
+}
+
+/** Rodrigues rotation of one reformat plane about the intersection with the target plane. */
+export function rotateMprOrientation(orientation: MprOrientation, axis: Point3, angle: number): MprOrientation {
+  const n = normalized(axis), cos = Math.cos(angle), sin = Math.sin(angle);
+  const rotate = (point: Point3): Point3 => normalized(plus3(plus3(point.map(value => value * cos) as Point3,
+    cross3(n, point), sin), n, dot3(n, point) * (1 - cos)));
+  return { normal: rotate(orientation.normal), horizontal: rotate(orientation.horizontal), vertical: rotate(orientation.vertical) };
+}
+
+/** Reconstruct one actual oblique frame from the original calibrated voxel volume. */
+export function createObliqueMprStacks(imageIds: string[], settings: MprSettings, orientations: MprOrientations, pivot: Point3): Record<MprPlane, string[]> {
+  // Use the existing volume validation before registering any new derived images.
+  const slices = imageIds.map(id => ({ id, record: records.get(id), geometry: getLocalizerGeometry(id) }));
+  if (slices.length < 3 || slices.some(s => !s.record || !s.geometry)) throw new Error('MPR üçün məkan koordinatlı kəsitlər lazımdır');
+  const first = slices[0].geometry!;
+  const sourceAxes = getMprAxes(imageIds[0])!;
+  if (Math.abs(sourceAxes.w[2]) < .98) throw new Error('MPR üçün aksial seriya seçin');
+  slices.sort((a, b) => dot3(a.geometry!.origin, sourceAxes.w) - dot3(b.geometry!.origin, sourceAxes.w));
+  const start = slices[0].geometry!;
+  const gap = (dot3(slices.at(-1)!.geometry!.origin, sourceAxes.w) - dot3(start.origin, sourceAxes.w)) / (slices.length - 1);
+  if (gap < .01 || slices.some((s, index) => s.geometry!.rows !== first.rows || s.geometry!.columns !== first.columns ||
+    s.geometry!.studyId !== first.studyId || s.geometry!.frameId !== first.frameId ||
+    Math.abs(dot3(s.geometry!.columnDirection, sourceAxes.u) - 1) > .001 ||
+    Math.abs(dot3(s.geometry!.rowDirection, sourceAxes.v) - 1) > .001 ||
+    Math.abs(s.geometry!.rowSpacing - first.rowSpacing) > .001 || Math.abs(s.geometry!.columnSpacing - first.columnSpacing) > .001 ||
+    Math.abs(dot3(plus3(s.geometry!.origin, start.origin, -1), sourceAxes.u)) > .5 ||
+    Math.abs(dot3(plus3(s.geometry!.origin, start.origin, -1), sourceAxes.v)) > .5 ||
+    Math.abs(dot3(s.geometry!.origin, sourceAxes.w) - dot3(start.origin, sourceAxes.w) - index * gap) > Math.max(.1, gap * .2)))
+    throw new Error('MPR üçün eyni ölçülü, paralel və bərabər aralıqlı kəsitlər seçin');
+  const sourceIds = slices.map(s => s.id);
+  const volume: ObliqueVolume = { source: slices.map(s => s.record!), origin: start.origin, axes: sourceAxes,
+    spacing: [first.columnSpacing, first.rowSpacing, gap], outside: slices[0].record!.dataSet.string('x00080060') === 'CT' ? -1024 : slices[0].record!.min };
+  // Project all eight volume corners into each rotated direction to retain the full anatomy.
+  const corners: Point3[] = [];
+  for (const x of [-.5, first.columns - .5]) for (const y of [-.5, first.rows - .5]) for (const z of [-.5, slices.length - .5])
+    corners.push(plus3(plus3(plus3(start.origin, sourceAxes.u, x * first.columnSpacing), sourceAxes.v, y * first.rowSpacing), sourceAxes.w, z * gap));
+  const projected = (axis: Point3) => corners.map(corner => dot3(plus3(corner, pivot, -1), axis));
+  const spacingFor = (axis: Point3) => 1 / Math.hypot(dot3(axis, sourceAxes.u) / first.columnSpacing,
+    dot3(axis, sourceAxes.v) / first.rowSpacing, dot3(axis, sourceAxes.w) / gap);
+  const descriptor = (axis: Point3) => {
+    const coordinates = projected(axis), min = Math.min(...coordinates), max = Math.max(...coordinates);
+    const step = Math.max(spacingFor(axis), (max - min) / 799);
+    return { start: min + step / 2, count: Math.max(1, Math.ceil((max - min) / step)), step };
+  };
+  const stacks: Record<MprPlane, string[]> = { SAG: [], COR: [], AX: [] };
+  for (const plane of ['SAG', 'COR', 'AX'] as const) {
+    const { mode, thickness } = settings[plane];
+    const axes = orientations[plane];
+    const n = descriptor(axes.normal), h = descriptor(axes.horizontal), v = descriptor(axes.vertical);
+    const baseOrigin = plus3(plus3(pivot, axes.horizontal, h.start), axes.vertical, v.start);
+    for (let index = 0; index < n.count; index++) {
+      const geometry: ImageGeometry = { ...start, origin: plus3(baseOrigin, axes.normal, n.start + index * n.step),
+        columnDirection: axes.horizontal, rowDirection: axes.vertical,
+        columns: h.count, rows: v.count, columnSpacing: h.step, rowSpacing: v.step };
+      const id = `localdicom:${serial++}`;
+      const reference = slices[0].record!;
+      records.set(id, { ...reference, pixels: new Float32Array(0), bits: 32, rows: geometry.rows, columns: geometry.columns });
+      derived.set(id, { sourceIds, plane, index, mode, thickness, geometry, superiorFirst: axes.vertical[2] < 0,
+        reverseHorizontal: false, oblique: { volume, normal: axes.normal, step: n.step } });
+      stacks[plane].push(id);
+    }
+  }
+  return stacks;
+}
+
+/** Reformat one parallel, regularly spaced mono volume into three patient-space stacks. */
+export function createMprStacks(imageIds: string[], settings: MprSettings): Record<MprPlane, string[]> {
+  if (imageIds.length < 3) throw new Error('MPR üçün ən azı 3 məkan koordinatlı kəsit lazımdır');
+  const slices = imageIds.map(id => ({ id, record: records.get(id), geometry: getLocalizerGeometry(id) }));
+  if (slices.some(s => !s.record || !s.geometry)) throw new Error('MPR üçün DICOM məkan koordinatları tələb olunur');
+  const base = slices[0].geometry!;
+  const normal = ((): Point3 => {
+    const c = base.columnDirection, r = base.rowDirection;
+    const n: Point3 = [c[1]*r[2]-c[2]*r[1], c[2]*r[0]-c[0]*r[2], c[0]*r[1]-c[1]*r[0]];
+    const size = Math.hypot(...n); return n.map(v => v / size) as Point3;
+  })();
+  if (!normal.every(Number.isFinite)) throw new Error('DICOM müstəvi istiqaməti etibarsızdır');
+  if (Math.abs(normal[2]) < .98) throw new Error('Bu MPR rekonstruksiyası aksial KT/MRT seriyası tələb edir');
+  const dot = (a: Point3, b: Point3) => a.reduce((sum, value, i) => sum + value * b[i], 0);
+  const ordered = slices.map(s => ({ ...s, z: dot(s.geometry!.origin, normal) })).sort((a, b) => a.z - b.z);
+  const gap = (ordered.at(-1)!.z - ordered[0].z) / (ordered.length - 1);
+  const firstOrigin = ordered[0].geometry!.origin;
+  if (gap < .01 || ordered.some((s, i) => s.geometry!.rows !== base.rows || s.geometry!.columns !== base.columns ||
+    s.geometry!.studyId !== base.studyId || s.geometry!.frameId !== base.frameId ||
+    Math.abs(dot(s.geometry!.columnDirection, base.columnDirection) - 1) > .001 ||
+    Math.abs(dot(s.geometry!.rowDirection, base.rowDirection) - 1) > .001 ||
+    Math.abs(s.geometry!.rowSpacing - base.rowSpacing) > .001 ||
+    Math.abs(s.geometry!.columnSpacing - base.columnSpacing) > .001 ||
+    Math.abs(dot(s.geometry!.origin.map((v, j) => v - firstOrigin[j]) as Point3, base.columnDirection)) > .5 ||
+    Math.abs(dot(s.geometry!.origin.map((v, j) => v - firstOrigin[j]) as Point3, base.rowDirection)) > .5 ||
+    Math.abs(s.z - ordered[0].z - i * gap) > Math.max(.1, gap * .2)))
+    throw new Error('MPR üçün eyni ölçülü, paralel və bərabər aralıqlı kəsitlər seçin');
+  const sourceIds = ordered.map(s => s.id);
+  const first = ordered[0].geometry!;
+  const superiorFirst = normal[2] > 0;
+  const vertical: Point3 = normal.map(v => superiorFirst ? -v : v) as Point3;
+  const coronalSign = first.columnDirection[0] < 0 ? -1 : 1;
+  const sagittalSign = first.rowDirection[1] < 0 ? -1 : 1;
+  const originAt = (origin: Point3, axis: Point3, distance: number): Point3 => origin.map((v, i) => v + axis[i] * distance) as Point3;
+  const stacks = { SAG: [] as string[], COR: [] as string[], AX: [] as string[] };
+  for (const plane of ['SAG', 'COR', 'AX'] as const) {
+    const { mode, thickness } = settings[plane];
+    const count = plane === 'SAG' ? first.columns : plane === 'COR' ? first.rows : sourceIds.length;
+    for (let index = 0; index < count; index++) {
+      if (plane === 'AX' && mode === 'MPR' && thickness < gap * 2) { stacks.AX.push(sourceIds[index]); continue; }
+      const horizontal = plane === 'SAG' ? first.rowDirection : first.columnDirection;
+      const horizontalSign = plane === 'AX' ? 1 : plane === 'SAG' ? sagittalSign : coronalSign;
+      const fixedAxis = plane === 'SAG' ? first.columnDirection : first.rowDirection;
+      const fixedSpacing = plane === 'SAG' ? first.columnSpacing : first.rowSpacing;
+      const horizontalSize = plane === 'SAG' ? first.rows : first.columns;
+      const horizontalSpacing = plane === 'SAG' ? first.rowSpacing : first.columnSpacing;
+      const topOrigin = superiorFirst ? ordered.at(-1)!.geometry!.origin : first.origin;
+      const geometry: ImageGeometry = plane === 'AX' ? { ...ordered[index].geometry! } : {
+        ...first, origin: originAt(originAt(topOrigin, fixedAxis, index * fixedSpacing), horizontal,
+          horizontalSign < 0 ? (horizontalSize - 1) * horizontalSpacing : 0),
+        columnDirection: horizontal.map(v => v * horizontalSign) as Point3,
+        rowDirection: vertical,
+        columnSpacing: plane === 'SAG' ? first.rowSpacing : first.columnSpacing,
+        rowSpacing: gap,
+        columns: plane === 'SAG' ? first.rows : first.columns,
+        rows: sourceIds.length,
+      };
+      const reference = ordered[0].record!;
+      const id = `localdicom:${serial++}`;
+      records.set(id, { ...reference, rows: geometry.rows, columns: geometry.columns,
+        bits: mode === 'Avg' || (mode === 'MPR' && thickness > 1) ? 32 : reference.bits,
+        pixels: new Int16Array(0) });
+      derived.set(id, { sourceIds, plane, index, mode, thickness, geometry, superiorFirst, reverseHorizontal: horizontalSign < 0 });
+      stacks[plane].push(id);
+    }
+  }
+  return stacks;
+}
+
+function materialize(imageId: string) {
+  const target = records.get(imageId)!;
+  const { sourceIds, plane, index, mode, thickness, superiorFirst, reverseHorizontal, oblique, geometry } = derived.get(imageId)!;
+  if (oblique) {
+    const { volume, normal, step } = oblique;
+    const displacement = plus3(geometry.origin, volume.origin, -1);
+    const project = (axis: Point3): Point3 => [dot3(axis, volume.axes.u) / volume.spacing[0],
+      dot3(axis, volume.axes.v) / volume.spacing[1], dot3(axis, volume.axes.w) / volume.spacing[2]];
+    const base: Point3 = project(displacement), horizontal = project(geometry.columnDirection).map(v => v * geometry.columnSpacing) as Point3;
+    const vertical = project(geometry.rowDirection).map(v => v * geometry.rowSpacing) as Point3;
+    const output = new Float32Array(target.rows * target.columns);
+    const slab = Math.min(20, Math.floor(thickness / (2 * step)));
+    const sampleStep = slab ? Math.max(step, thickness / (2 * slab)) : step;
+    const slabStep = project(normal).map(v => v * sampleStep) as Point3;
+    for (let row = 0; row < target.rows; row++) for (let column = 0; column < target.columns; column++) {
+      const x = base[0] + row * vertical[0] + column * horizontal[0];
+      const y = base[1] + row * vertical[1] + column * horizontal[1];
+      const z = base[2] + row * vertical[2] + column * horizontal[2];
+      let value = mode === 'MinIP' ? Infinity : mode === 'MIP' ? -Infinity : 0;
+      let count = 0;
+      for (let offset = -slab; offset <= slab; offset++) {
+        const sample = sampleOblique(volume, x + offset * slabStep[0], y + offset * slabStep[1], z + offset * slabStep[2]);
+        if (sample === null) continue;
+        value = mode === 'MIP' ? Math.max(value, sample) : mode === 'MinIP' ? Math.min(value, sample) : value + sample;
+        count++;
+      }
+      output[row * target.columns + column] = count ? mode === 'Avg' || mode === 'MPR' ? value / count : value : volume.outside;
+    }
+    target.pixels = output;
+    return;
+  }
+  const source = sourceIds.map(id => records.get(id)!);
+  const width = source[0].columns, height = source[0].rows;
+  const output = target.bits === 32 ? new Float32Array(target.rows * target.columns) : new Int16Array(target.rows * target.columns);
+  const sourceGeometry = getLocalizerGeometry(sourceIds[0])!;
+  const sliceStep = plane === 'SAG' ? sourceGeometry.columnSpacing : plane === 'COR' ? sourceGeometry.rowSpacing :
+    Math.abs(dot3(plus3(getLocalizerGeometry(sourceIds[1])!.origin, getLocalizerGeometry(sourceIds[0])!.origin, -1),
+      getMprAxes(sourceIds[0])!.w));
+  const slab = Math.min(20, Math.floor(thickness / (2 * sliceStep)));
+  const sampleStride = slab ? Math.max(1, thickness / (2 * sliceStep * slab)) : 1;
+  for (let z = 0; z < target.rows; z++) for (let x = 0; x < target.columns; x++) {
+    const horizontal = reverseHorizontal ? target.columns - 1 - x : x;
+    const sx = plane === 'SAG' ? index : horizontal;
+    const sy = plane === 'SAG' ? horizontal : plane === 'COR' ? index : z;
+    const sz = plane === 'AX' ? index : superiorFirst ? source.length - 1 - z : z;
+    let accumulator = mode === 'MinIP' ? Infinity : mode === 'MIP' ? -Infinity : 0;
+    let count = 0;
+    for (let offset = -slab; offset <= slab; offset++) {
+      const sampleOffset = Math.round(offset * sampleStride);
+      const currentX = sx + (plane === 'SAG' ? sampleOffset : 0);
+      const currentY = sy + (plane === 'COR' ? sampleOffset : 0);
+      const currentZ = sz + (plane === 'AX' ? sampleOffset : 0);
+      if (currentX < 0 || currentX >= width || currentY < 0 || currentY >= height || currentZ < 0 || currentZ >= source.length) continue;
+      const value = source[currentZ].pixels[currentY * width + currentX];
+      accumulator = mode === 'MIP' ? Math.max(accumulator, value) : mode === 'MinIP' ? Math.min(accumulator, value) : accumulator + value;
+      count++;
+    }
+    output[z * target.columns + x] = mode === 'Avg' || mode === 'MPR' ? accumulator / count : accumulator;
+  }
+  target.pixels = output;
+}
+
+/** Trilinear sampling keeps intensities continuous as the reformat plane turns. */
+function sampleOblique(volume: ObliqueVolume, x: number, y: number, z: number): number | null {
+  const width = volume.source[0].columns, height = volume.source[0].rows, depth = volume.source.length;
+  if (x < -.5 || x > width - .5 || y < -.5 || y > height - .5 || z < -.5 || z > depth - .5) return null;
+  const cx = Math.max(0, Math.min(width - 1, x)), cy = Math.max(0, Math.min(height - 1, y)), cz = Math.max(0, Math.min(depth - 1, z));
+  const x0 = Math.floor(cx), y0 = Math.floor(cy), z0 = Math.floor(cz);
+  const x1 = Math.min(width - 1, x0 + 1), y1 = Math.min(height - 1, y0 + 1), z1 = Math.min(depth - 1, z0 + 1);
+  const dx = cx - x0, dy = cy - y0, dz = cz - z0;
+  const interpolate = (slice: RecordItem) => {
+    const data = slice.pixels;
+    const top = data[y0 * width + x0] * (1 - dx) + data[y0 * width + x1] * dx;
+    const bottom = data[y1 * width + x0] * (1 - dx) + data[y1 * width + x1] * dx;
+    return top * (1 - dy) + bottom * dy;
+  };
+  const first = interpolate(volume.source[z0]);
+  return z0 === z1 ? first : first * (1 - dz) + interpolate(volume.source[z1]) * dz;
+}
+
+/** A decimated sample for an interactive volume preview; values remain in calibrated intensity units. */
+export function getVolumeSample(imageIds: string[]) {
+  const frames = imageIds.map(id => ({ id, item: records.get(id), geometry: getLocalizerGeometry(id) })).filter(s => s.item && s.geometry);
+  if (frames.length < 3) return null;
+  const ref = frames[0].item!;
+  if (frames.some(s => s.item!.rows !== ref.rows || s.item!.columns !== ref.columns)) return null;
+  const axes = frames[0].geometry!;
+  const c = axes.columnDirection, r = axes.rowDirection;
+  const n: Point3 = [c[1]*r[2]-c[2]*r[1],c[2]*r[0]-c[0]*r[2],c[0]*r[1]-c[1]*r[0]];
+  const position = (point: Point3) => point.reduce((sum, value, i) => sum + value * n[i], 0);
+  frames.sort((a,b) => position(a.geometry!.origin)-position(b.geometry!.origin));
+  const depth = Math.abs(position(frames.at(-1)!.geometry!.origin)-position(frames[0].geometry!.origin));
+  // Keep large clinical stacks responsive: cap the browser preview near 90,000 voxels.
+  const stepZ = Math.max(1, Math.ceil(frames.length / 48));
+  const sampledSlices = Math.ceil(frames.length / stepZ);
+  const axisBudget = Math.min(64, Math.max(16, Math.floor(Math.sqrt(90000 / sampledSlices))));
+  const strideX = Math.max(1, Math.ceil(ref.columns / axisBudget));
+  const strideY = Math.max(1, Math.ceil(ref.rows / axisBudget));
+  const points: { x: number; y: number; z: number; value: number }[] = [];
+  for (let z = 0; z < frames.length; z += stepZ)
+    for (let y = 0; y < ref.rows; y += strideY)
+      for (let x = 0; x < ref.columns; x += strideX)
+        points.push({ x: x * (frames[z].geometry?.columnSpacing || 1), y: y * (frames[z].geometry?.rowSpacing || 1),
+          z: z * depth / (frames.length - 1),
+          value: frames[z].item!.pixels[y * ref.columns + x] });
+  return points;
+}
+
+/** Compact regular voxel grid for the local WebGL volume renderer. No DICOM bytes leave the browser. */
+export function getVolumeTexture(imageIds: string[], maxDimension = 256, maxSlices = 224) {
+  const frames = imageIds.map(id => ({ item: records.get(id), geometry: getLocalizerGeometry(id) }));
+  if (frames.length < 3 || frames.some(frame => !frame.item || !frame.geometry)) return null;
+  const base = frames[0].geometry!, reference = frames[0].item!;
+  const axes = getMprAxes(imageIds[0])!;
+  frames.sort((a, b) => dot3(a.geometry!.origin, axes.w) - dot3(b.geometry!.origin, axes.w));
+  const depth = dot3(plus3(frames.at(-1)!.geometry!.origin, frames[0].geometry!.origin, -1), axes.w);
+  const gap = depth / (frames.length - 1);
+  if (gap <= 0 || frames.some((frame, index) => frame.item!.rows !== reference.rows || frame.item!.columns !== reference.columns ||
+      frame.geometry!.studyId !== base.studyId || frame.geometry!.frameId !== base.frameId ||
+      dot3(frame.geometry!.columnDirection, base.columnDirection) < .999 ||
+      dot3(frame.geometry!.rowDirection, base.rowDirection) < .999 ||
+      Math.abs(dot3(frame.geometry!.origin, axes.w) - dot3(frames[0].geometry!.origin, axes.w) - index * gap) > Math.max(.1, gap * .2))) return null;
+  // The GPU path keeps more of a 512 px acquisition; the CPU fallback requests less.
+  const [width, height, slices] = [Math.min(maxDimension, reference.columns), Math.min(maxDimension, reference.rows), Math.min(maxSlices, frames.length)];
+  const modality = reference.dataSet.string('x00080060') || 'CT';
+  const lower = modality === 'CT' ? -1024 : reference.min;
+  const upper = modality === 'CT' ? 2048 : Math.max(lower + 1, reference.max);
+  const data = new Uint8Array(width * height * slices);
+  for (let z = 0; z < slices; z++) {
+    const position = Math.max(0, Math.min(frames.length - 1, (z + .5) * frames.length / slices - .5));
+    const lowerSlice = frames[Math.floor(position)].item!.pixels;
+    const upperSlice = frames[Math.min(frames.length - 1, Math.ceil(position))].item!.pixels;
+    const depthBlend = position - Math.floor(position);
+    for (let y = 0; y < height; y++) {
+      const sourceY = Math.max(0, Math.min(reference.rows - 1, (y + .5) * reference.rows / height - .5));
+      const y0 = Math.floor(sourceY), y1 = Math.min(reference.rows - 1, y0 + 1), fy = sourceY - y0;
+      for (let x = 0; x < width; x++) {
+        const sourceX = Math.max(0, Math.min(reference.columns - 1, (x + .5) * reference.columns / width - .5));
+        const x0 = Math.floor(sourceX), x1 = Math.min(reference.columns - 1, x0 + 1), fx = sourceX - x0;
+        const a = y0 * reference.columns + x0, b = y1 * reference.columns + x0;
+        const lowTop = lowerSlice[a] * (1 - fx) + lowerSlice[a + (x1 - x0)] * fx;
+        const lowBottom = lowerSlice[b] * (1 - fx) + lowerSlice[b + (x1 - x0)] * fx;
+        let value = lowTop * (1 - fy) + lowBottom * fy;
+        if (depthBlend) {
+          const highTop = upperSlice[a] * (1 - fx) + upperSlice[a + (x1 - x0)] * fx;
+          const highBottom = upperSlice[b] * (1 - fx) + upperSlice[b + (x1 - x0)] * fx;
+          value = value * (1 - depthBlend) + (highTop * (1 - fy) + highBottom * fy) * depthBlend;
+        }
+        data[(z * height + y) * width + x] = Math.round(Math.max(0, Math.min(1, (value - lower) / (upper - lower))) * 255);
+      }
+    }
+  }
+  return { data, width, height, slices, range: [lower, upper] as [number, number],
+    size: [reference.columns * base.columnSpacing, reference.rows * base.rowSpacing, frames.length * gap] as Point3,
+    modality };
+}
+
+export async function getViewer() {
+  initialized ??= (async () => {
+    await core.init();
+    core.imageLoader.registerImageLoader('localdicom', loadImage);
+    core.imageLoader.registerImageLoader('radaz-volume', loadCachedVolumeSlice);
+    core.metaData.addProvider(metadata, 1000);
+    await tools.init();
+    [tools.WindowLevelTool, tools.PanTool, tools.ZoomTool, tools.TrackballRotateTool, tools.LengthTool,
+      tools.AngleTool, tools.CobbAngleTool, tools.EllipticalROITool, tools.EraserTool].forEach(tools.addTool);
+    engine = new core.RenderingEngine('radiology-viewer');
+  })();
+  await initialized;
+  return { core, tools, engine: engine! };
+}
