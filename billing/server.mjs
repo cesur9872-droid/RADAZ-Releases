@@ -3,18 +3,23 @@ import {readFileSync,mkdirSync} from 'node:fs';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {createLicenseService} from './license-service.mjs';
-const keyPath=process.env.RADAZ_ISSUER_PRIVATE_KEY;
-if(!keyPath)throw new Error('RADAZ_ISSUER_PRIVATE_KEY must point to the seller private key.');
-const data=path.resolve(process.env.RADAZ_BILLING_DATA||'billing-data');mkdirSync(data,{recursive:true});
-const provider=process.env.RADAZ_PAYMENT_ADAPTER?(await import(pathToFileURL(path.resolve(process.env.RADAZ_PAYMENT_ADAPTER)))).default:undefined;
+import {isIP} from 'node:net';
+import {loadSettings,validateSettings,ownerDirectory} from './owner-settings.mjs';
+import {createEpointProvider} from './epoint.mjs';
+const owner=ownerDirectory(),settings=validateSettings(loadSettings(owner));
+const keyPath=process.env.RADAZ_ISSUER_PRIVATE_KEY||path.join(owner,'issuer-private.pem');
+const data=path.resolve(process.env.RADAZ_BILLING_DATA||path.join(owner,'billing-data'));mkdirSync(data,{recursive:true,mode:0o700});
+const provider=process.env.RADAZ_PAYMENT_ADAPTER?(await import(pathToFileURL(path.resolve(process.env.RADAZ_PAYMENT_ADAPTER)))).default:createEpointProvider(settings);
 if(provider&&(!provider.createCheckout||!provider.verifyWebhook))throw new Error('Payment adapter must implement createCheckout and verifyWebhook.');
 const service=createLicenseService({database:path.join(data,'billing.sqlite'),privateKey:readFileSync(keyPath),provider});
 const windows=new Map();
 const server=http.createServer(async(req,res)=>{
  const reply=(code,body)=>{res.writeHead(code,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(JSON.stringify(body));};
  try{
-  const address=req.socket.remoteAddress,now=Date.now();let rate=windows.get(address);if(!rate||rate.until<now){rate={count:0,until:now+60000};windows.set(address,rate);}if(++rate.count>60){reply(429,{error:'Bir az gözləyib yenidən sınayın.'});return;}if(windows.size>10000)for(const [id,item]of windows)if(item.until<now)windows.delete(id);
+  const forwarded=req.headers['x-real-ip'];
+  const address=process.env.RADAZ_TRUST_PROXY==='1'&&typeof forwarded==='string'&&isIP(forwarded)?forwarded:req.socket.remoteAddress,now=Date.now();let rate=windows.get(address);if(!rate||rate.until<now){rate={count:0,until:now+60000};windows.set(address,rate);}if(++rate.count>120){reply(429,{error:'Bir az gözləyib yenidən sınayın.'});return;}if(windows.size>10000)for(const [id,item]of windows)if(item.until<now)windows.delete(id);
   const url=new URL(req.url,'http://localhost');
+  if(req.method==='GET'&&url.pathname==='/payment/return'){res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'"});res.end('<!doctype html><html lang="az"><meta charset="utf-8"><title>RADAZ ödənişi</title><body style="font:20px system-ui;padding:40px;background:#102331;color:white"><h1>RADAZ-a qayıdın</h1><p>Ödəniş pəncərəsini bağlayıb RADAZ-da Lisenziya ödənişi bölməsinə qayıdın.</p><p>Bank təsdiqi serverə çatdıqda açar həmin bölmədə görünəcək. Bu səhifənin açılması ödəniş təsdiqi sayılmır.</p></body></html>');return;}
   if(req.method==='GET'&&url.pathname==='/v1/catalog'){reply(200,service.catalog());return;}
   if(req.method==='GET'&&/^\/v1\/orders\/[a-f0-9-]{36}$/.test(url.pathname)){reply(200,service.status(url.pathname.split('/').pop(),req.headers.authorization?.replace(/^Bearer /,'')));return;}
   if(req.method!=='POST'){reply(404,{error:'Ünvan tapılmadı'});return;}

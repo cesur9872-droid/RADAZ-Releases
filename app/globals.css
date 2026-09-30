@@ -445,3 +445,14 @@
 .chatgpt-previews{max-height:280px;overflow:auto}
 .chatgpt-answer{white-space:pre-wrap;padding:14px;background:#0b202c;border:1px solid #3c697d;border-radius:6px;max-height:420px;overflow:auto}
 @media(max-width:1250px){.grouped-records .records-header-filters{flex-basis:100%}.grouped-records .labeled-header-actions{margin-left:0!important}.grouped-records .records-help{margin-left:auto}.grouped-workstation .primary-command-row{margin-left:10px}}
+.records-table th .table-sort{display:flex;align-items:center;gap:6px;width:100%;border:0;background:transparent;color:inherit;font:inherit;text-align:left;padding:0;cursor:pointer;white-space:nowrap}
+.records-table th .table-sort span{font-size:10px;opacity:.65}
+.records-table th[aria-sort=ascending],.records-table th[aria-sort=descending]{color:#6de0ec}
+.records-table th .table-sort:focus-visible{outline:2px solid #6de0ec;outline-offset:4px}
+.records-status{gap:14px;flex-wrap:wrap}
+.records-status .records-count{color:#6de0ec;white-space:nowrap}
+.receiver-dialog{width:min(760px,94vw)}
+.receiver-dialog header h2{flex:1;font-size:20px}
+.receiver-dialog .archive-receiver{margin:0;border:0;padding:0}
+.receiver-dialog .receiver-summary{flex-wrap:wrap}
+.receiver-dialog .receiver-settings{display:block}

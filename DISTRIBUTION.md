@@ -1,50 +1,103 @@
-# RADAZ buraxılışı və lisenziya idarəsi
+# RADAZ — satıcı, ödəniş və buraxılış təlimatı
 
-Bu buraxılış 0.2.0 ilkin sınaq paketidir. Hazırkı işləyən layihə hazırlama rejimindədir (`public/product.json`: `licenseRequired=false`). Buraxılış ZIP-i hazırlananda aktivləşdirmə məcburi edilir. Onlayn ödəniş/avtomatik abunə yenilənməsi qoşulmayıb.
+Bu sənəd proqramın sahibi üçündür. Alıcıya göndəriləcək quraşdırma qaydası [README.md](README.md)-dədir. Cari versiya 0.2.2-dir. Aylıq qiymət 10 AZN, seçim 1–120 aydır; ayrıca illik paket və avtomatik kartdan təkrar pul çəkmə yoxdur.
 
-## Paketlər və əlaqə
+## Hazır olan və tamamlanmalı hissələr
 
-`public/product.json` daxilində aylıq ödəniş üçün `monthly`, `currency`, `salesUrl`, e-poçt və Telegram dəyişdirilir. `null` qiymət “Qiymət üçün əlaqə” göstərir. Bir kompüter bir RADAZ server quraşdırmasıdır; həmin serverə qoşulan telefon/planşet ayrıca yer sayılmır.
+Ay seçimi, məbləğin serverdə hesablanması, Epoint sorğusunun imzalanması, callback imzasının yoxlanması, ödənişdən sonra açar verilməsi və ilk aktivləşdirmədən müddətin hesablanması kodda hazırdır. Saxta callback, yanlış məbləğ, eyni əməliyyatın təkrarı və başqa kompüterdə aktivləşdirmə testlərlə yoxlanır.
 
-GitHub: https://github.com/drnaghiyev/RADAZ-D-COM. Sabit buraxılışı `v0.2.0` kimi tag ilə GitHub Releases-də dərc edin. İstifadəçilər üçün yalnız yoxlanmış ZIP-i release asset kimi yerləşdirin. Versiyanı artırın və növbəti buraxılışı dərc edin; tətbiq açıldıqdan sonra yoxlama aparır və yeni versiyada yükləmə linki göstərir. Yeniləmə əl ilə quraşdırılır, özünü səssizcə dəyişmir. 404 cavabı repo/relizə giriş olmadığını göstərir, “aktualdır” sayılmır.
+Hazır satıcı hesabınız və API məlumatlarınız olmadığı üçün kart ödənişi hazırda açıq deyil. HTTPS domenli lisenziya serveri hələ yerləşdirilməyib. Həqiqi Epoint test ödənişi keçirilməyib. Sadəcə proqramı GitHub-a yükləmək bank ödənişini aktiv etmir.
 
-Hazırda bu repozitoriya private-dır. Qaralama və pre-release paketləri avtomatik sabit versiya yoxlamasına daxil edilmir. Müştərilər üçün token tələb etməyən açıq Releases repozitoriyası və ya ayrıca yayım xidməti lazımdır; şəxsi GitHub tokenini tətbiqə yerləşdirməyin. Private mənbə kodunu qorumaq üçün yalnız yığılmış ZIP-lərin olduğu ayrıca açıq yayım repozitoriyası istifadə oluna bilər. Belə repo seçildikdə `public/product.json` daxilində `repository` sahəsini dəyişib yenidən build/paket hazırlayın.
+## Yalnız sizin üçün ödəniş ayarları
 
-## Satıcı üçün imzalı açarlar
+Mənbə qovluğundakı **billing/OPEN-SELLER-SETTINGS.cmd** faylını açın. Node.js olan Windows kompüterində şəxsi satıcı paneli brauzerdə açılır. Bu panel alıcının proqram menyusunda yoxdur və müştəri ZIP-inə daxil edilmir.
 
-İmza cütü yaradılıb. Gizli açar `Documents\RADAZ-License-Admin\issuer-private.pem` daxilindədir, repoya və müştəri ZIP-inə daxil edilmir. Bu qovluğu ayrıca təhlükəsiz ehtiyat nüsxələyin. `public/license-public.json` yalnız açıq yoxlama açarıdır. Hər yeni buraxılışda eyni imza açarını saxlayın.
+Paneldə bu sahələr var:
 
-```powershell
-# Yeni abunə; çap olunan ID-ni aşağıdakı LICENSE_ID yerinə yazın.
-node scripts/license-admin.mjs create --customer "Klinika adı" --seats 3 --period monthly
-node scripts/license-admin.mjs list
-# Müştəri Yardım → Lisenziya bölməsindəki kompüter kodunu göndərir.
-node scripts/license-admin.mjs activate --license LICENSE_ID --device DEVICE_CODE --out C:\Keys\activation.txt
-# Növbəti müddət üçün yenilə və hər kompüterə açarı yenidən ver.
-node scripts/license-admin.mjs renew --license LICENSE_ID
+| Sahə | Nə daxil edilir | Harada istifadə olunur |
+|---|---|---|
+| Satıcı / şirkət adı | Sizin təsdiqlənmiş biznes adınız | Şəxsi satıcı qeydi |
+| VÖEN | 10 rəqəmli vergi identifikatoru | Şəxsi satıcı qeydi |
+| Vəsaiti alanın adı | Bank hesabının sahibi | Şəxsi satıcı qeydi |
+| Bankın adı, IBAN | Biznes bank rekvizitləri | Şəxsi satıcı qeydi |
+| Dəstək e-poçtu | Müştərinin sizinlə əlaqə ünvanı | Şəxsi satıcı qeydi; müştəri əlaqəsi ayrıca product.json-dadır |
+| HTTPS domeni | Sizin lisenziya serverinizin domeni | Callback, ödənişdən qayıdış |
+| Epoint API ünvanı | Epoint-in sizə verdiyi ödəniş yaratma endpoint-i | Bank ödənişi yaratmaq |
+| Public key | Epoint satıcı identifikatoru | Epoint sorğusu |
+| Private key | Epoint-in verdiyi gizli API açarı | Sorğu və callback imzaları |
+
+**IBAN yazmaq pulun köçürüləcəyi hesabı avtomatik dəyişmir.** Vəsaitin yönələcəyi bank hesabı Epoint satıcı kabinetində və provayderlə razılaşmada təsdiqlənir. Paneldəki bank sahələri sizin şəxsi qeydinizdir. Kart nömrəsi, CVV, bank parolu və SMS kodu bu panelə daxil edilmir.
+
+Ayarlar standart olaraq `%USERPROFILE%\Documents\RADAZ-License-Admin\merchant.json` faylında saxlanır. Sizin kompüterinizdə bu, `C:\Users\drnag\Documents\RADAZ-License-Admin\merchant.json` yoludur. Qovluğu dəyişmək üçün `RADAZ_OWNER_DIR` istifadə edilir. Bu qovluq GitHub deposundan kənardadır; `merchant.json` və private key adları ayrıca gitignore ilə də qorunur.
+
+Panel yalnız `127.0.0.1` üzərində açılır. Hər işə salınmada yeni təsadüfi giriş tokeni verilir; panel linkini paylaşmayın. Xarici origin sorğuları rədd olunur. Saxlanmış private key API cavabında qaytarılmır; sahəni boş saxlayanda əvvəlki açar qorunur. Silmək üçün ayrıca checkbox var. Windows hesabınıza/administrator hüquqlarına çıxışı olan şəxs faylları oxuya bilər; ayrıca Windows hesabı və təhlükəsiz ehtiyat nüsxə saxlayın. Bu paneli reverse proxy ilə internetə açmayın.
+
+## Epoint hesabını necə qoşursunuz?
+
+1. [Epoint](https://epoint.az/az) üzərindən satıcı müraciətini özünüz tamamlayın. Provayder tələb olunan biznes sənədlərini, bank hesabını və müqaviləni yoxlayır. Komissiya və köçürmə vaxtını onların müqaviləsindən dəqiqləşdirin; RADAZ bu şərtləri müəyyən etmir.
+2. Merchant public/private açarlarını və ödəniş yaratma API ünvanını götürün. Rəsmi sənədlərin anonim görünüşündə endpoint ünvanı maskalandığı üçün burada təxmin edilən ünvan yazılmayıb; dəqiq ünvanı Epoint-dən alın.
+3. HTTPS domenli server ayırın. Epoint lokal kompüterinizdəki `localhost` ünvanına callback göndərə bilməz. GitHub Pages bu Node/SQLite xidmətini işlətdiyi server deyil.
+4. Satıcı panelinə məlumatları yazın. Panelin göstərdiyi `https://SIZIN-DOMEN/v1/webhooks/provider` ünvanını Epoint-də **result URL**, `/payment/return` ünvanını success/error URL kimi qeyd edin.
+5. Sınaq məlumatları ilə ödəniş, yanlış məbləğ, uğursuz ödəniş, təkrar callback və açarın verilməsi yoxlanmalıdır. Sonra istehsal merchant məlumatlarına keçin.
+
+[Epoint-in rəsmi başlanğıc qaydası](https://developer.epoint.az/az) merchant qeydiyyatı, açarlar və yönləndirmə/callback axınını təsvir edir. [Callback sənədi](https://developer.epoint.az/en/callbacks) imza yoxlamasını izah edir. `billing/epoint.mjs` bu protokola əsaslanır; bank kartı məlumatı RADAZ serverindən keçmir.
+
+## Lisenziya serveri
+
+Bu xidmət alıcıların kompüterində deyil, sizin nəzarətinizdəki daimi serverdə işləyir. Serverdə Node.js 22.13+ olmalıdır. Mənbədəki `billing` qovluğu lazımdır; əlavə Node paketi tələb olunmur. SQLite Node-un daxili moduludur.
+
+Mövcud `issuer-private.pem` və ona uyğun `public/license-public.json` cütünü qoruyun. Hər buraxılış üçün yeni imza açarı yaratmayın. Yalnız ilk quraşdırmada açar ümumiyyətlə yoxdursa `node scripts/license-admin.mjs init` işlədilir. Mövcud açarı başqa təsadüfi açarla əvəz etmək əvvəlki müştərilərin aktivləşdirməsini poza bilər.
+
+Serverdə təhlükəsiz qovluğa `merchant.json` və mövcud `issuer-private.pem` köçürülür. Bunları GitHub-a yükləməyin. Dəyərləri server mühitinə uyğun təyin edin:
+
+```text
+RADAZ_OWNER_DIR=/private/radaz-owner
+RADAZ_BILLING_DATA=/private/radaz-owner/billing-data
+RADAZ_ISSUER_PRIVATE_KEY=/private/radaz-owner/issuer-private.pem
+PORT=8790
 ```
 
-`--out` qovluğu əvvəlcədən mövcud olmalıdır. Açardakı müddət, məhsul, kompüter və imza serverdə yoxlanır. Yer limiti satıcının abunə reyestrində tətbiq edilir. Offline açarı uzaqdan dərhal ləğv etmək mümkün deyil; açar bitmə tarixinədək etibarlıdır. Köhnə aktivləşdirməni silib yeni kompüterə vermək yer limitini aşdıra bildiyi üçün avtomatik seat release yoxdur. Köçürmə/real vaxt ləğvi üçün gələcəkdə onlayn aktivləşdirmə xidməti lazımdır.
+`node billing/server.mjs` başladılır. Xidmət yalnız `127.0.0.1:8790` dinləyir. Qarşısında etibarlı HTTPS reverse proxy qurun, prosesin server açıldıqda başlamasını təmin edin. Reverse proxy `X-Real-IP` sahəsini mütləq özü yazırsa `RADAZ_TRUST_PROXY=1` verə bilərsiniz; əks halda bu dəyişəni açmayın. İnternetə yalnız billing serverinin portuna gedən HTTPS xidmətini çıxarın, satıcı panelini və RADAZ arxivini çıxarmayın.
 
-Bu, offline aktivləşdirmə mexanizmidir; müştərinin tam idarə etdiyi mənbə kodunu dəyişməsinə qarşı tam DRM deyil. İmzalı installer, ödəniş provayderi, onlayn aktivləşdirmə və hüquqi satış şərtləri ayrıca buraxılış işləridir.
+`merchant.json` dəyişdikdən sonra yalnız billing xidmətini yenidən başlatmaq lazımdır. Bazanın ehtiyat nüsxəsini SQLite backup üsulu ilə və ya xidməti dayandıraraq alın; işləyən bazanın tək `.sqlite` faylını WAL-dan ayırıb köçürməyin. Baza ilk aktivləşdirmə tarixini saxlayır, itməsi satış tarixçəsini də itirə bilər.
 
-## Buraxılış ZIP-i
+Müştəri paketində `public/product.json` faylının `billingUrl` dəyərinə həmin HTTPS domenini yazın, sonra build və ZIP-i yenidən hazırlayın. Burada yalnız açıq xidmət ünvanı olur; bank hesabı və gizli açarlar olmur. Lokal server əvəzinə internetdəki server işlək olmasa, alıcı ödəniş və ilk aktivləşdirmə edə bilməz.
+
+## Ödənişdən sonra açar alıcıya necə çatır?
+
+1. Alıcı RADAZ-da Yardım → Aylıq ödəniş bölməsində ayı seçir. Məsələn, 3 ay = 30 AZN.
+2. RADAZ sizin billing serverinizdə sifariş yaradır; qiymət serverdə hesablanır.
+3. Brauzerdə Epoint/bank ödəniş səhifəsi açılır. Alıcı kart məlumatlarını orada daxil edir.
+4. Epoint imzalı nəticəni sizin serverə göndərir. Server imzanı, sifariş ID-sini, əvvəl yaradılmış transaction ID-ni və məbləği yoxlayır. Sadəcə “ödəniş uğurludur” səhifəsinin açılması açar vermir.
+5. Ödənilmiş sifariş üçün `RADAZ-ACT-…` açarı yaradılır. RADAZ hər 5 saniyədə nəticəni soruşur və **Lisenziya ödənişi** bölməsində açarı göstərir.
+6. Alıcı açarı kopyalaya və **Açarı TXT faylı kimi saxla** ilə ehtiyat nüsxə ala bilər. “Bu açarı aktivləşdirməyə hazırla”, sonra “Aktivləşdir” düyməsini basır.
+7. İlk uğurlu aktivləşdirmədə müddət başlayır. Məsələn, 3 aylıq açar 5 oktyabrda alınıb 12 oktyabrda aktivləşdirilsə, müddət 12 oktyabrdan hesablanır. Təkrar açar daxil etmək müddəti sıfırlamır; bir açar bir kompüterə bağlanır.
+
+Açar avtomatik e-poçt/SMS ilə göndərilmir; bu funksiya qoşulmayıb. Açardan əvvəl RADAZ-ı bağlasa belə, həmin kompüterin sifariş məlumatı saxlanır. Yenidən eyni bölməni açdıqda serverdən açar alınır. Yerli sifariş faylı və TXT açar birlikdə itərsə, sifariş nömrəsi və ödəniş sübutu ilə sizə müraciət etməlidir; bazada sifarişi yoxlamaq lazımdır. Ödəniş qəbzi təkbaşına avtomatik aktivləşdirmə deyil.
+
+Ödənişə baxmayaraq açar görünmürsə, ikinci dəfə pul ödəməzdən əvvəl sifariş ID-sini, Epoint əməliyyat statusunu və callback bağlantısını yoxlayın. Geri qaytarma, chargeback və artıq aktiv offline açarın dərhal ləğvi bu versiyada avtomatlaşdırılmayıb. Yenilənmə ayrıca alışdır; yeni açarı vaxtından əvvəl aktivləşdirmək əvvəlki müddətin qalan günlərini avtomatik birləşdirmir.
+
+## Alıcıya hansı GitHub linki verilir?
+
+Mənbə deposu: [RADAZ-D-COM](https://github.com/drnaghiyev/RADAZ-D-COM). Mövcud depo private-dır; dəvət edilməmiş alıcı 404 görə bilər. Hər alıcıya mənbə koduna giriş vermək satış üçün əlverişli deyil.
+
+Tövsiyə edilən paylama: mənbə deposunu private saxlayın, yalnız yoxlanmış quraşdırma ZIP-ləri üçün ayrıca public release deposu yaradın. Hazırkı işdə depo görünürlüğü dəyişdirilmir və yeni public depo yaradılmır. Seçdiyiniz release deposunun `owner/repository` dəyərini `public/product.json` → `repository` sahəsində yazın; tətbiqin yeniləmə yoxlaması həmin depoya baxır.
+
+GitHub-da Releases → Draft a new release → məsələn `v0.2.2` tag → buraxılış adı və quraşdırma qaydası → ZIP və `.sha256` faylını Attach files ilə əlavə edin. Müştəriyə açıq olduqdan sonra həmin relizin keçidini verin. Draft alıcıya görünmür; pre-release avtomatik “latest stable” yoxlamasına düşməyə bilər.
+
+Alıcıya **Code → Download ZIP** deyil, relizin **Assets** bölməsindəki `RADAZ-0.2.2-Windows-preview.zip` verilir. Source code (zip) quraşdırma paketi deyil. Ayrıca yeni release deposu seçməsəniz, [mövcud Releases səhifəsi](https://github.com/drnaghiyev/RADAZ-D-COM/releases) yalnız repo icazəsi olanlara açılır. Cari 0.2.2 ZIP lokal hazırlanır; GitHub Release kimi dərc edilməsi ayrıca addımdır.
+
+## Paket hazırlamaq və yoxlamaq
 
 ```powershell
 node node_modules/typescript/bin/tsc --noEmit --incremental false
-python tests/license_test.py
-node scripts/run-framework.mjs build
+node --test tests/*.test.mjs
+python -m unittest discover -s tests -p '*_test.py'
+python scripts/package-chatgpt.py
+corepack pnpm build
 python scripts/package-release.py
 ```
 
-ZIP `outputs/releases` qovluğuna yazılır. Skript yalnız ağ siyahıdakı qurulmuş tətbiqi, asılılıq manifestini, receiver və launcher-i götürür; real arxiv, `.env`, imza açarı, test çıxışları və inkişaf tarixçəsini daxil etmir. ZIP-də SHA-256 manifesti var. GitHub-a buraxılış qovluğunu və ya bütün Documents qovluğunu kor-koranə yükləməyin.
+Paket `outputs/releases` içində yaranır. İmza public açarı və `billingUrl` düzgün olmalıdır. `licenseRequired=true` saxlanır. Paketdə satıcı paneli, billing bazası, gizli açar, merchant rekvizitləri və pasiyent arxivi olmamalıdır. Ayrı təmiz Windows kompüterində setup/start, ödənişin sınaq axını, aktivləşdirmə və müddət bitməsini yoxlamadan satışa hazır hesab etməyin.
 
-Müştəri: Windows-da Node.js 22.13+ və Python 3.10+ quraşdırın, ZIP-i çıxarın, ilk dəfə `SETUP-RADAZ.cmd`, sonra `START-RADAZ.cmd` başladın. İlk setup npm/PyPI-dan asılılıq yükləyir. FFmpeg video ixrac üçün ayrıca tələb olunur. Brauzerdə lisenziya aktivləşdirmə pəncərəsi açılır. Bu ZIP müstəqil EXE installer deyil.
-
-Yeniləmədən əvvəl çalışan RADAZ launcher-i bağlayın, arxivin ehtiyat nüsxəsini alın, yeni ZIP-i yeni proqram qovluğuna çıxarın və setup/start edin. `Documents\RADAZ-Archive` silinmir; SQLite, DICOM faylları və aktivləşdirmə orada qalır. Eyni kompüterdə paralel köhnə/yeni receiver işlətməyin.
-
-## ChatGPT
-
-`public/radaz-chatgpt-extension.zip` Chrome/Edge əlavəsidir. `/chatgpt-help` quraşdırma təlimatıdır. Əlavə yalnız istifadəçinin qeyd etdiyi RADAZ origin-dən paket qəbul edir, hədəf ChatGPT tabına bağlayır, yaddaşdakı paketi iki dəqiqədən sonra silir və Send düyməsini basmır. Bir paket ən çox 10 JPEG/8 MiB-dir. ChatGPT DOM-u dəyişərsə aydın xəta və ZIP/mətn fallback-i var. Live ChatGPT hesabında əlavənin quraşdırılması və real kompozerdə yoxlama ayrıca lazımdır; avtomatik diaqnostik dəqiqlik zəmanəti verilmir.
-
-Real pasiyent məlumatlarını sınaq, GitHub və ya release paketinə daxil etməyin.
+Bu ZIP hələ imzalı, müstəqil EXE installer deyil. İlk setup internetdən asılılıqlar yükləyir. İstifadəçinin tam idarə etdiyi lokal proqramda lisenziya nəzarəti dəyişdirilməyə qarşı mütləq DRM təmin etmir.

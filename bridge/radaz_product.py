@@ -92,7 +92,6 @@ class ProductService:
                     result.update(valid=True,claims=claims,message='Lisenziya təsdiqləndi.')
                 except (ValueError, KeyError, OSError) as error:
                     result['message'] = str(error) if isinstance(error,ValueError) else 'Lisenziya məlumatı oxunmadı.'
-            elif not result['required']: result['message']='Hazırlama rejimində lisenziya tələb olunmur.'
             return result
 
     def activate(self, key):

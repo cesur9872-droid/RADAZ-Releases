@@ -58,3 +58,6 @@ next-env.d.ts
 /billing-data/
 *.sqlite-wal
 *.sqlite-shm
+/RADAZ-License-Admin/
+merchant.json
+issuer-private.pem

@@ -24,11 +24,11 @@ function enableReturn(){
   const files=await RADAZChatGPT.files(parts,bundle),root=RADAZChatGPT.root(composer);
   const accepts=(input,file)=>!input.accept||input.accept.split(',').some(value=>{const item=value.trim().toLowerCase();return item==='*/*'||item===file.type||item===`.${file.name.split('.').pop()}`||item===`${file.type.split('/')[0]}/*`;});
   const inputs=[...root.querySelectorAll('input[type="file"]')],groups=new Map();
-  for(const file of files){const input=inputs.find(el=>accepts(el,file)&&(!groups.has(el)||el.multiple));if(!input)throw new Error(`${file.name} üçün əlavə sahəsi tapılmadı. ZIP seçimini söndürüb JPEG-ləri ötürün və ya əl ilə əlavə edin.`);groups.set(input,[...(groups.get(input)||[]),file]);}
+  for(const file of files){const input=inputs.find(el=>accepts(el,file)&&(!groups.has(el)||el.multiple));if(!input)throw new Error(`${file.name} üçün əlavə sahəsi tapılmadı. ZIP-i yükləyib ChatGPT-yə əl ilə əlavə edin.`);groups.set(input,[...(groups.get(input)||[]),file]);}
   for(const [input,group] of groups){const transfer=new DataTransfer();group.forEach(file=>transfer.items.add(file));input.files=transfer.files;input.dispatchEvent(new Event('change',{bubbles:true}));}
   const names=files.map(file=>file.name);let ready=false;
   for(let i=0;i<150;i++){const state=RADAZChatGPT.state(composer,names);if(state.complete&&!state.busy){ready=true;break;}await pause(400);}
-  if(!ready)throw new Error('Görüntü əlavələrinin tam yüklənməsi təsdiqlənmədi. Tapşırıq yerləşdirilmədi. JPEG önbaxışlarını və fayl limitini yoxlayın; lazım olsa JPEG-i əl ilə əlavə edin.');
+  if(!ready)throw new Error('Görüntü əlavələrinin tam yüklənməsi təsdiqlənmədi. Tapşırıq yerləşdirilmədi. ZIP əlavəsini və fayl limitini yoxlayın; lazım olsa ZIP-i əl ilə əlavə edin.');
   if((composer.value||composer.textContent||'').trim())throw new Error('Yükləmə zamanı mesaj mətni dəyişdi. Mövcud mətn saxlanıldı; tapşırığı əl ilə əlavə edin.');
   composer.focus();
   if(composer instanceof HTMLTextAreaElement){Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(composer,bundle.prompt);composer.dispatchEvent(new Event('input',{bubbles:true}));}
@@ -36,6 +36,6 @@ function enableReturn(){
   await pause(600);if(!(composer.value||composer.textContent||'').includes(bundle.prompt.slice(0,40)))throw new Error('Tapşırıq mətni təsdiqlənmədi. Əl ilə yapışdırın.');
   ready=false;for(let i=0;i<75;i++){const state=RADAZChatGPT.state(composer,names);if(state.complete&&!state.busy&&state.canSend){ready=true;break;}await pause(400);}
   if(!ready)throw new Error('Əlavələr və göndərmə hazırlığı təsdiqlənmədi. Mesaj göndərilməyib; ChatGPT-də yükləmə xətasını yoxlayın.');
-  await chrome.runtime.sendMessage({type:'COMPOSER_RESULT',ok:true});enableReturn();show(`RADAZ: ${files.filter(file=>file.type==='image/jpeg').length} JPEG${files.some(file=>file.type==='application/zip')?' + ZIP':''} təsdiqləndi. Görüntü önbaxışlarını yoxlayıb mesajı göndərin. Cavab hazır olanda “RADAZ-a qaytar” düyməsini basın.`);
+  await chrome.runtime.sendMessage({type:'COMPOSER_RESULT',ok:true});enableReturn();show(`RADAZ: ${files.map(file=>file.name).join(', ')} təsdiqləndi. Görüntü önbaxışlarını yoxlayıb mesajı göndərin. Cavab hazır olanda “RADAZ-a qaytar” düyməsini basın.`);
  }catch(error){show(`RADAZ: ${error.message}`,true);await chrome.runtime.sendMessage({type:'COMPOSER_RESULT',ok:false,error:error.message});}
 })().catch(()=>{});

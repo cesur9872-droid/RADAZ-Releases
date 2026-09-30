@@ -13,7 +13,7 @@ if not (ROOT/'public/license-public.json').is_file():raise SystemExit('Initializ
 config['licenseRequired']=True
 out=ROOT/'outputs/releases';out.mkdir(parents=True,exist_ok=True)
 target=out/f'RADAZ-{version}-Windows-preview.zip'
-explicit=['package.json','pnpm-lock.yaml','pnpm-workspace.yaml','DISTRIBUTION.md','LOKAL-ISTIFADE.md','SETUP-RADAZ.cmd','START-RADAZ.cmd',
+explicit=['package.json','pnpm-lock.yaml','pnpm-workspace.yaml','README.md','DISTRIBUTION.md','LOKAL-ISTIFADE.md','SETUP-RADAZ.cmd','START-RADAZ.cmd',
  'scripts/start-radaz.ps1','scripts/start-release.mjs','scripts/setup-release.ps1','scripts/start-archive.ps1','scripts/wait-release-browser.ps1','bridge/radaz_archive.py','bridge/radaz_pacs_bridge.py','bridge/radaz_output.py','bridge/radaz_product.py','bridge/radaz_disc.ps1','bridge/README.md','public/license-public.json']
 files={p:ROOT/p for p in explicit}
 for folder in ['dist/client','dist/server','bridge/wheels']:
