@@ -23,7 +23,20 @@ try{
  }else{
   if(!fs.existsSync(privatePath))throw new Error('Run init first.');
   const ledger=fs.existsSync(ledgerPath)?JSON.parse(fs.readFileSync(ledgerPath,'utf8')):{subscriptions:[]};
-  if(command==='create'){
+  if(command==='owner'){
+   const device=String(flags.device||'').toUpperCase();
+   if(!/^[A-F0-9]{64}$/.test(device)||!flags.customer?.trim()||flags.customer.length>200||!flags.out)throw new Error('owner --customer Name --device DeviceID --out activation.txt');
+   const privateKey=createPrivateKey(fs.readFileSync(privatePath));
+   const actual=createPublicKey(privateKey).export({format:'jwk'}),expected=JSON.parse(fs.readFileSync(path.resolve(flags.public||path.join(project,'public/license-public.json')),'utf8'));
+   if(actual.n!==expected.n||actual.e!==expected.e)throw new Error('Issuer key does not match the installed public key.');
+   let subscription=ledger.subscriptions.find(s=>s.entitlement==='owner'&&s.activations?.[0]?.deviceId===device);
+   if(!subscription){subscription={id:randomUUID(),customer:flags.customer.trim(),seats:1,plan:'monthly',entitlement:'owner',expiresAt:253402300799,activations:[{id:randomUUID(),deviceId:device}]};ledger.subscriptions.push(subscription);}
+   // Retain the legacy monthly wire format so already-running bridges can activate it.
+   const claims={v:1,product:'RADAZ',licenseId:subscription.id,activationId:subscription.activations[0].id,customer:subscription.customer,plan:'monthly',entitlement:'owner',seats:1,deviceId:device,issuedAt:Math.floor(Date.now()/1000),expiresAt:subscription.expiresAt};
+   const payload='RADAZ1.'+Buffer.from(JSON.stringify(claims)).toString('base64url');
+   const key=payload+'.'+sign('RSA-SHA256',Buffer.from(payload),privateKey).toString('base64url');
+   fs.writeFileSync(path.resolve(flags.out),key+'\n',{mode:0o600});save(ledgerPath,ledger);console.log('Device-bound owner activation saved.');
+  }else if(command==='create'){
    const seats=Number(flags.seats),period=flags.period;if(!Number.isInteger(seats)||seats<1||seats>1000||period!=='monthly'||!flags.customer?.trim()||flags.customer.length>200)throw new Error('create --customer Name --seats 1 --period monthly');
    const subscription={id:randomUUID(),customer:flags.customer.trim(),seats,plan:period,expiresAt:expiry(period),activations:[]};ledger.subscriptions.push(subscription);save(ledgerPath,ledger);console.log(subscription.id);
   }else if(command==='activate'){
@@ -37,9 +50,10 @@ try{
    if(!flags.out)throw new Error('Specify --out activation.txt to save the key.');save(ledgerPath,ledger);fs.writeFileSync(path.resolve(flags.out),key+'\n',{mode:0o600});console.log('Activation saved.');
   }else if(command==='renew'){
    const subscription=ledger.subscriptions.find(s=>s.id===flags.license);if(!subscription)throw new Error('Subscription not found.');
+   if(subscription.entitlement==='owner')throw new Error('Owner activation does not need renewal.');
    const next=expiry(subscription.plan,Math.max(Date.now(),subscription.expiresAt*1000));
    subscription.expiresAt=next;save(ledgerPath,ledger);console.log('Renewed. Reissue each device activation using activate.');
   }else if(command==='list'){console.log(JSON.stringify(ledger.subscriptions.map(s=>({id:s.id,customer:s.customer,plan:s.plan,seats:s.seats,used:s.activations.length,expires:new Date(s.expiresAt*1000).toISOString()})),null,2));}
-  else throw new Error('Commands: init, create, activate, renew, list. See DISTRIBUTION.md.');
+  else throw new Error('Commands: init, create, activate, renew, owner, list. See DISTRIBUTION.md.');
  }
 }catch(error){console.error(error.message);process.exitCode=1;}finally{if(fd!==undefined){fs.closeSync(fd);fs.unlinkSync(lock);}}

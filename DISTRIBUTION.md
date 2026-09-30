@@ -1,6 +1,6 @@
 # RADAZ — satıcı, ödəniş və buraxılış təlimatı
 
-Bu sənəd proqramın sahibi üçündür. Alıcıya göndəriləcək quraşdırma qaydası [README.md](README.md)-dədir. Cari versiya 0.2.2-dir. Aylıq qiymət 10 AZN, seçim 1–120 aydır; ayrıca illik paket və avtomatik kartdan təkrar pul çəkmə yoxdur.
+Bu sənəd proqramın sahibi üçündür. Alıcıya göndəriləcək quraşdırma qaydası [README.md](README.md)-dədir. Cari versiya 0.2.3-dir. Aylıq qiymət 10 AZN, seçim 1–120 aydır; ayrıca illik paket və avtomatik kartdan təkrar pul çəkmə yoxdur.
 
 ## Hazır olan və tamamlanmalı hissələr
 
@@ -85,9 +85,9 @@ Mənbə deposu: [RADAZ-D-COM](https://github.com/drnaghiyev/RADAZ-D-COM). Mövcu
 
 Tövsiyə edilən paylama: mənbə deposunu private saxlayın, yalnız yoxlanmış quraşdırma ZIP-ləri üçün ayrıca public release deposu yaradın. Hazırkı işdə depo görünürlüğü dəyişdirilmir və yeni public depo yaradılmır. Seçdiyiniz release deposunun `owner/repository` dəyərini `public/product.json` → `repository` sahəsində yazın; tətbiqin yeniləmə yoxlaması həmin depoya baxır.
 
-GitHub-da Releases → Draft a new release → məsələn `v0.2.2` tag → buraxılış adı və quraşdırma qaydası → ZIP və `.sha256` faylını Attach files ilə əlavə edin. Müştəriyə açıq olduqdan sonra həmin relizin keçidini verin. Draft alıcıya görünmür; pre-release avtomatik “latest stable” yoxlamasına düşməyə bilər.
+GitHub-da Releases → Draft a new release → məsələn `v0.2.3` tag → buraxılış adı və quraşdırma qaydası → ZIP və `.sha256` faylını Attach files ilə əlavə edin. Müştəriyə açıq olduqdan sonra həmin relizin keçidini verin. Draft alıcıya görünmür; pre-release avtomatik “latest stable” yoxlamasına düşməyə bilər.
 
-Alıcıya **Code → Download ZIP** deyil, relizin **Assets** bölməsindəki `RADAZ-0.2.2-Windows-preview.zip` verilir. Source code (zip) quraşdırma paketi deyil. Ayrıca yeni release deposu seçməsəniz, [mövcud Releases səhifəsi](https://github.com/drnaghiyev/RADAZ-D-COM/releases) yalnız repo icazəsi olanlara açılır. Cari 0.2.2 ZIP lokal hazırlanır; GitHub Release kimi dərc edilməsi ayrıca addımdır.
+Alıcıya **Code → Download ZIP** deyil, relizin **Assets** bölməsindəki `RADAZ-0.2.3-Windows-preview.zip` verilir. Source code (zip) quraşdırma paketi deyil. Ayrıca yeni release deposu seçməsəniz, [mövcud Releases səhifəsi](https://github.com/drnaghiyev/RADAZ-D-COM/releases) yalnız repo icazəsi olanlara açılır. Cari 0.2.3 ZIP lokal hazırlanır; GitHub Release kimi dərc edilməsi ayrıca addımdır.
 
 ## Paket hazırlamaq və yoxlamaq
 
@@ -103,3 +103,14 @@ python scripts/package-release.py
 Paket `outputs/releases` içində yaranır. İmza public açarı və `billingUrl` düzgün olmalıdır. `licenseRequired=true` saxlanır. Paketdə satıcı paneli, billing bazası, gizli açar, merchant rekvizitləri və pasiyent arxivi olmamalıdır. Ayrı təmiz Windows kompüterində setup/start, ödənişin sınaq axını, aktivləşdirmə və müddət bitməsini yoxlamadan satışa hazır hesab etməyin.
 
 Bu ZIP hələ imzalı, müstəqil EXE installer deyil. İlk setup internetdən asılılıqlar yükləyir. İstifadəçinin tam idarə etdiyi lokal proqramda lisenziya nəzarəti dəyişdirilməyə qarşı mütləq DRM təmin etmir.
+
+
+## 7 günlük demo və sahib kompüteri
+
+0.2.3 paketində `licenseRequired=true`, `trialDays=7` saxlanır. Demo ilk istifadədən 7 × 24 saatdır; bütün lisenziyalı funksiyalar bu vaxt açıqdır. Demo bitdikdə əvvəlki PACS/arxiv və yalnız listələmə qaydası tətbiq edilir. Yeniləmə, brauzer keşini silmək və adi yenidən quraşdırma demo müddətini sıfırlamır.
+
+Windows-da demo qeydi `%LOCALAPPDATA%/RADAZ/Licensing` və `HKCU/Software/RADAZ/Licensing` içində saxlanır, DPAPI ilə həmin Windows istifadəçisinə bağlanır. Qeyd MachineGuid əsasında alınan kompüter kodunu daşıyır. Bir nüsxə itərsə qalan qeyddən ilkin tarix bərpa olunur; korlanmış qeyd və saatın geriyə çəkilməsi yeni demo yaratmır. Offline demo yerli administratorun müdaxiləsinə, yeni Windows profilinə və əməliyyat sisteminin tam yenidən qurulmasına qarşı mütləq müdafiə deyil; bu səviyyədə nəzarət üçün internetdə cihaz qeydiyyatı xidməti lazımdır.
+
+Satıcının öz kompüteri üçün `scripts/license-admin.mjs owner --customer "Ad Soyad" --device KOMPÜTER_KODU --out ŞƏXSİ_QOVLUQ/owner-activation.txt` ayrıca imzalı, bir cihaza bağlı sahib açarı verir. Mövcud private açar müştərinin public açarı ilə uyğun olmalıdır. Bu açar yalnız sahib kompüterində aktivləşdirilir; alıcı ZIP-inə daxil edilmir. Köhnə işləyən xidmətlə uyğunluq üçün imzalı açarda aylıq format və 9999-cu il bitmə tarixi saxlanır, yeni interfeys bunu müddətsiz sahib lisenziyası kimi göstərir. Bu, ümumi hazırlama rejimini açmır.
+
+Sahibin aktivləşdirmə faylı, `Documents/RADAZ-Archive/product/license.json`, demo qeydləri və `Documents/RADAZ-License-Admin` qovluğu GitHub-a və müştəri paketinə daxil edilməməlidir.

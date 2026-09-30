@@ -90,4 +90,87 @@ class Licenses(unittest.TestCase):
                 self.assertEqual(error.exception.code,402)
         finally:server.shutdown();server.server_close();thread.join()
 
+    def test_owner_license_is_device_bound_and_not_in_customer_config(self):
+        output=self.root/'owner.txt'
+        self.cli('owner','--customer','Synthetic Owner','--device',self.device,'--public',str(self.public),'--out',str(output))
+        key=output.read_text().strip()
+        claims=verify_key(key,self.pub,self.device,int(time.time())+50*365*86400)
+        self.assertEqual(claims['entitlement'],'owner')
+        with self.assertRaisesRegex(ValueError,'kompüter'):verify_key(key,self.pub,'B'*64)
+        data=self.root/'owner-state';data.mkdir(exist_ok=True)
+        config=self.root/'owner-config.json';config.write_text(json.dumps({'licenseRequired':True,'trialDays':7}))
+        service=ProductService(data,config,self.public,self.device,trial_root=self.root/'owner-trial')
+        self.assertEqual(service.activate(key)['kind'],'owner')
+        with patch('radaz_product.time.time',return_value=time.time()+8*86400):
+            state=service.status();self.assertTrue(state['valid']);self.assertEqual(state['kind'],'owner')
+        published=json.loads((ROOT/'public/product.json').read_text())
+        self.assertTrue(published['licenseRequired']);self.assertEqual(published['trialDays'],7)
+        self.assertNotIn('entitlement',published);self.assertNotIn('deviceId',published)
+
+class Demo(unittest.TestCase):
+    def setUp(self):
+        self.temp=tempfile.TemporaryDirectory();self.root=Path(self.temp.name)
+        self.config=self.root/'product.json';self.config.write_text(json.dumps({'licenseRequired':True,'trialDays':7}))
+        self.start=1800000000
+    def tearDown(self):self.temp.cleanup()
+    def service(self,name='archive',device='A'*64):
+        data=self.root/name;data.mkdir(exist_ok=True)
+        return ProductService(data,self.config,device=device,trial_root=self.root/'trial')
+    def test_first_use_starts_exactly_seven_days_and_expiry_limits_features(self):
+        service=self.service()
+        with patch('radaz_product.time.time',return_value=self.start):
+            state=service.status();self.assertTrue(state['valid']);self.assertEqual(state['kind'],'trial')
+            self.assertEqual(state['trial']['expiresAt'],self.start+7*86400);self.assertEqual(state['trial']['daysRemaining'],7)
+        with patch('radaz_product.time.time',return_value=self.start+7*86400-1):self.assertTrue(service.allowed())
+        with patch('radaz_product.time.time',return_value=self.start+7*86400):
+            state=service.status();self.assertFalse(state['valid']);self.assertEqual(state['trial']['daysRemaining'],0)
+    def test_restart_or_different_archive_folder_does_not_reset_trial(self):
+        with patch('radaz_product.time.time',return_value=self.start):first=self.service().status()
+        with patch('radaz_product.time.time',return_value=self.start+2*86400):
+            second=self.service('new-install').status()
+        self.assertEqual(first['trial']['expiresAt'],second['trial']['expiresAt']);self.assertEqual(second['trial']['daysRemaining'],5)
+    def test_other_computer_gets_its_own_first_use(self):
+        with patch('radaz_product.time.time',return_value=self.start):self.service().status()
+        with patch('radaz_product.time.time',return_value=self.start+10*86400):
+            other=self.service('other','B'*64).status();self.assertTrue(other['valid']);self.assertEqual(other['trial']['daysRemaining'],7)
+    def test_clock_rollback_and_corrupted_record_fail_closed(self):
+        service=self.service()
+        with patch('radaz_product.time.time',return_value=self.start):service.status()
+        with patch('radaz_product.time.time',return_value=self.start-1000):
+            state=service.status();self.assertFalse(state['valid']);self.assertIn('tarix',state['message'])
+        service.trial.path.write_text('corrupted')
+        with patch('radaz_product.time.time',return_value=self.start+1):self.assertFalse(service.allowed())
+    def test_trial_record_cannot_be_copied_to_another_device(self):
+        first=self.service();second=self.service('other','B'*64)
+        with patch('radaz_product.time.time',return_value=self.start):first.status()
+        second.trial.path.write_bytes(first.trial.path.read_bytes())
+        with patch('radaz_product.time.time',return_value=self.start):self.assertFalse(second.allowed())
+    def test_registry_record_restores_missing_file_without_starting_over(self):
+        service=self.service()
+        with patch('radaz_product.time.time',return_value=self.start):service.status()
+        raw=service.trial.path.read_text();service.trial.path.unlink()
+        with patch.object(service.trial,'read_registry',return_value=raw),patch('radaz_product.time.time',return_value=self.start+86400):
+            state=service.status();self.assertTrue(state['valid']);self.assertEqual(state['trial']['daysRemaining'],6)
+        self.assertTrue(service.trial.path.exists())
+    def test_http_trial_expiry_keeps_archive_but_blocks_advanced_output(self):
+        from radaz_archive import Archive,handler_for
+        from http.server import ThreadingHTTPServer
+        from threading import Thread
+        from urllib.request import urlopen
+        from urllib.error import HTTPError
+        product=self.service()
+        with patch('radaz_archive.ProductService',return_value=product):server=ThreadingHTTPServer(('127.0.0.1',0),handler_for(Archive(self.root/'archive')))
+        thread=Thread(target=server.serve_forever,daemon=True);thread.start();base=f'http://127.0.0.1:{server.server_port}'
+        try:
+            with patch('radaz_product.time.time',return_value=self.start):
+                self.assertEqual(json.load(urlopen(base+'/license'))['kind'],'trial')
+                self.assertEqual(urlopen(base+'/printer-settings').status,200)
+            with patch('radaz_product.time.time',return_value=self.start+7*86400):
+                self.assertFalse(json.load(urlopen(base+'/license'))['valid'])
+                self.assertEqual(urlopen(base+'/studies').status,200)
+                self.assertEqual(urlopen(base+'/status').status,200)
+                with self.assertRaises(HTTPError) as error:urlopen(base+'/printer-settings')
+                self.assertEqual(error.exception.code,402)
+        finally:server.shutdown();server.server_close();thread.join()
+
 if __name__=='__main__':unittest.main()

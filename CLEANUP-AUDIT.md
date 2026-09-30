@@ -1,6 +1,6 @@
-# RADAZ 0.2.2 — fayl və davranış yoxlaması
+# RADAZ 0.2.3 — fayl və davranış yoxlaması
 
-2026-10-01 tarixində proqramın 230 mənbə və paylama faylı SHA-256 ilə müqayisə edildi. Eyni məzmunlu fayl qrupu tapılmadı. `node_modules`, yığılmış `dist`, keşlər, yerli çıxışlar və pasiyent arxivləri mənbə yoxlamasına daxil edilmədi.
+2026-10-01 tarixində proqramın 231 mənbə və paylama faylı SHA-256 ilə müqayisə edildi. Eyni məzmunlu fayl qrupu tapılmadı. `node_modules`, yığılmış `dist`, keşlər, yerli çıxışlar və pasiyent arxivləri mənbə yoxlamasına daxil edilmədi.
 
 ## Təmizlənənlər
 
@@ -21,7 +21,7 @@
 ## Yoxlama
 
 - TypeScript və production build keçdi.
-- Node: 46 test; Python: əvvəlki tətbiq yoxlamasında 30 test keçdi.
+- Node: 46 test; Python: 38 test keçdi.
 - Brauzerdə kompakt seçim qutusu görüntünü çap siyahısına əlavə etdi.
 - Viewer-dən hesabatda yalnız ötürülmüş müayinə açıldı; 10 demo görüntünün hamısı bir ZIP paketinə hazırlandı.
 - Arxivdən müayinə mövcud viewer tabına ötürüldü. PACS-in Viewer düyməsi əlavə viewer tabı yaratmadı.
@@ -65,3 +65,13 @@ Canlı PACS serverinə endirmə və ChatGPT hesabında ZIP təhlili bu yoxlaman�
 - Müddəti bitmiş lisenziyada PACS/arxiv və CD/DVD saxlanılır. Viewer yalnız seriya seçimi və görüntü listələmə verir; ölçmə, window, ixrac, çap, MPR/3D və hesabat bağlıdır. Brauzer sınağı və Python API testləri bunu yoxladı.
 - Desktop-dakı dörd köhnə əlavə qovluğu ehtiyat nüsxədən sonra 0.3.2 mənbəyi ilə yeniləndi. Edge-də əlavənin Reload əməliyyatı hələ lazımdır.
 - Əsas işləyən veb və arxiv xidmətlərinin dayandırılıb yenidən başladılması avtomatik təhlükəsizlik yoxlaması tərəfindən bloklandı; yeni mənbənin işləyən proseslərdə tətbiqi təsdiqlənməyib.
+
+
+## 0.2.3: sahib lisenziyası və 7 günlük demo
+
+- Sahib üçün mövcud imza açarı ilə ayrıca cihaz lisenziyası yaradılıb yerli API ilə aktivləşdirildi. API `valid=true`, sahib hüququ və uyğun kompüter kodunu təsdiqlədi; qabaqcıl çıxış ayarlarına giriş HTTP 200 verdi. Şəxsi aktivləşdirmə və əvvəlki lisenziyanın ehtiyat nüsxəsi repo xaricində saxlanır.
+- Başqa kompüterdə ilk istifadə 7 × 24 saatlıq tam funksiyalı demo başladır. Status sətri qalan günləri, lisenziya pəncərəsi dəqiq bitmə tarixini göstərir. Sahib açarı alıcı paketinə daxil edilmir.
+- Demo qeydi proqramdan ayrı saxlanır; Windows-da DPAPI qorunması və registry nüsxəsi var. Normal yenidən quraşdırma/arxiv yolu dəyişməsi müddəti sıfırlamır. Saatın geriyə çəkilməsi, korlanmış qeyd və başqa cihazdan köçürmə rədd edilir. Yerli administrator və tam OS/profil sıfırlanmasına qarşı offline mütləq müdafiə iddiası yoxdur.
+- Python sınaqları ilk açılışı, dəqiq 7 günlük sərhədi, yenidən açılışı, başqa cihazı, itmiş faylın ikinci qeyddən bərpasını və sahib açarının cihaz bağını yoxladı. Müddət bitəndə HTTP-də arxiv/status açıq, qabaqcıl çıxış bağlı qaldı.
+- Brauzer sınağında demo zamanı import, ölçmə, çap/ixrac, MPR/3D və hesabat düymələri açıqdır. Demo bitəndə PACS/arxiv düymələri və seriya seçimi qalır, qabaqcıl düymələr bağlanır.
+- TypeScript, production build, 46 Node və 38 Python testi keçdi. 0.2.3 Windows preview ZIP-i demo konfiqurasiyası ilə hazırlanır; ayrıca GitHub Release yayımı təsdiqlənməyib.

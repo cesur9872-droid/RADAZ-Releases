@@ -12,6 +12,7 @@ from threading import RLock
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
+from radaz_trial import TrialStore
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -60,12 +61,13 @@ def atomic_json(path, data):
     os.replace(temp,path)
 
 class ProductService:
-    def __init__(self, data_dir, config_path=None, public_path=None, device=None):
+    def __init__(self, data_dir, config_path=None, public_path=None, device=None, trial_root=None):
         self.root = Path(data_dir) / 'product'; self.root.mkdir(exist_ok=True)
         self.config = json.loads(Path(config_path or ROOT/'public/product.json').read_text(encoding='utf-8-sig'))
         self.public_path = Path(public_path or ROOT/'public/license-public.json')
         self.lock = RLock(); self.cached_update = None; self.last_check = 0
         self.device = device or self.machine_id()
+        self.trial = TrialStore(self.device, trial_root)
 
     def machine_id(self):
         try:
@@ -81,6 +83,7 @@ class ProductService:
     def status(self):
         with self.lock:
             result = dict(valid=False,required=bool(self.config.get('licenseRequired',True)),deviceId=self.device,message='Lisenziya açarını daxil edin.')
+            trial = self.trial.status() if self.config.get('trialDays') == 7 else None
             path = self.root/'license.json'
             if path.exists():
                 try:
@@ -90,8 +93,16 @@ class ProductService:
                     claims = verify_key(saved['key'],json.loads(self.public_path.read_text()),self.device,now)
                     if now - saved.get('lastSeen',0) > 300: atomic_json(path,dict(key=saved['key'],lastSeen=now))
                     result.update(valid=True,claims=claims,message='Lisenziya təsdiqləndi.')
+                    if claims.get('entitlement') == 'owner':
+                        result.update(kind='owner', message='Bu kompüterdə bütün funksiyalar açıqdır — müddətsiz sahib lisenziyası.')
                 except (ValueError, KeyError, OSError) as error:
                     result['message'] = str(error) if isinstance(error,ValueError) else 'Lisenziya məlumatı oxunmadı.'
+            if trial is not None:
+                result['trial'] = trial
+                if not result['valid']:
+                    result.update(valid=trial['valid'], kind='trial' if trial['valid'] else 'expired', message=trial['message'])
+            if result['valid'] and 'kind' not in result:
+                result['kind'] = 'paid'
             return result
 
     def activate(self, key):

@@ -302,7 +302,7 @@ function ViewportPane({ cursor, onCursor, hideText, id, series, initialImageId, 
 }
 
 export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) {
-  const {limited}=useViewerLicense();
+  const {limited,label:licenseStatus}=useViewerLicense();
   const [ready, setReady] = useState(false);
   const [seriesList, setSeriesList] = useState<Series[]>([]);
   const [assigned, setAssigned] = useState<Record<string, string>>({});
@@ -883,7 +883,7 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
         {workspace === 'mpr' && <>
         {mprError ? <div className="mpr-empty" role="alert"><Layers3 size={38}/><strong>MPR açıla bilmədi</strong><span>{mprError}</span></div> : mprData && <div className={`mpr-grid ${maximizedMprPane ? 'maximized' : ''}`}>{(['SAG','COR','AX'] as const).map((plane, index) => ({ plane, index, id: ['MS','MC','MA'][index] })).filter(({ id }) => !maximizedMprPane || id === maximizedMprPane).map(({ plane, index, id }) => <ViewportPane key={`${id}-${mprData.sourceId}`} id={id} initialImageId={currentImages[id]} series={mprData.planes[index]} reconstruction={mprSettings[plane]} selected={mprActive === id} tool={limited ? 'scroll' : tool} cursor={cursor} onCursor={onCursor} hideText={hideText} preset={preset} resetToken={resetToken} clearToken={clearToken} ready={ready} marks={marks} selectedMarkId={selectedMarkId} localizers={localizers} otherImages={(['SAG','COR','AX'] as const).filter(other => other !== plane).map(other => ({ panel: { SAG:'MS',COR:'MC',AX:'MA' }[other], imageId: currentImages[{ SAG:'MS',COR:'MC',AX:'MA' }[other]] || '' })).filter(s => s.imageId)} onImageChange={onImageChange} onMoveSource={moveMprSource} onRotateSource={rotateMprSource} onRotateStart={beginMprRotation} onPreviewRotateSource={(source,target,radians) => updateMprRotation(source,target,radians)} onAddMark={onAddMark} onUpdateMark={onUpdateMark} onRemoveMark={onRemoveMark} onSelectMark={markId => { setMprActive(id); setSelectedMarkId(markId); }} onClearImage={onClearImage} onSelect={() => { setMprActive(id); setSelectedMarkId(null); }} onToggleMaximize={() => { setMprActive(id); setMaximizedMprPane(current => current === id ? null : id); }} onDropSeries={sid => place(sid,'A')}/>)}</div>}</>}
         {workspace === '3d' && <VolumePreview series={volumeSeries} preset={volumePreset} threshold={volumeThreshold} opacity={volumeOpacity} settings={volumeSettings} resetToken={volumeResetToken} onThresholdChange={setVolumeThreshold} onOpacityChange={setVolumeOpacity} />}
-        <footer className="statusbar"><div><span className="status-led"/> {ready ? 'Cornerstone3D hazırdır' : 'Görüntüləmə hazırlanır'} <span className="status-sep">/</span> <span>{workspace === 'mpr' ? `MPR · ${mprSettings[panePlane[mprActive as keyof typeof panePlane] || 'AX'].mode}` : workspace === '3d' ? '3D görünüş' : `Aktiv panel ${active}`}</span><span className="status-sep">/</span>{status}</div></footer>
+        <footer className="statusbar"><div><span className="status-led"/> {ready ? 'Cornerstone3D hazırdır' : 'Görüntüləmə hazırlanır'} <span className="status-sep">/</span> <span>{workspace === 'mpr' ? `MPR · ${mprSettings[panePlane[mprActive as keyof typeof panePlane] || 'AX'].mode}` : workspace === '3d' ? '3D görünüş' : `Aktiv panel ${active}`}</span><span className="status-sep">/</span>{status}<span className="status-sep">/</span><span aria-label="Lisenziya statusu">{licenseStatus}</span></div></footer>
       </section>
     </div>
   </main>;

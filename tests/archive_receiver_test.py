@@ -10,9 +10,11 @@ from threading import Thread
 from urllib.request import urlopen, Request
 from urllib.error import HTTPError
 from http.server import ThreadingHTTPServer
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'bridge'))
 from radaz_archive import Archive, handler_for
+from radaz_product import ProductService
 from pydicom import dcmread
 from pydicom.dataset import Dataset, FileMetaDataset
 from pydicom.uid import ExplicitVRLittleEndian, generate_uid
@@ -46,7 +48,9 @@ class ReceiverTests(unittest.TestCase):
         self.port = free_port()
         self.archive.configure({'aeTitle':'RADAZ_TEST','port':self.port,'enabled':True})
         self.ds = image()
-        self.http = ThreadingHTTPServer(('127.0.0.1',0),handler_for(self.archive))
+        product = ProductService(self.root, device='A'*64, trial_root=self.root/'trial')
+        with patch('radaz_archive.ProductService', return_value=product):
+            self.http = ThreadingHTTPServer(('127.0.0.1',0),handler_for(self.archive))
         self.thread = Thread(target=self.http.serve_forever, daemon=True); self.thread.start()
         self.url = f'http://127.0.0.1:{self.http.server_port}'
 
