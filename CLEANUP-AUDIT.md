@@ -1,6 +1,6 @@
 # RADAZ 0.2.1 — fayl və davranış yoxlaması
 
-2026-10-01 tarixində proqramın 217 mənbə və paylama faylı SHA-256 ilə müqayisə edildi. Eyni məzmunlu fayl qrupu tapılmadı. `node_modules`, yığılmış `dist`, keşlər, yerli çıxışlar və pasiyent arxivləri mənbə yoxlamasına daxil edilmədi.
+2026-10-01 tarixində proqramın 216 mənbə və paylama faylı SHA-256 ilə müqayisə edildi. Eyni məzmunlu fayl qrupu tapılmadı. `node_modules`, yığılmış `dist`, keşlər, yerli çıxışlar və pasiyent arxivləri mənbə yoxlamasına daxil edilmədi.
 
 ## Təmizlənənlər
 
