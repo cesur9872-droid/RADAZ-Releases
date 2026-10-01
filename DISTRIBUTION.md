@@ -81,13 +81,15 @@ Açar avtomatik e-poçt/SMS ilə göndərilmir; bu funksiya qoşulmayıb. Açard
 
 ## Alıcıya hansı GitHub linki verilir?
 
-Mənbə deposu: [RADAZ-D-COM](https://github.com/drnaghiyev/RADAZ-D-COM). Mövcud depo private-dır; dəvət edilməmiş alıcı 404 görə bilər. Hər alıcıya mənbə koduna giriş vermək satış üçün əlverişli deyil.
+Mənbə və buraxılış deposu: [RADAZ-D-COM](https://github.com/drnaghiyev/RADAZ-D-COM). 1 oktyabr 2026 yoxlamasında depo public-dır. Tətbiqin yeniləmə yoxlaması `public/product.json` daxilindəki `repository` sahəsinin göstərdiyi deponun yayımlanmış son GitHub Release buraxılışını soruşur.
 
-Tövsiyə edilən paylama: mənbə deposunu private saxlayın, yalnız yoxlanmış quraşdırma ZIP-ləri üçün ayrıca public release deposu yaradın. Hazırkı işdə depo görünürlüğü dəyişdirilmir və yeni public depo yaradılmır. Seçdiyiniz release deposunun `owner/repository` dəyərini `public/product.json` → `repository` sahəsində yazın; tətbiqin yeniləmə yoxlaması həmin depoya baxır.
+Mənbə kodunu gələcəkdə private etmək istəsəniz, quraşdırma paketləri üçün ayrıca public release deposu tələb olunur. Bu dəyişiklikdən əvvəl tətbiqlərdəki `repository` ünvanını yeniləyin. Cari yayım depo görünürlüğünü dəyişmir.
 
-GitHub-da Releases → Draft a new release → məsələn `v0.2.3` tag → buraxılış adı və quraşdırma qaydası → ZIP və `.sha256` faylını Attach files ilə əlavə edin. Müştəriyə açıq olduqdan sonra həmin relizin keçidini verin. Draft alıcıya görünmür; pre-release avtomatik “latest stable” yoxlamasına düşməyə bilər.
+GitHub-da Releases → Draft a new release → məsələn `v0.2.4` tag → buraxılış adı və quraşdırma qaydası → ZIP və `.sha256` faylını əlavə edin. Faylları yoxladıqdan sonra buraxılışı yayımlayıb Latest kimi qeyd edin. Draft və pre-release `releases/latest` yoxlamasına düşmür.
 
-Alıcıya **Code → Download ZIP** deyil, relizin **Assets** bölməsindəki `RADAZ-0.2.3-Windows-preview.zip` verilir. Source code (zip) quraşdırma paketi deyil. Ayrıca yeni release deposu seçməsəniz, [mövcud Releases səhifəsi](https://github.com/drnaghiyev/RADAZ-D-COM/releases) yalnız repo icazəsi olanlara açılır. Cari 0.2.3 ZIP lokal hazırlanır; GitHub Release kimi dərc edilməsi ayrıca addımdır.
+Alıcıya relizin **Assets** bölməsindəki `RADAZ-0.2.4-Windows-preview.zip` verilir. **Code → Download ZIP** və **Source code (zip)** quraşdırma paketləri deyil. Keçid: [v0.2.4 buraxılışı](https://github.com/drnaghiyev/RADAZ-D-COM/releases/tag/v0.2.4).
+
+Digər kompüterdə RADAZ → **Yardım (?) → Yeniləmələri yoxla** seçin. Yeni paket keçidi açılır; proqram faylları avtomatik əvəzlənmir. Köhnə RADAZ serverini bağlayın, ZIP-i yeni qovluğa açın, **SETUP-RADAZ.cmd**, sonra **START-RADAZ.cmd** başladın. Arxiv mövcud `Documents\RADAZ-Archive` qovluğunda qalır. Yeniləmə xəbərinin keşlənmiş nəticəsi qalarsa ən azı 30 saniyə sonra yenidən yoxlayın.
 
 ## Paket hazırlamaq və yoxlamaq
 

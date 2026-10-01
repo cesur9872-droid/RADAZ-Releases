@@ -86,6 +86,28 @@ class ReceiverTests(unittest.TestCase):
     def test_wrong_called_ae_rejected(self):
         assoc = self.association('NOT_RADAZ'); self.assertFalse(assoc.is_established)
 
+    def test_standard_port_104_echo_and_cr_store(self):
+        # Fixed-port modalities can use 104; do not disturb another local listener.
+        try:
+            self.archive.configure({'aeTitle': 'RADAZ_TEST', 'port': 104, 'enabled': True})
+        except OSError as error:
+            self.skipTest(f'Port 104 is not available on this test host: {error}')
+        self.port = 104
+        assoc = self.association(); self.assertTrue(assoc.is_established)
+        self.assertEqual(assoc.send_c_echo().Status, 0)
+        self.assertEqual(assoc.send_c_store(self.ds).Status, 0)
+        assoc.release()
+        self.assertEqual(self.archive.status()['instanceCount'], 1)
+        with urlopen(self.url + '/studies') as response:
+            self.assertEqual(json.load(response)[0]['modality'], 'CR')
+
+    def test_receiver_port_validation(self):
+        for port in (104, 1024, 11113, 65535):
+            self.assertEqual(Archive.validate({'aeTitle': 'RADAZ_TEST', 'port': port})['port'], port)
+        for port in (0, 80, 443, 1023, 5173, 8765, 8766, 65536):
+            with self.subTest(port=port), self.assertRaises(ValueError):
+                Archive.validate({'aeTitle': 'RADAZ_TEST', 'port': port})
+
     def test_cd_import_then_cstore_same_dataset(self):
         stream=io.BytesIO(); self.ds.save_as(stream,enforce_file_format=True)
         self.archive.store(stream.getvalue(), self.ds)

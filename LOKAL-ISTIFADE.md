@@ -22,6 +22,12 @@ Köhnə brauzer arxivi saxlanılır və siyahıda “Brauzer” kimi göstərili
 
 ## Cihazdan görüntü göndərmək
 
+**CR-də Port ilə RADAZ-dakı DICOM port eyni olmalıdır.** RADAZ 11113-də işləyirsə, CR-nin göndərmə ayarında 104 əvəzinə 11113 yazın. `Called AE Title` RADAZ-dakı `RADAZ_ARCHIVE`, `IP Address` isə RADAZ kompüterinin cari IPv4 ünvanıdır. `Calling AE Title` CR cihazının öz AE adıdır. Brauzerin 5173 portu DICOM göndərmək üçün deyil.
+
+CR-də portu dəyişmək mümkün deyilsə, RADAZ **Local arxiv → Qəbul ayarları → DICOM port** sahəsində 104 seçin və **Saxla və qəbulu başlat** basın. Seçilmiş port başqa proqram tərəfindən istifadə edilməməlidir; xəta olarsa əvvəlki ayarlar bərpa edilir. Standart seçim 11113 olaraq qalır.
+
+Qəbuledicinin “hazırdır” statusu yalnız lokal dinləyicinin işlədiyini göstərir. CR-dən **C-ECHO / Test** edin, sonra bir sınaq müayinəsini **C-STORE / Send** ilə göndərin. Local arxiv 5 saniyədən bir yenilənir. Görünmürsə tarix/modallıq/axtarış filtrlərini təmizləyin. Bağlantı alınmırsa RADAZ kompüterində məhz seçilmiş TCP portunun Windows Firewall-da etibarlı lokal şəbəkə üçün açıq olduğunu yoxlayın. DHCP istifadə edilirsə, kompüterin IP ünvanı dəyişə bilər; CR ayarı cari IP ilə uyğun olmalıdır.
+
 `START-RADAZ.cmd` və ya `corepack pnpm dev` Windows-da daimi qəbuledicini avtomatik başladır. Python 3.10+ lazımdır; DICOM kitabxanaları layihədə mövcuddur, internetdən paket yüklənmir. Brauzeri bağlamaq qəbuledicini dayandırmır. Kompüter yenidən açıldıqdan sonra RADAZ-ı başladın.
 
 **Local arxiv → Qəbul ayarları** bölməsində cari IP, AE Title, port və faktiki baza yolu görünür. İlkin ayarlar:

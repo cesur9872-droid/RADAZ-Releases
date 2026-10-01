@@ -96,8 +96,8 @@ class Archive:
         if not 1 <= len(title) <= 16 or not title.isascii() or re.search(r'[\\\x00-\x1f\x7f]', title):
             raise ValueError('AE Title 1–16 ASCII simvol olmalıdır')
         port = int(config.get('port', 0))
-        if not 1024 <= port <= 65535 or port in (5173, 8765, 8766):
-            raise ValueError('DICOM portu 1024–65535 arası, HTTP portlarından fərqli olmalıdır')
+        if not (port == 104 or 1024 <= port <= 65535) or port in (5173, 8765, 8766):
+            raise ValueError('DICOM portu 104 və ya 1024–65535 arası, HTTP portlarından fərqli olmalıdır')
         if not isinstance(config.get('enabled', True), bool):
             raise ValueError('enabled boolean olmalıdır')
         return {'aeTitle': title, 'port': port, 'enabled': config.get('enabled', True)}
