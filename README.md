@@ -48,6 +48,9 @@ Müddət bitdikdə **PACS və Local arxiv işləyir**. Viewer-də seriya seçimi
 
 - Arxiv/PACS sətrində iki klik mövcud Viewer-ə müayinəni ötürür; vərəqənin önə gəlməsi brauzerin davranışından asılı ola bilər.
 - Cədvəl başlığına klik artan, təkrar klik azalan sıralama verir. Müayinə sayı alt status sətrindədir. Local arxivdə yuxarıdakı Qəbul ayarları düyməsi modal açır.
+- Ctrl + siçan çarxı Viewer/MPR görüntüsünü böyüdür və kiçildir; adi çarx kəsitləri dəyişir. Yardım menyusu Viewer, Local arxiv və PACS başlıqlarında var.
+- Local arxiv və PACS “Bu gün” seçimi ilə açılır. Başqa tarixlər üçün checkbox-u söndürün; PACS sorğusunu “Axtar” ilə yeniləyin.
+- Cədvəldə “Hamısını seç” yalnız görünən müayinələri seçir. Filtri dəyişəndə gizlənən müayinələr seçimdən çıxır. “Sil” təsdiqdən sonra diskdəki və brauzerdəki lokal nüsxələri silir; PACS-də serverin orijinalları saxlanılır.
 - Görüntünün solundakı kiçik checkbox cari görünüşü çap siyahısına əlavə edir.
 - CD/DVD yalnız lokal arxiv və PACS-dan açılır.
 - Hesabat viewer-də uğurla açılmış DICOM dəstini qəbul edir; digər arxiv müayinələri avtomatik daxil edilmir.
@@ -62,6 +65,8 @@ Müddət bitdikdə **PACS və Local arxiv işləyir**. Viewer-də seriya seçimi
 Disk arxivi standart olaraq `Documents\RADAZ-Archive` içindədir. SQLite bazası və DICOM `instances` qovluğunu birlikdə ehtiyat nüsxələyin. Brauzer arxivi həmin brauzer profilindədir və brauzer məlumatlarını təmizləyəndə itə bilər; önəmli müayinələri disk arxivinə saxlayın.
 
 Yeniləmədən əvvəl çalışan RADAZ xidmətlərini bağlayın, arxiv ehtiyat nüsxəsini alın, yeni ZIP-i ayrıca proqram qovluğuna çıxarıb setup/start edin. Arxiv qovluğunu silməyin. Köhnə xidmət açıq qalsa köhnə versiya görünə bilər. Dəstək: [drnaghiyev@gmail.com](mailto:drnaghiyev@gmail.com).
+
+0.2.6-da diskdən silmə üçün yeni arxiv xidməti lazımdır. Köhnə xidmət arxa planda qalıbsa kompüteri yenidən başladın, sonra yeni qovluğun START-RADAZ.cmd faylını açın. Kilidli fayl dərhal silinə bilməzsə proqram bunu bildirir və xidmət növbəti dəfə açıldıqda silməni tamamlayır.
 
 ## İnkişaf və yoxlama
 

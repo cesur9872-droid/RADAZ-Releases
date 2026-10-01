@@ -38,13 +38,22 @@ async function checkHeader(route, width, height) {
   assert.deepEqual(result.clipped, [], `${route} ${width}x${height}: clipped controls`);
   assert.equal(result.headerOverflow, false, `${route} ${width}: header overflow`);
   assert.equal(result.pageOverflow, false, `${route} ${width}: page overflow`);
+  if (route === '/archive' || route === '/pacs') {
+    assert.ok(Math.abs(result.footerBottom - height) <= 1, `Status row must meet viewport bottom at ${route} ${width}: ${result.footerBottom}`);
+  }
+  {
+    const help = page.getByRole('button', { name: 'Yardım və lisenziya', exact: true });
+    assert.equal(await help.isVisible(), true, 'Help must exist and stay visible');
+    const box = await help.boundingBox();
+    assert.ok(box.y >= 0 && box.y + box.height <= height && box.x + box.width <= width);
+  }
   if (route === '/archive') {
-    assert.ok(result.footerBottom <= height + 1, `Archive footer outside viewport at ${width}`);
     assert.ok(result.archiveRows.every(value => value >= 65), `Archive rows collapsed at ${width}`);
   }
 }
 
 try {
+  await page.request.get(`${process.env.RADAZ_FIXTURE_URL || process.env.RADAZ_TEST_URL || 'http://localhost:5186'}/test-reset`);
   for (const route of ['/', '/archive', '/pacs', '/mpr', '/3d']) {
     await page.goto(`${process.env.RADAZ_TEST_URL || 'http://localhost:5186'}${route}`);
     await page.locator('main>header').waitFor();

@@ -146,6 +146,61 @@ class ReceiverTests(unittest.TestCase):
             urlopen(Request(self.url+'/status',headers={'Origin':'https://untrusted.example'}))
         self.assertEqual(error.exception.code,403)
 
+    def save_image(self, ds):
+        stream = io.BytesIO(); ds.save_as(stream, enforce_file_format=True)
+        self.archive.store(stream.getvalue(), ds)
+
+    def test_bulk_delete_removes_only_selected_files_and_survives_restart(self):
+        other = image()
+        self.save_image(self.ds); self.save_image(other)
+        with self.archive.connect() as db:
+            keep = self.root / db.execute('SELECT path FROM instances WHERE sop=?', (other.SOPInstanceUID,)).fetchone()[0]
+            removed = self.root / db.execute('SELECT path FROM instances WHERE sop=?', (self.ds.SOPInstanceUID,)).fetchone()[0]
+            db.execute('INSERT INTO opened VALUES (?,1)', (self.ds.StudyInstanceUID,))
+        data = json.dumps({'studies': [self.ds.StudyInstanceUID]}).encode()
+        with urlopen(Request(self.url + '/studies/delete', data, headers={'Content-Type': 'application/json'})) as response:
+            result = json.load(response)
+        self.assertEqual(result['deleted'], 1)
+        self.assertGreater(result['freedBytes'], 0)
+        self.assertEqual(result['pendingBytes'], 0)
+        self.assertFalse(removed.exists()); self.assertTrue(keep.exists())
+        self.assertEqual([s['uid'] for s in Archive(self.root).studies()], [other.StudyInstanceUID])
+        with self.archive.connect() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM opened').fetchone()[0], 0)
+        self.assertEqual(self.archive.delete_studies([self.ds.StudyInstanceUID])['deleted'], 0)
+
+    def test_delete_rejects_invalid_batch_origin_and_path_without_removing_data(self):
+        self.save_image(self.ds)
+        for payload in ([], '1.2.3', [self.ds.StudyInstanceUID, '../escape']):
+            with self.assertRaises(ValueError): self.archive.delete_studies(payload)
+        data = json.dumps({'studies': [self.ds.StudyInstanceUID]}).encode()
+        with self.assertRaises(HTTPError) as error:
+            urlopen(Request(self.url + '/studies/delete', data, headers={'Content-Type': 'application/json', 'Origin': 'https://untrusted.example'}))
+        self.assertEqual(error.exception.code, 403)
+        with self.archive.connect() as db:
+            db.execute("UPDATE instances SET path='../outside.dcm'")
+        with self.assertRaises(ValueError): self.archive.delete_studies([self.ds.StudyInstanceUID])
+        self.assertEqual(self.archive.status()['instanceCount'], 1)
+
+    def test_locked_file_cleanup_retries_after_restart(self):
+        self.save_image(self.ds)
+        with patch.object(Path, 'unlink', side_effect=PermissionError('locked')):
+            result = self.archive.delete_studies([self.ds.StudyInstanceUID])
+        self.assertGreater(result['pendingBytes'], 0)
+        self.assertEqual(result['freedBytes'], 0)
+        self.assertEqual(self.archive.studies(), [])
+        self.assertEqual(len(list((self.root / 'instances').rglob('*.dcm'))), 1)
+        Archive(self.root)
+        self.assertEqual(list((self.root / 'instances').rglob('*.dcm')), [])
+
+    def test_failed_delete_transaction_keeps_files_and_index(self):
+        self.save_image(self.ds)
+        with self.archive.connect() as db:
+            db.execute("CREATE TRIGGER fail_delete BEFORE DELETE ON instances BEGIN SELECT RAISE(ABORT, 'simulated'); END")
+        with self.assertRaises(Exception): self.archive.delete_studies([self.ds.StudyInstanceUID])
+        self.assertEqual(self.archive.status()['instanceCount'], 1)
+        self.assertEqual(len(list((self.root / 'instances').rglob('*.dcm'))), 1)
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

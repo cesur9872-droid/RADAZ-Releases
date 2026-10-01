@@ -7,8 +7,10 @@ import { Activity, ExternalLink, Network, Plus, Search, Settings2, Trash2, Wifi,
 import { queryRemoteSeries, queryRemoteStudies, retrieveRemoteStudy, type RemoteSeries, type RemoteStudy } from '@/lib/dicomweb';
 import { echoDimse, getDimseBridgeVersion, queryDimseSeries, queryDimseStudies, retrieveDimseStudy } from '@/lib/pacs-bridge';
 import { preparePacsTransferTab } from '@/lib/pacs-transfer-tab';
-import { recordStudyOpened, saveArchiveFiles } from '@/lib/local-archive';
-import { StudyFilterControls } from '@/components/study-filter-controls';
+import { deleteLocalStudies, listArchiveStudies, recordStudyOpened, saveArchiveFiles } from '@/lib/local-archive';
+import { AppHelpMenu } from '@/components/app-product';
+import { useStudySelection } from '@/components/study-selection';
+import { StudyFilterControls, localDate } from '@/components/study-filter-controls';
 
 type PacsLocation = { id: string; host: string; port: string; aeTitle: string; description: string; dicomwebUrl: string };
 const blank = (): PacsLocation => ({ id: '', host: '', port: '11112', aeTitle: '', description: '', dicomwebUrl: '' });
@@ -33,8 +35,8 @@ export default function PacsPage() {
   const [busy, setBusy] = useState(false);
   const studyQuery = useRef(0), openingStudy = useRef(false);
   const [patient, setPatient] = useState('');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  const [dateFrom, setDateFrom] = useState(localDate);
+  const [dateTo, setDateTo] = useState(localDate);
   const [modalities, setModalities] = useState<string[]>([]);
   const [studies, setStudies] = useState<RemoteStudy[]>([]);
   const [hasSearched, setHasSearched] = useState(false);
@@ -45,8 +47,10 @@ export default function PacsPage() {
   const [series, setSeries] = useState<RemoteSeries[]>([]);
   const [checked, setChecked] = useState<string[]>([]);
   const location = locations.find(item => item.id === selected);
-  const activeStudy = studies.find(item => item.uid === study);
-  const studySort=useTableSort(studies,{date:r=>r.date,patient:r=>r.patient,patientId:r=>r.patientId,modality:r=>r.modality,description:r=>r.description,seriesCount:r=>r.seriesCount,instanceCount:r=>r.instanceCount},{key:'date',direction:'desc'});
+  const visibleStudies = studies.filter(item => (!dateFrom || item.date >= dateFrom.replaceAll('-', '')) && (!dateTo || item.date <= dateTo.replaceAll('-', '')) && (!modalities.length || modalities.some(modality => item.modality.split(/[\\/,\s]+/).includes(modality))));
+  const selection = useStudySelection(visibleStudies.map(item => item.uid));
+  const activeStudy = visibleStudies.find(item => item.uid === study);
+  const studySort=useTableSort(visibleStudies,{date:r=>r.date,patient:r=>r.patient,patientId:r=>r.patientId,modality:r=>r.modality,description:r=>r.description,seriesCount:r=>r.seriesCount,instanceCount:r=>r.instanceCount},{key:'date',direction:'desc'});
   const seriesSort=useTableSort(series,{number:r=>r.number,modality:r=>r.modality,description:r=>r.description,instanceCount:r=>r.instanceCount},{key:'number',direction:'asc'});
   const nodeSort=useTableSort(locations,{host:r=>r.host,port:r=>Number(r.port),aeTitle:r=>r.aeTitle,description:r=>r.description,dicomwebUrl:r=>r.dicomwebUrl},{key:'description',direction:'asc'});
   const canSearch = !!location && (!!location.dicomwebUrl || !!(location.host && location.aeTitle));
@@ -80,6 +84,7 @@ export default function PacsPage() {
     setEditor(location || blank()); setConfigStatus(''); setConfigOpen(true);
   };
   const choose = (item: PacsLocation) => {
+    selection.clear();
     setSelected(item.id); setEditor(item); setStudies([]); setSeries([]); setStudy(''); setHasSearched(false); setSearchError(''); setDimseReady(''); setBridgeVersion(null);
   };
   const save = () => {
@@ -144,6 +149,7 @@ export default function PacsPage() {
   const search = async () => {
     if (!location || !canSearch) { setStatus('PACS serverinin IP, port və AE Title məlumatlarını tamamlayın'); return; }
     setBusy(true); setStatus('PACS müayinələri axtarılır…'); setSearchError('');
+    selection.clear();
     setStudies([]); setStudy(''); setSeries([]); setChecked([]); setHasSearched(false);
     try {
       const response = location.dicomwebUrl
@@ -223,6 +229,19 @@ export default function PacsPage() {
     finally { setBusy(false); }
   };
 
+  const removeCopies = async () => {
+    const ids = selection.checked.length ? selection.checked : activeStudy ? [activeStudy.uid] : [];
+    if (busy || !ids.length) return;
+    setBusy(true);
+    try {
+      const copies = (await listArchiveStudies(true)).filter(item => ids.includes(item.uid));
+      if (!copies.length) { setStatus('Seçilmiş müayinələrin bu kompüterdə endirilmiş nüsxəsi yoxdur'); return; }
+      if (!window.confirm(`${copies.length} müayinənin bu kompüterdəki nüsxələri birdəfəlik silinsin? PACS serverindəki orijinallar saxlanılır.`)) return;
+      setStatus(await deleteLocalStudies(copies)); selection.clear();
+    } catch (error) { setStatus(error instanceof Error ? error.message : String(error)); }
+    finally { setBusy(false); }
+  };
+
   return <main className="pacs-shell grouped-records">
     <header className="records-header records-unified-header pacs-unified-header">
       <div className="pacs-query records-header-filters">
@@ -233,15 +252,15 @@ export default function PacsPage() {
         <button className="pacs-check-button" title="Əlaqəni yoxla" aria-label="PACS əlaqəsini yoxla" disabled={busy || !canSearch} onClick={() => { void test(); }}><RefreshCw size={16}/></button>
         <label className="pacs-token">Bearer token <input aria-label="PACS Bearer token" type="password" autoComplete="off" placeholder={location?.dicomwebUrl ? 'Yalnız bu vərəqədə istifadə edilir' : 'Yalnız DICOMweb üçün'} disabled={!location?.dicomwebUrl} value={token} onChange={event => setToken(event.currentTarget.value)}/></label>
       </div>
-      <div className="records-header-actions"><button type="button" title="PACS konfiqurasiyası" onClick={openConfig} aria-label="PACS konfiqurasiyasını aç"><Settings2 size={18}/><span>PACS ayarları</span></button></div>
+      <div className="records-header-actions"><button disabled={busy || (!selection.checked.length && !activeStudy)} onClick={() => void removeCopies()} title="Bu kompüterə endirilmiş nüsxələri sil"><Trash2 size={16}/><span>Lokal nüsxələri sil{selection.checked.length ? ` (${selection.checked.length})` : ''}</span></button><button type="button" title="PACS konfiqurasiyası" onClick={openConfig} aria-label="PACS konfiqurasiyasını aç"><Settings2 size={18}/><span>PACS ayarları</span></button><AppHelpMenu/></div>
     </header>
     <div className="pacs-content">
       <div className="pacs-browser"><div className="pacs-card-title"><Network size={19}/><div><strong>PACS müayinələri</strong><span>{location ? `${location.description || location.host || location.aeTitle || location.dicomwebUrl} · ${location.dicomwebUrl ? 'DICOMweb' : 'DICOM C-FIND'}` : 'Server seçin'}</span></div></div>
         {location && !location.dicomwebUrl && dimseReady !== location.id && <div className="pacs-connect-note">IP/port əlaqəsi üçün bu kompüterdə <a href="/radaz-pacs-bridge-v4.zip" download>RADAZ PACS körpüsünü endirin</a>, ZIP-i açıb <strong>start-radaz-pacs.cmd</strong> faylını başladın. Köhnə körpü işləyirsə bağlayıb yeni versiyanı açın. Chrome soruşsa, lokal şəbəkəyə icazə verin.</div>}
         {location && !location.dicomwebUrl && dimseReady === location.id && bridgeVersion !== null && bridgeVersion < 3 && <div className="pacs-connect-note">Axtarış işləyir, amma bu körpü görüntü endirmir. Köhnə körpünü bağlayın, <a href="/radaz-pacs-bridge-v4.zip" download>yeni v4 ZIP-ni endirin</a> və <strong>start-radaz-pacs.cmd</strong> faylını başladın.</div>}
-        <div className="pacs-results"><table className="records-table" aria-label="PACS müayinələri"><thead><tr><th>Aç</th><SortHeader column="date" label="Tarix" {...studySort}/><SortHeader column="patient" label="Pasiyent" {...studySort}/><SortHeader column="patientId" label="Pasiyent ID" {...studySort}/><SortHeader column="modality" label="Modallıq" {...studySort}/><SortHeader column="description" label="Təsvir" {...studySort}/><SortHeader column="seriesCount" label="Seriya" {...studySort}/><SortHeader column="instanceCount" label="Görüntü" {...studySort}/></tr></thead><tbody>{studySort.rows.map(item => <tr key={item.uid} className={study === item.uid ? 'selected' : ''} onClick={() => { void chooseStudy(item); }} onDoubleClick={() => { void chooseStudy(item, true); }} title="İki dəfə klikləyib Viewer-də açın"><td><button className="record-open-button" disabled={busy} aria-label={`${item.patient} müayinəsini viewer-də aç`} onClick={event => { event.stopPropagation(); void chooseStudy(item, true); }}><ExternalLink size={16}/></button></td><td>{date(item.date)}</td><td>{item.patient}</td><td>{item.patientId || '—'}</td><td>{item.modality}</td><td>{item.description || '—'}</td><td>{item.seriesCount}</td><td>{item.instanceCount}</td></tr>)}</tbody></table>{!studies.length && <div className={`records-empty${searchError ? ' pacs-search-error' : ''}`} role={searchError ? 'alert' : undefined}>{searchError || (hasSearched ? 'Filtrə uyğun müayinə tapılmadı' : 'PACS ünvanını seçin və müayinə axtarın')}</div>}</div>
-        <div className="pacs-series-title"><strong>{activeStudy ? `${activeStudy.patient} · seriyalar` : 'Seriyalar'}</strong><div className="pacs-series-actions"><button className="records-primary" disabled={busy || !checked.length} onClick={() => { void retrieve('media'); }}><Disc3 size={16}/> CD / DVD</button><button className="records-primary" disabled={busy || !checked.length} onClick={() => { void retrieve('viewer'); }}><Download size={16}/> Arxivə endir və aç</button></div></div>
-        <div className="pacs-series-scroll"><table className="records-table" aria-label="PACS seriyaları"><thead><tr><th>Seç</th><th>Aç</th><SortHeader column="number" label="#" {...seriesSort}/><SortHeader column="modality" label="Modallıq" {...seriesSort}/><SortHeader column="description" label="Təsvir" {...seriesSort}/><SortHeader column="instanceCount" label="Görüntü" {...seriesSort}/></tr></thead><tbody>{seriesSort.rows.map(item => <tr key={item.uid} onDoubleClick={() => void retrieve('viewer', item.uid)}><td><input type="checkbox" aria-label={`${item.description} seç`} checked={checked.includes(item.uid)} onChange={event => setChecked(current => event.currentTarget.checked ? [...current, item.uid] : current.filter(uid => uid !== item.uid))}/></td><td><button className="record-open-button" disabled={busy} aria-label={`${item.description || 'Seriya'} viewer-də aç`} onClick={() => void retrieve('viewer', item.uid)}><ExternalLink size={16}/></button></td><td>{item.number}</td><td>{item.modality}</td><td>{item.description}</td><td>{item.instanceCount}</td></tr>)}</tbody></table></div>
+        <div className="pacs-results"><table className="records-table" aria-label="PACS müayinələri"><thead><tr><th className="study-check-column">{selection.all}</th><th className="study-open-column">Aç</th><SortHeader column="date" label="Tarix" {...studySort}/><SortHeader column="patient" label="Pasiyent" {...studySort}/><SortHeader column="patientId" label="Pasiyent ID" {...studySort}/><SortHeader column="modality" label="Modallıq" {...studySort}/><SortHeader column="description" label="Təsvir" {...studySort}/><SortHeader column="seriesCount" label="Seriya" {...studySort}/><SortHeader column="instanceCount" label="Görüntü" {...studySort}/></tr></thead><tbody>{studySort.rows.map(item => <tr key={item.uid} className={study === item.uid ? 'selected' : ''} onClick={() => { void chooseStudy(item); }} onDoubleClick={() => { void chooseStudy(item, true); }} title="İki dəfə klikləyib Viewer-də açın"><td onClick={event => event.stopPropagation()} onDoubleClick={event => event.stopPropagation()}><input type="checkbox" aria-label={`${item.patient} müayinəsini seç`} checked={selection.checked.includes(item.uid)} onChange={event => selection.toggle(item.uid, event.currentTarget.checked)}/></td><td><button className="record-open-button" disabled={busy} aria-label={`${item.patient} müayinəsini viewer-də aç`} onClick={event => { event.stopPropagation(); void chooseStudy(item, true); }}><ExternalLink size={16}/></button></td><td>{date(item.date)}</td><td>{item.patient}</td><td>{item.patientId || '—'}</td><td>{item.modality}</td><td>{item.description || '—'}</td><td>{item.seriesCount}</td><td>{item.instanceCount}</td></tr>)}</tbody></table>{!visibleStudies.length && <div className={`records-empty${searchError ? ' pacs-search-error' : ''}`} role={searchError ? 'alert' : undefined}>{searchError || (hasSearched ? 'Filtrə uyğun müayinə tapılmadı' : 'PACS ünvanını seçin və müayinə axtarın')}</div>}</div>
+        <div className="pacs-series-title"><strong>{activeStudy ? `${activeStudy.patient} · seriyalar` : 'Seriyalar'}</strong><div className="pacs-series-actions"><button className="records-primary" disabled={busy || !activeStudy || !checked.length} onClick={() => { void retrieve('media'); }}><Disc3 size={16}/> CD / DVD</button><button className="records-primary" disabled={busy || !activeStudy || !checked.length} onClick={() => { void retrieve('viewer'); }}><Download size={16}/> Arxivə endir və aç</button></div></div>
+        <div className="pacs-series-scroll"><table className="records-table" aria-label="PACS seriyaları"><thead><tr><th>Seç</th><th>Aç</th><SortHeader column="number" label="#" {...seriesSort}/><SortHeader column="modality" label="Modallıq" {...seriesSort}/><SortHeader column="description" label="Təsvir" {...seriesSort}/><SortHeader column="instanceCount" label="Görüntü" {...seriesSort}/></tr></thead><tbody>{(activeStudy ? seriesSort.rows : []).map(item => <tr key={item.uid} onDoubleClick={() => void retrieve('viewer', item.uid)}><td><input type="checkbox" aria-label={`${item.description} seç`} checked={checked.includes(item.uid)} onChange={event => setChecked(current => event.currentTarget.checked ? [...current, item.uid] : current.filter(uid => uid !== item.uid))}/></td><td><button className="record-open-button" disabled={busy} aria-label={`${item.description || 'Seriya'} viewer-də aç`} onClick={() => void retrieve('viewer', item.uid)}><ExternalLink size={16}/></button></td><td>{item.number}</td><td>{item.modality}</td><td>{item.description}</td><td>{item.instanceCount}</td></tr>)}</tbody></table></div>
       </div>
     </div>
     <dialog ref={modalRef} className="pacs-modal" aria-labelledby="pacs-modal-title" onCancel={() => setConfigOpen(false)} onClose={() => setConfigOpen(false)}>
@@ -255,6 +274,6 @@ export default function PacsPage() {
         <div className="pacs-modal-footer"><span role="status">{configStatus || 'Server ünvanları və AE ayarları bu brauzerdə saxlanılır'}</span><button type="button" className="records-primary" onClick={saveConfig}>Yadda saxla və bağla</button></div>
       </div>
     </dialog>
-    <footer className="records-status" role="status">{busy && <span className="records-spinner"/>}<span className="records-count">{studies.length} müayinə · {series.length} seriya</span><span>{status}</span></footer>
+    <footer className="records-status" role="status">{busy && <span className="records-spinner"/>}<span className="records-count">{selection.checked.length > 0 && `${selection.checked.length} seçilib · `}{visibleStudies.length} müayinə · {series.length} seriya</span><span>{status}</span></footer>
   </main>;
 }

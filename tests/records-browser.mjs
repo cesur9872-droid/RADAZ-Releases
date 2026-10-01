@@ -5,11 +5,13 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {createOwnerConsole} from '../billing/owner-console.mjs';
 const product=JSON.parse(readFileSync(new URL('../public/product.json',import.meta.url),'utf8'));
-const studies=[['2','Z SINAQ','20260930',2],['10','A SINAQ','20261001',10]].map(([id,patient,date,imageCount])=>({
+const day = offset => { const d=new Date(); d.setDate(d.getDate()+offset); return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10).replaceAll('-',''); };
+const studies=[['2','Z SINAQ',day(0),2],['10','A SINAQ',day(-1),10]].map(([id,patient,date,imageCount])=>({
  storage:'disk',uid:`1.2.826.0.1.${id}`,patient,date,imageCount,time:'120000',patientId:`TEST-${id}`,birth:'',modality:'CT',description:'Sintetik UI yoxlaması',accession:id,referring:'',size:0,addedAt:1,openedAt:null,
  series:[10,2].map(number=>({uid:`1.2.826.0.1.${id}.${number}`,number:String(number),modality:'CT',description:`Seriya ${number}`,protocol:'Sınaq',imageCount:number,addedAt:1})),
 }));
-let status={aeTitle:'TEST_ARCHIVE',port:11113,enabled:true,running:true,error:'',addresses:['127.0.0.1'],databasePath:'Synthetic UI fixture / archive.sqlite3',storagePath:'Synthetic UI fixture / instances',instanceCount:12,size:0};
+let deleted=[];
+let status={capabilities:['delete-studies'],aeTitle:'TEST_ARCHIVE',port:11113,enabled:true,running:true,error:'',addresses:['127.0.0.1'],databasePath:'Synthetic UI fixture / archive.sqlite3',storagePath:'Synthetic UI fixture / instances',instanceCount:12,size:0};
 const value=(v,vr='LO')=>({vr,Value:[v]});
 http.createServer((req,res)=>{
  const path=new URL(req.url,'http://localhost').pathname;
@@ -17,7 +19,10 @@ http.createServer((req,res)=>{
  if(path==='/product.json')return json({...product,licenseRequired:true});
  if(path==='/local-archive-api/license')return json({valid:true,required:true,deviceId:'SYNTHETIC-UI-TEST',message:'Yalnız sintetik brauzer sınağı.'});
  if(path==='/local-archive-api/status')return json(status);
- if(path==='/local-archive-api/studies')return json(studies);
+ if(path==='/local-archive-api/studies')return json(studies.filter(s=>!deleted.includes(s.uid)));
+ if(path==='/local-archive-api/studies/delete'){let body='';req.on('data',chunk=>body+=chunk);req.on('end',()=>{deleted.push(...JSON.parse(body).studies);json({freedBytes:1234,pendingBytes:0});});return;}
+ if(path==='/test-reset'){deleted=[];return json({ok:true});}
+ if(path==='/test-deleted')return json(deleted);
  if(path==='/local-archive-api/settings'){let body='';req.on('data',chunk=>body+=chunk);req.on('end',()=>{const input=JSON.parse(body);status={...status,...input,running:input.enabled};json(status);});return;}
  if(path==='/local-archive-api/billing/catalog')return json({enabled:false,monthly:10,currency:'AZN',maxMonths:120});
  if(path==='/local-archive-api/updates')return json({state:'current',message:'Sintetik UI sınağı.'});

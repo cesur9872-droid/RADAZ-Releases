@@ -78,6 +78,8 @@ class Archive:
                 added INTEGER NOT NULL, metadata TEXT NOT NULL)''')
             db.execute('CREATE INDEX IF NOT EXISTS study_index ON instances(study)')
             db.execute('CREATE TABLE IF NOT EXISTS opened (study TEXT PRIMARY KEY, stamp INTEGER NOT NULL)')
+            db.execute('CREATE TABLE IF NOT EXISTS pending_delete (path TEXT PRIMARY KEY, size INTEGER NOT NULL)')
+        self.cleanup_deleted()
 
     @contextmanager
     def connect(self):
@@ -220,12 +222,53 @@ class Archive:
                         'number': json.loads(row['metadata'])['instanceNumber']} for row in rows],
                       key=lambda item: (item['series'], item['number']))
 
+    def deletion_path(self, relative):
+        # Only our content-addressed instance files may be removed, even if the DB is damaged.
+        if not re.fullmatch(r'instances/[0-9a-f]{2}/[0-9a-f]{64}\.dcm', relative):
+            raise ValueError('Arxiv faylının yolu düzgün deyil')
+        path = (self.root / relative).resolve()
+        path.relative_to(self.root / 'instances')
+        return path
+
+    def cleanup_deleted(self):
+        freed = 0
+        with self.lock, self.connect() as db:
+            for row in db.execute('SELECT path,size FROM pending_delete').fetchall():
+                # A later C-STORE may have restored an identical file after a crash.
+                if not db.execute('SELECT 1 FROM instances WHERE path=?', (row['path'],)).fetchone():
+                    try:
+                        self.deletion_path(row['path']).unlink(missing_ok=True)
+                        freed += row['size']
+                    except (OSError, ValueError):
+                        continue
+                db.execute('DELETE FROM pending_delete WHERE path=?', (row['path'],))
+            pending = db.execute('SELECT COALESCE(SUM(size),0) FROM pending_delete').fetchone()[0]
+        return {'freedBytes': freed, 'pendingBytes': pending}
+
+    def delete_studies(self, studies):
+        if not isinstance(studies, list) or not 1 <= len(studies) <= 500:
+            raise ValueError('1–500 müayinə seçin')
+        studies = list(dict.fromkeys(uid(study) for study in studies))
+        placeholders = ','.join('?' for _ in studies)
+        with self.lock:
+            with self.connect() as db:
+                rows = db.execute(f'SELECT study,path,size FROM instances WHERE study IN ({placeholders})', studies).fetchall()
+                for row in rows:
+                    self.deletion_path(row['path'])
+                # Commit the removal intent before unlinking: interruption cannot leave
+                # live DB records pointing at files we have already deleted.
+                db.executemany('INSERT OR IGNORE INTO pending_delete VALUES (?,?)', [(r['path'], r['size']) for r in rows])
+                db.execute(f'DELETE FROM instances WHERE study IN ({placeholders})', studies)
+                db.execute(f'DELETE FROM opened WHERE study IN ({placeholders})', studies)
+            return {'deleted': len({row['study'] for row in rows}), **self.cleanup_deleted()}
+
     def status(self):
         with self.connect() as db:
             total = db.execute('SELECT COUNT(*), COALESCE(SUM(size),0) FROM instances').fetchone()
         return {**self.config, 'running': self.server is not None, 'error': self.error,
                 'addresses': addresses(), 'databasePath': str(self.root / 'archive.sqlite3'),
-                'storagePath': str(self.root / 'instances'), 'instanceCount': total[0], 'size': total[1], 'version': 1}
+                'storagePath': str(self.root / 'instances'), 'instanceCount': total[0], 'size': total[1], 'version': 1,
+                'capabilities': ['delete-studies']}
 
 
 def handler_for(archive):
@@ -314,7 +357,7 @@ def handler_for(archive):
                 self.respond({'error':'Origin icazəli deyil'},403); return
             try:
                 length = int(self.headers.get('Content-Length','0'))
-                limit = MAX_FILE if self.path in ('/import','/media/prepare','/video') else 192 * 1024 * 1024 if self.path == '/print' else 8192
+                limit = MAX_FILE if self.path in ('/import','/media/prepare','/video') else 192 * 1024 * 1024 if self.path == '/print' else 65536 if self.path == '/studies/delete' else 8192
                 if not 0 < length <= limit:
                     self.respond({'error':'Sorğu ölçüsü düzgün deyil'},413); return
                 data = self.rfile.read(length)
@@ -334,6 +377,10 @@ def handler_for(archive):
                     ds = pydicom.dcmread(io.BytesIO(data), force=True)
                     archive.store(data, ds)
                     self.respond({'ok':True})
+                elif self.path == '/studies/delete':
+                    if self.headers.get_content_type() != 'application/json':
+                        self.respond({'error':'JSON tələb olunur'},415); return
+                    self.respond(archive.delete_studies(json.loads(data)['studies']))
                 elif self.path == '/settings':
                     if self.headers.get_content_type() != 'application/json':
                         self.respond({'error':'JSON tələb olunur'},415); return

@@ -113,6 +113,8 @@ function ViewportPane({ cursor, onCursor, hideText, id, series, initialImageId, 
   onSelectMark: (id: string) => void; onSelect: () => void; onToggleMaximize: () => void; onDropSeries: (id: string) => void;
 }) {
   const {limited}=useViewerLicense();
+  const limitedRef = useRef(limited);
+  limitedRef.current = limited;
   const elementRef = useRef<HTMLDivElement>(null);
   const groupRef = useRef<any>(null);
   const requestRef = useRef(0);
@@ -179,20 +181,31 @@ function ViewportPane({ cursor, onCursor, hideText, id, series, initialImageId, 
       element.addEventListener(viewer.core.Enums.Events.IMAGE_RENDERED, sync);
       const wheel = (ev: WheelEvent) => {
         ev.preventDefault();
+        ev.stopPropagation();
         const vp = viewer.engine.getViewport(viewportId) as Core.Types.IStackViewport;
         const imageIds = vp?.getImageIds?.() || [];
         const direction = Math.sign(ev.deltaY);
         if (!imageIds.length || !direction) return;
+        if (ev.ctrlKey) {
+          if (!limitedRef.current) {
+            const delta = ev.deltaY * (ev.deltaMode === 1 ? 16 : ev.deltaMode === 2 ? element.clientHeight : 1);
+            vp.setZoom(Math.max(0.1, Math.min(20, vp.getZoom() * Math.exp(-Math.max(-200, Math.min(200, delta)) * 0.002))));
+            vp.render();
+          }
+          return;
+        }
         const next = (vp.getCurrentImageIdIndex() + direction + imageIds.length) % imageIds.length;
         void vp.setImageIdIndex(next);
       };
-      element.addEventListener('wheel', wheel, { passive: false });
+      // Capture on the whole panel so drawing/localizer overlays use the same controls.
+      const panel = element.parentElement!;
+      panel.addEventListener('wheel', wheel, { passive: false, capture: true });
       (element as any).__cleanup = () => {
         resizeObserver.disconnect();
         element.removeEventListener(viewer.core.Enums.Events.STACK_NEW_IMAGE, sync);
         element.removeEventListener(viewer.core.Enums.Events.VOI_MODIFIED, sync);
         element.removeEventListener(viewer.core.Enums.Events.IMAGE_RENDERED, sync);
-        element.removeEventListener('wheel', wheel);
+        panel.removeEventListener('wheel', wheel, { capture: true });
       };
       setViewport(viewer.engine.getViewport(viewportId) as Core.Types.IStackViewport);
       setEnabled(true);
@@ -805,6 +818,7 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
           <button className="mpr-reset volume-reset" type="button" onClick={() => setVolumeResetToken(value => value+1)} title="3D görünüşün bucaq, zoom və mövqeyini sıfırla" aria-label="3D görünüşü sıfırla"><RotateCcw size={15}/><span>Görünüşü sıfırla</span></button>
         </div>
       </>}
+      <div className="toolbar-group help-command"><AppHelpMenu/></div>
       <div className="top-actions">
 
         {!limited && detachedMode !== '3d' && <div className="toolbar-group" role="group" aria-label="Görüntünün görünüşü">
@@ -831,7 +845,6 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
         <Button variant="ghost" className="header-control fit-button" onClick={() => setResetToken(x => x + 1)} title="Ekrana sığdır"><Focus size={17}/><span>Ekrana sığdır</span></Button>
         </div>}
         {limited&&<div className="toolbar-group limited-viewer-tools" title="Lisenziyanı aktivləşdirin"><span>Yalnız listələmə</span>{['Pəncərə','Yaxınlaşdır','Ölçmə','Çap','İxrac'].map(label=><Button key={label} disabled className="header-control">{label}</Button>)}</div>}
-        <div className="toolbar-group help-command"><AppHelpMenu/></div>
         <input hidden ref={fileRef} type="file" multiple onChange={e => { const files = Array.from(e.currentTarget.files || []); e.currentTarget.value = ''; void openSources(files); }}/>
         <input hidden ref={folderRef} type="file" multiple onChange={e => { const files = Array.from(e.currentTarget.files || []); e.currentTarget.value = ''; queueFiles(files, 'Qovluq'); }}/>
         <input hidden ref={cdRef} type="file" multiple onChange={e => { const files = Array.from(e.currentTarget.files || []); e.currentTarget.value = ''; queueFiles(files, 'CD'); }}/>

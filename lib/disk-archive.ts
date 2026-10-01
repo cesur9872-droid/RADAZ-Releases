@@ -1,6 +1,7 @@
 import type { ArchiveStudy } from './local-archive';
 
 export type ArchiveReceiverStatus = {
+  capabilities?: string[];
   aeTitle: string; port: number; enabled: boolean; running: boolean; error: string;
   addresses: string[]; databasePath: string; storagePath: string; instanceCount: number; size: number;
 };
@@ -43,3 +44,8 @@ export async function saveDiskFiles(files: File[], onProgress?: (done: number, t
 export const diskStudyOpened = async (study: string) => request('/opened', {
   method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ study }),
 });
+export async function deleteDiskStudies(studies: string[]): Promise<{ freedBytes: number; pendingBytes: number }> {
+  const status = await receiverStatus();
+  if (!status.capabilities?.includes('delete-studies')) throw new Error('Diskdən silmə üçün arxiv xidmətini yeniləyin: kompüteri yenidən başladıb yeni versiyanın START-RADAZ.cmd faylını açın.');
+  return (await request('/studies/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ studies }) }, 120000)).json();
+}

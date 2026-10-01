@@ -1,4 +1,4 @@
-import { diskFiles, diskStudies, diskStudyOpened, receiverStatus, saveDiskFiles, hasLocalArchiveEndpoint } from './disk-archive';
+import { deleteDiskStudies, diskFiles, diskStudies, diskStudyOpened, receiverStatus, saveDiskFiles, hasLocalArchiveEndpoint } from './disk-archive';
 import { parseDicomFile } from './dicom-file';
 
 const DATABASE = 'radaz-local-archive';
@@ -94,6 +94,22 @@ export async function deleteArchiveStudy(studyUID: string): Promise<void> {
   } finally { db.close(); }
 }
 
+/** Remove permanent files first; a receiver failure must preserve the browser copy. */
+export async function deleteLocalStudies(studies: ArchiveStudy[]) {
+  let deleted = 0, pendingBytes = 0;
+  for (let start = 0; start < studies.length; start += 100) {
+    const batch = studies.slice(start, start + 100);
+    try {
+      if (hasLocalArchiveEndpoint()) {
+        const result = await deleteDiskStudies(batch.map(study => study.uid));
+        pendingBytes = result.pendingBytes;
+      } else if (batch.some(study => study.storage === 'disk')) throw new Error('Disk arxivinə bağlantı yoxdur');
+      for (const study of batch) { await deleteArchiveStudy(study.uid); deleted++; }
+    } catch (error) { throw new Error(`${deleted} müayinə silindi. ${error instanceof Error ? error.message : String(error)}`); }
+  }
+  return `${deleted} müayinənin lokal nüsxələri silindi${pendingBytes ? ' · Bəzi fayllar kilidlidir; disk yerini tam boşaltmaq üçün arxiv xidmətini yenidən başladın.' : ''}`;
+}
+
 /** Browser cache plus, when available, the local PC's permanent disk archive. */
 export async function saveArchiveFiles(files: File[], onProgress?: (done: number, total: number) => void): Promise<number> {
   const groups = new Map<string, { study: ArchiveStudy; instances: StoredInstance[]; series: Map<string, ArchiveSeries> }>();
@@ -171,9 +187,9 @@ export async function saveArchiveFiles(files: File[], onProgress?: (done: number
 }
 
 /** Merge the existing browser archive with the permanent local receiver. */
-export async function listArchiveStudies(): Promise<ArchiveStudy[]> {
+export async function listArchiveStudies(requireDisk = false): Promise<ArchiveStudy[]> {
   const browser = await browserListArchiveStudies();
-  const disk = hasLocalArchiveEndpoint() ? await diskStudies().catch(() => [] as ArchiveStudy[]) : [];
+  const disk = hasLocalArchiveEndpoint() ? await diskStudies().catch(error => { if (requireDisk) throw error; return [] as ArchiveStudy[]; }) : [];
   const entries = new Map(browser.map(item => [item.uid, { ...item, storage: 'browser' as const }] as [string, ArchiveStudy]));
   for (const study of disk) entries.set(study.uid, study);
   return [...entries.values()].sort((a, b) => b.date.localeCompare(a.date) || b.addedAt - a.addedAt);

@@ -3,12 +3,14 @@ import { openStudyInViewer } from '@/lib/viewer-session';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Activity, FolderOpen, FileArchive, Search, Trash2, ExternalLink, HardDriveDownload, RefreshCw, Settings2, Disc3 } from 'lucide-react';
-import { deleteArchiveStudy, getArchiveFiles, listArchiveStudies, recordStudyOpened, saveArchiveFiles, type ArchiveStudy } from '@/lib/local-archive';
+import { deleteLocalStudies, getArchiveFiles, listArchiveStudies, recordStudyOpened, saveArchiveFiles, type ArchiveStudy } from '@/lib/local-archive';
 import { expandSources, filesFromDrop } from '@/lib/import-sources';
 import { SortHeader, useTableSort } from '@/components/table-sort';
 import { ArchiveReceiverPanel } from '@/components/archive-receiver-panel';
 import { saveDiskFiles } from '@/lib/disk-archive';
-import { StudyFilterControls } from '@/components/study-filter-controls';
+import { AppHelpMenu } from '@/components/app-product';
+import { useStudySelection } from '@/components/study-selection';
+import { StudyFilterControls, localDate } from '@/components/study-filter-controls';
 
 const date = (raw: string) => raw?.length === 8 ? `${raw.slice(6,8)}.${raw.slice(4,6)}.${raw.slice(0,4)}` : '—';
 const clock = (value: number | null) => value ? new Date(value).toLocaleString('az-AZ') : '—';
@@ -19,8 +21,8 @@ export default function ArchivePage() {
   const [studies, setStudies] = useState<ArchiveStudy[]>([]);
   const [selected, setSelected] = useState('');
   const [search, setSearch] = useState('');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  const [dateFrom, setDateFrom] = useState(localDate);
+  const [dateTo, setDateTo] = useState(localDate);
   const [modalities, setModalities] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('Arxiv hazırlanır…');
@@ -63,7 +65,8 @@ export default function ArchivePage() {
     return key.includes(search.toLocaleLowerCase('az').trim()) && (!rawFrom || study.date >= rawFrom) && (!rawTo || study.date <= rawTo)
       && (!modalities.length || modalities.some(item => studyModalities.includes(item)));
   }), [studies, search, dateFrom, dateTo, modalities]);
-  const current = studies.find(item => item.uid === selected);
+  const selection = useStudySelection(filtered.map(item => item.uid));
+  const current = filtered.find(item => item.uid === selected) || filtered[0];
   const studySort=useTableSort(filtered,{date:r=>r.date+r.time,patient:r=>r.patient,birth:r=>r.birth,patientId:r=>r.patientId,modality:r=>r.modality,description:r=>r.description,accession:r=>r.accession,series:r=>r.series.length,imageCount:r=>r.imageCount,referring:r=>r.referring},{key:'date',direction:'desc'});
   const seriesSort=useTableSort((current?.series||[]).map((r,i)=>({...r,ordinal:i+1})),{ordinal:r=>r.ordinal,addedAt:r=>r.addedAt,number:r=>r.number,modality:r=>r.modality,description:r=>r.description,protocol:r=>r.protocol,imageCount:r=>r.imageCount,openedAt:()=>current?.openedAt},{key:'number',direction:'asc'});
   const openStudy = async (uid: string) => {
@@ -75,9 +78,12 @@ export default function ArchivePage() {
     } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
   };
   const remove = async () => {
-    if (!current || !window.confirm(`“${current.patient}” müayinəsinin ${current.imageCount} görüntüsü bu brauzerin arxivindən silinsin?`)) return;
-    try { await deleteArchiveStudy(current.uid); await refresh(); setMessage('Müayinə local arxivdən silindi'); }
-    catch (error) { setMessage(`Silmək alınmadı: ${String(error)}`); }
+    const targets = selection.checked.length ? filtered.filter(item => selection.checked.includes(item.uid)) : current ? [current] : [];
+    if (busy || !targets.length || !window.confirm(`${targets.length} müayinənin ${targets.reduce((sum, item) => sum + item.imageCount, 0)} görüntüsü bu kompüterin disk və brauzer arxivindən birdəfəlik silinsin?`)) return;
+    setBusy(true);
+    try { setMessage(await deleteLocalStudies(targets)); selection.clear(); }
+    catch (error) { setMessage(`Silmək alınmadı: ${error instanceof Error ? error.message : String(error)}`); }
+    finally { await refresh().catch(() => undefined); setBusy(false); }
   };
 
   return <main className="archive-shell grouped-records" onDragOver={event => { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; }} onDrop={event => { event.preventDefault(); void filesFromDrop(event.dataTransfer.items, event.dataTransfer.files).then(addFiles).catch(error => setMessage(String(error))); }}>
@@ -85,16 +91,16 @@ export default function ArchivePage() {
       <div className="records-summary records-filterbar records-header-filters"><StudyFilterControls from={dateFrom} to={dateTo} modalities={modalities} options={modalityOptions} onFromChange={setDateFrom} onToChange={setDateTo} onModalitiesChange={setModalities}/><label className="records-search"><Search size={16}/><input aria-label="Bütün müayinələrdə axtar" placeholder="Pasiyent, ID, təsvir…" value={search} onChange={event => setSearch(event.currentTarget.value)}/></label></div>
       <div className="records-header-actions labeled-header-actions">
         <div className="record-action-group"><div className="toolbar-group" role="group" aria-label="DICOM import">        <button title="DICOM qovluğu əlavə et" aria-label="DICOM qovluğu əlavə et" disabled={busy} onClick={() => folderRef.current?.click()}><FolderOpen size={18}/><span>Qovluq</span></button>        <button title="ZIP arxivi əlavə et" aria-label="ZIP arxivi əlavə et" disabled={busy} onClick={() => zipRef.current?.click()}><FileArchive size={18}/><span>ZIP</span></button>        <button title="DICOM faylları əlavə et" aria-label="DICOM faylları əlavə et" disabled={busy} onClick={() => filesRef.current?.click()}><HardDriveDownload size={18}/><span>DICOM</span></button></div></div>
-        <div className="record-action-group"><div className="toolbar-group" role="group" aria-label="Müayinə">        <button title="Siyahını yenilə" aria-label="Siyahını yenilə" onClick={() => { void refresh(); }}><RefreshCw size={18}/><span>Yenilə</span></button>        <button title="Seçilmiş müayinəni CD üçün hazırla" aria-label="CD üçün hazırla" disabled={!current || busy} onClick={() => current && window.open(`/media?study=${encodeURIComponent(current.uid)}`, '_blank')}><Disc3 size={18}/><span>CD / DVD</span></button>                <button title="Seçilmiş müayinəni sil" aria-label="Seçilmiş müayinəni sil" disabled={!current || busy || current.storage === 'disk'} onClick={() => { void remove(); }}><Trash2 size={18}/><span>Sil</span></button></div></div>
-        <ArchiveReceiverPanel/>
+        <div className="record-action-group"><div className="toolbar-group" role="group" aria-label="Müayinə">        <button title="Siyahını yenilə" aria-label="Siyahını yenilə" onClick={() => { void refresh(); }}><RefreshCw size={18}/><span>Yenilə</span></button>        <button title="Seçilmiş müayinəni CD üçün hazırla" aria-label="CD üçün hazırla" disabled={!current || busy} onClick={() => current && window.open(`/media?study=${encodeURIComponent(current.uid)}`, '_blank')}><Disc3 size={18}/><span>CD / DVD</span></button>                <button title="Seçilmiş müayinəni sil" aria-label="Seçilmiş müayinəni sil" disabled={(!current && !selection.checked.length) || busy} onClick={() => { void remove(); }}><Trash2 size={18}/><span>Sil{selection.checked.length ? ` (${selection.checked.length})` : ''}</span></button></div></div>
+        <ArchiveReceiverPanel/><AppHelpMenu/>
       </div>
       <input hidden ref={folderRef} type="file" multiple onChange={event => { const files=Array.from(event.currentTarget.files||[]); event.currentTarget.value=''; void addFiles(files); }}/>
       <input hidden ref={zipRef} type="file" multiple accept=".zip,application/zip" onChange={event => { const files=Array.from(event.currentTarget.files||[]); event.currentTarget.value=''; void addFiles(files); }}/>
       <input hidden ref={filesRef} type="file" multiple onChange={event => { const files=Array.from(event.currentTarget.files||[]); event.currentTarget.value=''; void addFiles(files); }}/>
     </header>
     <div className="records-upper">
-      <table className="records-table" aria-label="Arxiv müayinələri"><thead><tr><th>Aç</th><SortHeader column="date" label="Müayinə tarixi" {...studySort}/><SortHeader column="patient" label="Pasiyent" {...studySort}/><SortHeader column="birth" label="Doğum tarixi" {...studySort}/><SortHeader column="patientId" label="Pasiyent ID" {...studySort}/><SortHeader column="modality" label="Müayinə" {...studySort}/><SortHeader column="description" label="Təsvir" {...studySort}/><SortHeader column="accession" label="Accession" {...studySort}/><SortHeader column="series" label="Seriya" {...studySort}/><SortHeader column="imageCount" label="Görüntü" {...studySort}/><SortHeader column="referring" label="Göndərən həkim" {...studySort}/></tr></thead><tbody>
-        {studySort.rows.map(study => <tr key={study.uid} className={selected === study.uid ? 'selected' : ''} onClick={() => setSelected(study.uid)} onDoubleClick={() => { void openStudy(study.uid); }} title="İki dəfə klikləyib viewer-də açın"><td><button className="record-open-button" aria-label="Müayinəni viewer-də aç" onClick={event => { event.stopPropagation(); setSelected(study.uid); void openStudy(study.uid); }}><ExternalLink size={16}/></button></td><td>{date(study.date)} {study.time && `${study.time.slice(0,2)}:${study.time.slice(2,4)}`}</td><td>{study.patient}<small className="archive-storage-label">{study.storage === 'disk' ? 'Disk / SQLite' : 'Brauzer'}</small></td><td>{date(study.birth)}</td><td title={study.patientId}>{study.patientId || '—'}</td><td>{study.modality}</td><td title={study.description}>{study.description || '—'}</td><td>{study.accession || '—'}</td><td>{study.series.length}</td><td>{study.imageCount}</td><td>{study.referring || '—'}</td></tr>)}
+      <table className="records-table" aria-label="Arxiv müayinələri"><thead><tr><th className="study-check-column">{selection.all}</th><th className="study-open-column">Aç</th><SortHeader column="date" label="Müayinə tarixi" {...studySort}/><SortHeader column="patient" label="Pasiyent" {...studySort}/><SortHeader column="birth" label="Doğum tarixi" {...studySort}/><SortHeader column="patientId" label="Pasiyent ID" {...studySort}/><SortHeader column="modality" label="Müayinə" {...studySort}/><SortHeader column="description" label="Təsvir" {...studySort}/><SortHeader column="accession" label="Accession" {...studySort}/><SortHeader column="series" label="Seriya" {...studySort}/><SortHeader column="imageCount" label="Görüntü" {...studySort}/><SortHeader column="referring" label="Göndərən həkim" {...studySort}/></tr></thead><tbody>
+        {studySort.rows.map(study => <tr key={study.uid} className={current?.uid === study.uid ? 'selected' : ''} onClick={() => setSelected(study.uid)} onDoubleClick={() => { void openStudy(study.uid); }} title="İki dəfə klikləyib viewer-də açın"><td onClick={event => event.stopPropagation()} onDoubleClick={event => event.stopPropagation()}><input type="checkbox" aria-label={`${study.patient} müayinəsini seç`} checked={selection.checked.includes(study.uid)} onChange={event => selection.toggle(study.uid, event.currentTarget.checked)}/></td><td><button className="record-open-button" aria-label="Müayinəni viewer-də aç" onClick={event => { event.stopPropagation(); setSelected(study.uid); void openStudy(study.uid); }}><ExternalLink size={16}/></button></td><td>{date(study.date)} {study.time && `${study.time.slice(0,2)}:${study.time.slice(2,4)}`}</td><td>{study.patient}<small className="archive-storage-label">{study.storage === 'disk' ? 'Disk / SQLite' : 'Brauzer'}</small></td><td>{date(study.birth)}</td><td title={study.patientId}>{study.patientId || '—'}</td><td>{study.modality}</td><td title={study.description}>{study.description || '—'}</td><td>{study.accession || '—'}</td><td>{study.series.length}</td><td>{study.imageCount}</td><td>{study.referring || '—'}</td></tr>)}
       </tbody></table>
       {!filtered.length && <div className="records-empty">{studies.length ? 'Seçilmiş tarix və müayinə filtrlərinə uyğun nəticə tapılmadı' : 'Arxiv boşdur. Qovluq, ZIP və ya DICOM faylları əlavə edin.'}</div>}
     </div>
@@ -104,6 +110,6 @@ export default function ArchivePage() {
       }}><HardDriveDownload size={15}/> Diskə saxla</button><button disabled={!current} onClick={() => current && void openStudy(current.uid)}><ExternalLink size={15}/> Viewer</button></div></div>
       <div className="records-series-scroll"><table className="records-table" aria-label="Seçilmiş müayinənin seriyaları"><thead><tr><th>Aç</th><SortHeader column="ordinal" label="#" {...seriesSort}/><SortHeader column="addedAt" label="Əlavə olunub" {...seriesSort}/><SortHeader column="number" label="Seriya nömrəsi" {...seriesSort}/><SortHeader column="modality" label="Modallıq" {...seriesSort}/><SortHeader column="description" label="Təsvir" {...seriesSort}/><SortHeader column="protocol" label="Protokol" {...seriesSort}/><SortHeader column="imageCount" label="Görüntü sayı" {...seriesSort}/><SortHeader column="openedAt" label="Son açılma" {...seriesSort}/></tr></thead><tbody>{current && seriesSort.rows.map(series => <tr key={series.uid} onDoubleClick={() => void openStudy(current.uid)}><td><button className="record-open-button" aria-label={`${series.description || 'Seriya'} viewer-də aç`} onClick={() => void openStudy(current.uid)}><ExternalLink size={16}/></button></td><td>{series.ordinal}</td><td>{clock(series.addedAt)}</td><td>{series.number}</td><td>{series.modality}</td><td>{series.description}</td><td>{series.protocol || '—'}</td><td>{series.imageCount}</td><td>{clock(current.openedAt)}</td></tr>)}</tbody></table></div>
     </div>
-    <footer className="records-status" role="status">{busy && <span className="records-spinner"/>}<span className="records-count">{filtered.length}/{studies.length} müayinə</span><span>{message}</span></footer>
+    <footer className="records-status" role="status">{busy && <span className="records-spinner"/>}<span className="records-count">{selection.checked.length > 0 && `${selection.checked.length} seçilib · `}{filtered.length}/{studies.length} müayinə</span><span>{message}</span></footer>
   </main>;
 }
