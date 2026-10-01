@@ -155,7 +155,9 @@ def safe_zip(data):
 
 class OutputService:
     def __init__(self, root):
-        self.root = Path(root)
+        # FileSet resolves paths, including Windows 8.3 aliases such as RUNNER~1.
+        # Keep our paths canonical too so DICOMDIR manifest entries stay relative.
+        self.root = Path(root).resolve()
         self.media_root = self.root / 'MediaJobs'
         self.jobs_lock = Lock()
 

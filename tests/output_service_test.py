@@ -87,6 +87,18 @@ class MediaTests(unittest.TestCase):
         with ZipFile(data,'w') as zip:zip.writestr('../outside.txt','no')
         with self.assertRaises(ValueError):safe_zip(data.getvalue())
         self.assertFalse((self.root.parent/'outside.txt').exists())
+    def test_media_manifest_accepts_noncanonical_root(self):
+        alias = self.root / 'alias'
+        alias.mkdir()
+        output = OutputService(alias / '..')
+        data, original = self.package()
+        job = output.prepare(data)
+        media = output.job_path(job['id']) / 'disc'
+        manifest = json.loads((media / 'MANIFEST.json').read_text(encoding='utf-8'))
+        self.assertEqual(len(manifest['files']), 1)
+        target = media / manifest['files'][0]
+        self.assertTrue(target.is_file())
+        self.assertEqual(dcmread(target).PixelData, original.PixelData)
     def test_missing_study_id_only_gets_a_directory_catalog_id(self):
         file=Path(__file__).resolve().parents[1]/'public'/'demo'/'abdomen-1.dcm'
         source=dcmread(file);buffer=io.BytesIO()
