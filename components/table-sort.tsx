@@ -1,6 +1,7 @@
 'use client';
 import {useState} from 'react';
 import {sortRows,type TableSort,type SortValue} from '@/lib/table-sort';
+import {ResizableHeader} from './resizable-table';
 export function useTableSort<T>(rows:readonly T[],values:Record<string,(row:T)=>SortValue>,initial:TableSort){
  const [sort,setSort]=useState(initial);
  const change=(key:string)=>setSort(current=>({key,direction:current.key===key&&current.direction==='asc'?'desc':'asc'}));
@@ -8,5 +9,5 @@ export function useTableSort<T>(rows:readonly T[],values:Record<string,(row:T)=>
 }
 export function SortHeader({column,label,sort,change}:{column:string;label:string;sort:TableSort;change:(key:string)=>void}){
  const active=sort.key===column;
- return <th aria-sort={active?(sort.direction==='asc'?'ascending':'descending'):'none'}><button className="table-sort" onClick={()=>change(column)} aria-label={`${label} üzrə sırala`}>{label}<span aria-hidden="true">{active?(sort.direction==='asc'?'▲':'▼'):'↕'}</span></button></th>;
+ return <ResizableHeader column={column} label={label} aria-sort={active?(sort.direction==='asc'?'ascending':'descending'):'none'}><button className="table-sort" onClick={()=>change(column)} aria-label={`${label} üzrə sırala`}>{label}<span aria-hidden="true">{active?(sort.direction==='asc'?'▲':'▼'):'↕'}</span></button></ResizableHeader>;
 }

@@ -25,7 +25,7 @@ async function ready(child, base) {
     if (child.exitCode !== null) throw new Error(child.output);
     try {
       const result = await fetch(`${base}/product.json`, { signal: AbortSignal.timeout(1000) });
-      if (result.ok && (await result.json()).version === product.version) return;
+      if (result.ok && (await result.json()).version === product.version && (await fetch(`${base}/`)).status === 200) return;
     } catch {}
     await delay(200);
   }
@@ -44,9 +44,13 @@ try {
     const child = launch(port, workerPort), base = `http://127.0.0.1:${port}`;
     try {
       await ready(child, base);
+      const runtime = await fetch(`${base}/radaz-runtime.json`);
+      assert.equal(runtime.headers.get('cache-control'), 'no-store');
+      assert.equal((await runtime.json()).buildId, JSON.parse(readFileSync('dist/server/radaz-build.json','utf8')).buildId);
       for (const route of ['/', '/archive', '/pacs', '/mpr', '/3d', '/report']) {
         const response = await fetch(`${base}${route}`);
         assert.equal(response.status, 200, route);
+        assert.equal(response.headers.get('cache-control'), 'no-store');
         const html = await response.text(); assert.match(html, /RADAZ/);
         const script = html.match(/src="([^" ]+\.js)"/);
         assert.ok(script, `Built JavaScript missing: ${route}`);

@@ -5,8 +5,10 @@ $radazPort = if ($env:RADAZ_PORT) { [int]$env:RADAZ_PORT } else { 5173 }
 if ($radazPort -lt 1 -or $radazPort -gt 65535) { throw 'RADAZ portu duzgun deyil.' }
 $url = "http://localhost:$radazPort/"
 $probeUrl = "http://127.0.0.1:$radazPort/"
-$hasSource = Test-Path -LiteralPath (Join-Path $projectRoot 'app\page.tsx')
+$hasSource = (Test-Path -LiteralPath (Join-Path $projectRoot 'app\page.tsx')) -and -not (Test-Path -LiteralPath (Join-Path $projectRoot 'SHA256SUMS.json'))
 $expected = Get-Content -Raw -LiteralPath (Join-Path $projectRoot 'public\product.json') | ConvertFrom-Json
+$buildPath = Join-Path $projectRoot 'dist\server\radaz-build.json'
+$expectedBuild = if (Test-Path -LiteralPath $buildPath) { Get-Content -Raw -LiteralPath $buildPath | ConvertFrom-Json } else { $null }
 Set-Location -LiteralPath $projectRoot
 
 if (-not (Get-Command node.exe -ErrorAction SilentlyContinue)) {
@@ -14,14 +16,29 @@ if (-not (Get-Command node.exe -ErrorAction SilentlyContinue)) {
   Write-Host 'Node.js: https://nodejs.org'
   exit 1
 }
+if (-not (Test-Path -LiteralPath (Join-Path $projectRoot 'node_modules\vinext\dist\cli.js'))) {
+  Write-Host 'Yeni RADAZ qovlugu ucun paketler qurasdirilir...'
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'setup-release.ps1')
+  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
 
 function Test-RadazServer {
   try {
-    $served = Invoke-RestMethod -Uri "${probeUrl}product.json" -TimeoutSec 5
-    if ($served.name -ne 'RADAZ' -or $served.version -ne $expected.version -or $served.licenseRequired -ne $expected.licenseRequired) { return $false }
+    if (-not $expectedBuild -or $needsBuild) { return $false }
+    $served = Invoke-RestMethod -Uri "${probeUrl}radaz-runtime.json" -TimeoutSec 5
+    if ($served.name -ne 'RADAZ' -or $served.version -ne $expected.version -or $served.buildId -ne $expectedBuild.buildId) { return $false }
     $response = Invoke-WebRequest -UseBasicParsing -Uri $probeUrl -TimeoutSec 5
     return $response.StatusCode -eq 200
   } catch { return $false }
+}
+
+$needsBuild = $false
+if ($hasSource) {
+  $sourceDigest = & node (Join-Path $PSScriptRoot 'build-identity.mjs')
+  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+  $needsBuild = -not $expectedBuild -or $expectedBuild.product.version -ne $expected.version -or $expectedBuild.sourceHash -ne $sourceDigest
+} elseif (-not $expectedBuild -or $expectedBuild.product.version -ne $expected.version) {
+  throw 'RADAZ fayllari eyni versiyadan deyil. Release ZIP-ni ayrica yeni qovluga tam cixarin.'
 }
 
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'start-archive.ps1')
@@ -29,17 +46,17 @@ if ($LASTEXITCODE -ne 0) { Write-Warning 'Daimi arxiv xidmeti baslamadi; viewer 
 
 if (Test-RadazServer) {
   Write-Host 'RADAZ serveri artiq isleyir. Movcud sehife acilir.' -ForegroundColor Green
-  if (-not $NoBrowser) { Start-Process $url }
+  if (-not $NoBrowser) { Start-Process "${url}?radaz-build=$($expectedBuild.buildId)" }
   exit 0
 }
 if (Get-NetTCPConnection -State Listen -LocalPort $radazPort -ErrorAction SilentlyContinue) {
-  Write-Host "$radazPort portu mesguldur. Evvelki RADAZ server penceresini baglayib yeniden acin." -ForegroundColor Red
-  exit 1
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'stop-web-server.ps1') -Port $radazPort
+  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
 # Source checkouts build the current files; distributed ZIPs are already built.
 # Normal workstation startup never enters Vite's development/optimizer loop.
-if ($hasSource) {
+if ($needsBuild) {
   Write-Host 'RADAZ-in cari fayllari hazirlanir...'
   & node (Join-Path $PSScriptRoot 'run-framework.mjs') build
   if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -49,7 +66,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $projectRoot 'dist\server\index.js')
   exit 1
 }
 
-Write-Host 'RADAZ lokal serveri acilir...'
+Write-Host "RADAZ $($expected.version) lokal serveri acilir..."
 Write-Host "Brauzer unvani: $url"
 $browserWaiter = $null
 try {

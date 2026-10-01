@@ -11,12 +11,14 @@ if not re.fullmatch(r'\d+\.\d+\.\d+',version): raise SystemExit('Version must be
 if not (ROOT/'dist/server/index.js').is_file():raise SystemExit('Build the application first.')
 if (ROOT/'dist/server/wrangler.json').exists():raise SystemExit('Windows packages require a portable Node build, not a Cloudflare build.')
 if not (ROOT/'public/license-public.json').is_file():raise SystemExit('Initialize the issuer public key first.')
+build=json.loads((ROOT/'dist/server/radaz-build.json').read_text(encoding='utf-8'))
+if build['product']['version'] != version or not build['product'].get('licenseRequired'):raise SystemExit('Rebuild this version with licensing enabled before packaging.')
 config['licenseRequired']=True
 config['trialDays']=7
 out=ROOT/'outputs/releases';out.mkdir(parents=True,exist_ok=True)
 target=out/f'RADAZ-{version}-Windows-preview.zip'
 explicit=['package.json','pnpm-lock.yaml','pnpm-workspace.yaml','README.md','DISTRIBUTION.md','LOKAL-ISTIFADE.md','SETUP-RADAZ.cmd','START-RADAZ.cmd',
- 'scripts/start-radaz.ps1','scripts/start-release.mjs','scripts/setup-release.ps1','scripts/start-archive.ps1','scripts/wait-release-browser.ps1','bridge/radaz_archive.py','bridge/radaz_pacs_bridge.py','bridge/radaz_output.py','bridge/radaz_product.py','bridge/radaz_trial.py','bridge/radaz_disc.ps1','bridge/README.md','public/license-public.json']
+ 'scripts/start-radaz.ps1','scripts/stop-web-server.ps1','scripts/start-release.mjs','scripts/setup-release.ps1','scripts/start-archive.ps1','scripts/wait-release-browser.ps1','bridge/radaz_archive.py','bridge/radaz_pacs_bridge.py','bridge/radaz_output.py','bridge/radaz_product.py','bridge/radaz_trial.py','bridge/radaz_disc.ps1','bridge/README.md','public/license-public.json']
 files={p:ROOT/p for p in explicit}
 for folder in ['dist/client','dist/server','bridge/wheels']:
  for p in (ROOT/folder).rglob('*'):

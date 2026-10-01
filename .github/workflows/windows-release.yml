@@ -71,6 +71,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tests/startup-smoke.mjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node tests/launcher-update.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python scripts/package-release.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python scripts/github-release.py validate

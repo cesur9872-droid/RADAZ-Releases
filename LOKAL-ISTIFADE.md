@@ -8,6 +8,8 @@ Proqramın tam mənbə kodu və işləməsi üçün lazım olan paketlər bu qov
 2. Bir neçə saniyədən sonra proqram brauzerdə `http://localhost:5173` ünvanında açılacaq.
 3. Server işlədiyi müddətdə açılan qara pəncərəni bağlamayın. Proqramı dayandırmaq üçün həmin pəncərədə `Ctrl+C` basın.
 
+0.2.7 və sonrakı paketlərdə START əvvəlki RADAZ veb-serverini tanıyıb yeni versiya ilə əvəz edir. Başqa proqramın tutduğu portu sərbəst buraxmır. Yeni qovluqda paketlər yoxdursa ilkin quraşdırma avtomatik başlayır. ZIP-i ayrıca qovluğa çıxarın, oradakı START-ı başladın və yeni brauzer vərəqəsində **Yardım → RADAZ haqqında** versiyasını yoxlayın.
+
 Node.js tapılmasa, əvvəlcə Node.js 22.13 və ya daha yeni versiyanı quraşdırın.
 
 ## AI hesabatı
@@ -38,7 +40,7 @@ Qəbuledicinin “hazırdır” statusu yalnız lokal dinləyicinin işlədiyini
 
 Rentgen/KT/PACS cihazında yeni DICOM destination yaradın, AE/IP/portu daxil edin və C-ECHO edin. Göndərilən görüntülər 5 saniyə ərzində arxiv siyahısında görünür. Eyni SOP Instance UID təkrar göndəriləndə eyni məlumat ikinci dəfə əlavə edilmir; fərqli məlumat orijinalı əvəz etmir. Uğurlu C-STORE cavabı yalnız disk və baza yazıldıqdan sonra verilir.
 
-Qəbul ayarlarından AE və portu dəyişə, qəbulu dayandıra və başlada bilərsiniz. SQLite saxlanan müayinələrin brauzer düyməsi ilə təsadüfən silinməsi bağlıdır.
+Qəbul ayarlarından AE və portu dəyişə, qəbulu dayandıra və başlada bilərsiniz. Müayinələri checkbox ilə seçib **Sil** basdıqda təsdiq tələb olunur. **Hamısını seç** yalnız filtrdə görünən sətirləri seçir. PACS-də yalnız bu kompüterdəki nüsxələr silinir.
 
 ## Telefon və planşet
 

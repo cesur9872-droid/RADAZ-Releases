@@ -495,8 +495,11 @@
 .grouped-records .help-trigger span{display:inline!important}
 .grouped-records .today-filter{display:flex;flex-direction:row;align-items:center;gap:5px;font-size:12px;white-space:nowrap;cursor:pointer;padding:0 4px;min-height:32px}
 .grouped-records .today-filter input{width:15px;height:15px;accent-color:#62bfe2}
-.grouped-workstation .topbar .help-command{order:-1!important;margin-left:auto!important}
+.grouped-workstation .topbar .help-command{order:99!important;margin-left:auto!important}
 .grouped-workstation .topbar .help-trigger>span{display:inline!important}
+.records-table th .column-resizer{position:absolute;right:0;top:0;bottom:0;width:8px;cursor:col-resize;touch-action:none;user-select:none;z-index:3}
+.records-table th:has(.column-resizer){padding-right:12px}
+.records-table th .column-resizer:hover,.records-table th .column-resizer:focus-visible{background:#62bfe270;outline:1px solid #62bfe2;outline-offset:-1px}
 @media(pointer:coarse){.grouped-records .record-open-button{width:36px;height:36px}.grouped-records .records-table td{padding-top:5px;padding-bottom:5px}}
 .receiver-destination{padding:12px;border:1px solid #497b90;border-radius:7px;background:#0b202d;margin:14px 0}
 .receiver-destination h3{font-size:14px;color:#d9f3ff;margin:0 0 9px}

@@ -818,7 +818,6 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
           <button className="mpr-reset volume-reset" type="button" onClick={() => setVolumeResetToken(value => value+1)} title="3D görünüşün bucaq, zoom və mövqeyini sıfırla" aria-label="3D görünüşü sıfırla"><RotateCcw size={15}/><span>Görünüşü sıfırla</span></button>
         </div>
       </>}
-      <div className="toolbar-group help-command"><AppHelpMenu/></div>
       <div className="top-actions">
 
         {!limited && detachedMode !== '3d' && <div className="toolbar-group" role="group" aria-label="Görüntünün görünüşü">
@@ -850,6 +849,7 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
         <input hidden ref={cdRef} type="file" multiple onChange={e => { const files = Array.from(e.currentTarget.files || []); e.currentTarget.value = ''; queueFiles(files, 'CD'); }}/>
         <input hidden ref={zipRef} type="file" multiple accept=".zip,application/zip,application/x-zip-compressed" onChange={e => { const files = Array.from(e.currentTarget.files || []); e.currentTarget.value = ''; queueFiles(files, 'ZIP'); }}/>
       </div>
+      <div className="toolbar-group help-command"><AppHelpMenu/></div>
     </header>
     <Dialog open={importOpen} onOpenChange={open => { if (!importBusy) setImportOpen(open); }}>
       <DialogContent className="import-dialog" showCloseButton={false}>

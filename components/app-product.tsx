@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { usePathname } from 'next/navigation';
 import { licenseAccess } from '@/lib/license-access';
+import { isNewerRelease } from '@/lib/release-version';
 import { BookOpen, CircleHelp, Download, ExternalLink, Info, Keyboard, KeyRound, Mail, MessageCircle, RefreshCw, ShieldCheck, ShoppingBag, X } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { Button } from '@/components/ui/button';
@@ -23,6 +24,11 @@ function licenseLabel(license:License|null){
 export const useViewerLicense=()=>useContext(LicenseContext);
 let productRequest:Promise<Product>|undefined;
 function productInfo() { return productRequest ||= fetch('/product.json',{cache:'no-store'}).then(r=>{if(!r.ok) throw new Error('Proqram məlumatı açıla bilmədi');return r.json() as Promise<Product>;}).catch(e=>{productRequest=undefined;throw e;}); }
+async function releaseUpdate(force = false): Promise<Update> {
+  const [update, product] = await Promise.all([api<Update>(`updates${force ? '?force=1' : ''}`), productInfo()]);
+  return update.state === 'available' && !isNewerRelease(update.version, product.version)
+    ? { state: 'current', message: `RADAZ ${product.version} — ən yeni versiya işləyir` } : update;
+}
 async function api<T>(path:string,body?:unknown):Promise<T> { const r=await fetch(`/local-archive-api/${path}`,body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{cache:'no-store'}); const d=await r.json() as T & {error?:string};if(!r.ok)throw new Error(d.error||'Lokal xidmətə qoşulmaq mümkün olmadı');return d; }
 function LicensePayment({onKey}:{onKey:(key:string)=>void}){
  const [months,setMonths]=useState(1),[catalog,setCatalog]=useState<{enabled:boolean;monthly:number;currency:string;maxMonths:number}|null>(null),[busy,setBusy]=useState(false),[message,setMessage]=useState(''),[orderId,setOrderId]=useState(''),[checkoutUrl,setCheckoutUrl]=useState(''),[paid,setPaid]=useState<{activationCode:string;months:number}|null>(null);
@@ -40,7 +46,7 @@ export function AppHelpMenu({initial=''}:{initial?:Panel}) {
   const open=(next:Panel)=>{setMessage('');setPanel(next);};
   useEffect(()=>{void productInfo().then(setProduct).catch(()=>{});const listener=(e:KeyboardEvent)=>{if(e.key==='F1'){e.preventDefault();setPanel(e.ctrlKey?'about':'help');}};window.addEventListener('keydown',listener);return()=>window.removeEventListener('keydown',listener);},[]);
   useEffect(()=>{if(!panel)return;if(!dialog.current?.open)dialog.current?.showModal();if(panel==='license')void api<License>('license').then(setLicense).catch(e=>setMessage(e.message));},[panel]);
-  const check=async()=>{open('updates');setBusy(true);try{setUpdate(await api<Update>('updates?force=1'));}catch(e){setMessage(e instanceof Error?e.message:'Yeniləmə yoxlanmadı');}finally{setBusy(false);}};
+  const check=async()=>{open('updates');setBusy(true);try{setUpdate(await releaseUpdate(true));}catch(e){setMessage(e instanceof Error?e.message:'Yeniləmə yoxlanmadı');}finally{setBusy(false);}};
   const activate=async()=>{setBusy(true);setMessage('');try{const result=await api<License>('license/activate',{key:key.trim()});setLicense(result);setKey('');setMessage(result.message);window.dispatchEvent(new Event('radaz-license-change'));}catch(e){setMessage(e instanceof Error?e.message:'Aktivləşdirmə alınmadı');}finally{setBusy(false);}};
   const title={help:'Yardım mərkəzi',keys:'Klaviatura qısa yolları',license:'Lisenziyanı aktivləşdir',plans:'Aylıq ödəniş',about:'RADAZ haqqında',support:'Dəstək ilə əlaqə',updates:'Proqram yeniləmələri',agreement:'Lisenziya şərtləri','':''}[panel];
   return <><DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" className="header-control help-trigger" title="Yardım · F1" aria-label="Yardım və lisenziya"><CircleHelp size={18}/><span>Yardım</span></Button></DropdownMenuTrigger><DropdownMenuContent className="header-menu product-menu" align="end">
@@ -73,7 +79,7 @@ export function AppHelpMenu({initial=''}:{initial?:Panel}) {
 export function ProductBoundary({children}:{children:ReactNode}) {
   const path=usePathname()||'/';
   const [product,setProduct]=useState<Product|null>(null),[license,setLicense]=useState<License|null>(null),[failed,setFailed]=useState(false),[update,setUpdate]=useState<Update|null>(null),[dismissed,setDismissed]=useState(false);
-  useEffect(()=>{let alive=true;const check=async()=>{try{const p=await productInfo();if(!alive)return;setProduct(p);if(p.licenseRequired){const l=await api<License>('license');if(alive){setLicense(l);setFailed(false);}}}catch{if(alive)setFailed(true);}};void check();const timer=setInterval(()=>void check(),60000);window.addEventListener('radaz-license-change',check);const checkUpdate=()=>{void api<Update>('updates').then(u=>{if(alive&&u.state==='available'){setUpdate(u);setDismissed(false);}}).catch(()=>{});};const updateTimer=setTimeout(checkUpdate,15000);const updateInterval=setInterval(checkUpdate,21600000);return()=>{alive=false;clearInterval(timer);clearTimeout(updateTimer);clearInterval(updateInterval);window.removeEventListener('radaz-license-change',check);};},[]);
+  useEffect(()=>{let alive=true;const check=async()=>{try{const p=await productInfo();if(!alive)return;setProduct(p);if(p.licenseRequired){const l=await api<License>('license');if(alive){setLicense(l);setFailed(false);}}}catch{if(alive)setFailed(true);}};void check();const timer=setInterval(()=>void check(),60000);window.addEventListener('radaz-license-change',check);const checkUpdate=()=>{void releaseUpdate().then(u=>{if(alive&&u.state==='available'){setUpdate(u);setDismissed(false);}}).catch(()=>{});};const updateTimer=setTimeout(checkUpdate,15000);const updateInterval=setInterval(checkUpdate,21600000);return()=>{alive=false;clearInterval(timer);clearTimeout(updateTimer);clearInterval(updateInterval);window.removeEventListener('radaz-license-change',check);};},[]);
   if(!product) return <div className="product-loading">{failed?'Proqram ayarları oxunmadı. Səhifəni yeniləyin.':'RADAZ açılır…'}</div>;
   const access=licenseAccess(product.licenseRequired,!!license?.valid&&!failed,path);
   if(access.blocked)return <main className="license-gate"><RadazLogo size={96}/><h1>Bu funksiya üçün lisenziyanı aktivləşdirin</h1><p>PACS və Local arxiv işləyir. Viewer-də görüntüləri listələyə bilərsiniz.</p><div className="product-actions"><a href="/">Viewer</a><a href="/archive">Local arxiv</a><a href="/pacs">PACS</a></div><AppHelpMenu initial="license"/></main>;
