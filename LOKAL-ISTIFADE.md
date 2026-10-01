@@ -63,7 +63,7 @@ corepack pnpm dev
 corepack pnpm run build
 ```
 
-İlk komanda proqramı işə salır, ikinci komanda isə layihənin tam yığıldığını yoxlayır.
+İlk komanda yalnız mənbə üzərində işləmək üçün inkişaf serverini açır, ikinci komanda hazır tətbiqi yığır. Gündəlik istifadə üçün **START-RADAZ.cmd** açın: mənbə qovluğunda əvvəl yığır, sonra Node.js serverini başladır. Hazır Release ZIP-də yığım təkrarlanmır.
 
 ## Fırlatma, pozitiv / neqativ
 

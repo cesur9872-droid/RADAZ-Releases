@@ -48,7 +48,13 @@ export default defineConfig(async () => {
   process.env.MINIFLARE_REGISTRY_PATH ??= ".wrangler/registry";
 
   // Wrangler snapshots its log path while the Cloudflare plugin is imported.
-  const { cloudflare } = await import("@cloudflare/vite-plugin");
+  // Local RADAZ has no Cloudflare bindings. Run its dev/build on Node so a
+  // Windows workerd/Miniflare crash cannot prevent the workstation opening.
+  const cloudPlugins = managedLinux ? [(await import("@cloudflare/vite-plugin")).cloudflare({
+    viteEnvironment: { name: "rsc", childEnvironments: ["ssr"] },
+    inspectorPort: false,
+    config: localBindingConfig,
+  })] : [];
 
   return {
     server: {
@@ -62,11 +68,7 @@ export default defineConfig(async () => {
     plugins: [
       vinext(),
       sites({ mockAuth: !managedLinux }),
-      cloudflare({
-        viteEnvironment: { name: "rsc", childEnvironments: ["ssr"] },
-        inspectorPort: false,
-        config: localBindingConfig,
-      }),
+      ...cloudPlugins,
     ],
   };
 });

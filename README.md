@@ -1,12 +1,12 @@
 # RADAZ — alıcı üçün yükləmə və quraşdırma
 
-Azərbaycan dilində radiologiya iş sahəsi: DICOM viewer, lokal arxiv, PACS, MPR/3D, hesabat, çap və CD/DVD çıxışı. Cari hazırlanan buraxılış 0.2.3, qiymət 10 AZN/aydır. Satıcı üçün [geniş ödəniş və paylaşma təlimatı](DISTRIBUTION.md) ayrıca yazılıb.
+Azərbaycan dilində radiologiya iş sahəsi: DICOM viewer, lokal arxiv, PACS, MPR/3D, hesabat, çap və CD/DVD çıxışı. Cari buraxılış 0.2.5, qiymət 10 AZN/aydır. Satıcı üçün [geniş ödəniş və paylaşma təlimatı](DISTRIBUTION.md) ayrıca yazılıb.
 
 ## Alıcı hansı faylı endirməlidir?
 
-Satıcının verdiyi GitHub Release keçidində **Assets → RADAZ-0.2.3-Windows-preview.zip** endirilir. **Source code (zip)** və **Code → Download ZIP** hazır quraşdırma paketi deyil.
+Satıcının verdiyi GitHub Release keçidində **Assets → RADAZ-0.2.5-Windows-preview.zip** endirilir. **Source code (zip)** və **Code → Download ZIP** hazır quraşdırma paketi deyil.
 
-[Mənbə deposu](https://github.com/drnaghiyev/RADAZ-D-COM) hazırda private-dır; dəvət edilməmiş alıcı 404 görə bilər. [Mövcud Releases səhifəsi](https://github.com/drnaghiyev/RADAZ-D-COM/releases) açılmırsa satıcıdan əlçatan yükləmə keçidi alın. 0.2.3 ZIP-in lokal hazırlanması onun GitHub Release-də artıq yayımlandığı demək deyil; satıcı relizi ayrıca dərc etməlidir.
+[Mənbə deposu](https://github.com/drnaghiyev/RADAZ-D-COM) və [Releases səhifəsi](https://github.com/drnaghiyev/RADAZ-D-COM/releases/latest) açıqdır. Yeni versiyalar GitHub yoxlamaları və paket yığımı uğurla tamamlandıqdan sonra avtomatik yayımlanır.
 
 ## Windows-da başlatma
 
@@ -20,7 +20,7 @@ Node.js 22.13+ və Python 3.10+ tələb olunur. İlk dəfə `SETUP-RADAZ.cmd`, s
 
 Bu ZIP müstəqil EXE installer deyil; Node/Python ayrıca tələb olunur. Böyük müayinələr üçün RAM və boş disk ehtiyacı artır. Video ixracında FFmpeg ayrıca lazımdır.
 
-Mənbə qovluğunda launcher ən son mənbəni işlədir. Yalnız yığılmış faylları olan paylama paketində release serveri başladır. Lokal DICOM arxivi proqram qovluğundan ayrıca saxlanılır. Eyni kompüterdə köhnə və yeni RADAZ serverlərini paralel açmayın.
+Mənbə qovluğunda launcher ən son mənbəni yığıb hazır Node.js serverini açır; bu mərhələdə yığımın bitməsini gözləyin. Paylama ZIP-ində fayllar artıq yığılıb. Normal açılış Cloudflare/Miniflare və Vite inkişaf serverindən istifadə etmir. Brauzer yalnız uyğun versiya hazır olduqdan sonra açılır. Lokal DICOM arxivi proqram qovluğundan ayrıca saxlanılır. Eyni kompüterdə köhnə və yeni RADAZ serverlərini paralel açmayın.
 
 ## 7 günlük pulsuz demo
 

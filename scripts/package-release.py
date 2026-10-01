@@ -8,7 +8,8 @@ ROOT=Path(__file__).resolve().parent.parent
 config=json.loads((ROOT/'public/product.json').read_text(encoding='utf-8-sig'))
 version=config['version']
 if not re.fullmatch(r'\d+\.\d+\.\d+',version): raise SystemExit('Version must be X.Y.Z')
-if not (ROOT/'dist/server/wrangler.json').is_file():raise SystemExit('Build the application first.')
+if not (ROOT/'dist/server/index.js').is_file():raise SystemExit('Build the application first.')
+if (ROOT/'dist/server/wrangler.json').exists():raise SystemExit('Windows packages require a portable Node build, not a Cloudflare build.')
 if not (ROOT/'public/license-public.json').is_file():raise SystemExit('Initialize the issuer public key first.')
 config['licenseRequired']=True
 config['trialDays']=7
