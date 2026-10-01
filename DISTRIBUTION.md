@@ -93,6 +93,14 @@ Digər kompüterdə RADAZ → **Yardım (?) → Yeniləmələri yoxla** seçin. 
 
 ## Paket hazırlamaq və yoxlamaq
 
+### GitHub ilə avtomatik buraxılış
+
+`.github/workflows/windows-release.yml` hər `main` göndərişində `public/product.json` versiyasını yoxlayır. Bu versiya artıq yayımlanıbsa paket yenidən yazılmır. Yeni buraxılış üçün versiyanı artırın, `releases/X.Y.Z.md` qeydlərini hazırlayın və dəyişiklikləri `main` qoluna göndərin. İstəyə görə Actions → Publish RADAZ Windows release → Run workflow ilə təkrar yoxlama başlatmaq olar.
+
+Windows işçisi asılılıqları kilid faylı ilə quraşdırır, TypeScript/Node/Python yoxlamalarını keçir, paketi yığır və bütün faylların SHA-256 cəmini yoxlayır. Ayrı yayım işi ZIP və yoxlama faylını əvvəl draft kimi yükləyir, uzaqdakı fayl cəmlərini təsdiqləyir, sonra Latest Release kimi yayımlayır. Depoya yazma səlahiyyəti yalnız bu yayım işinə verilir; ayrıca şəxsi GitHub tokeni tələb olunmur. Yoxlamalardan biri uğursuz olarsa natamam paket istifadəçilərə yeniləmə kimi göstərilmir.
+
+Digər kompüterlər proqram açıldıqdan təxminən 15 saniyə sonra, daha sonra hər 6 saatda GitHub Release yoxlayır. Dərhal yoxlama üçün **Yardım (?) → Yeniləmələri yoxla** istifadə edin. Bildiriş üçün yeni versiyanın uğurla yayımlanması və kompüterin internetə çıxışı lazımdır.
+
 ```powershell
 node node_modules/typescript/bin/tsc --noEmit --incremental false
 node --test tests/*.test.mjs
