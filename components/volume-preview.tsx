@@ -91,11 +91,13 @@ export function VolumePreview(props:Props){
    element.style.maxWidth=`${Math.floor(caps.maxTextureSize/Math.max(1,devicePixelRatio))}px`;
    element.style.maxHeight=`${Math.floor(caps.maxTextureSize/Math.max(1,devicePixelRatio))}px`;
    const {core,tools,engine}=viewer;
-   const current=await getSeriesVolume(series.imageIds,{maxDimension:Math.min(caps.max3DTextureSize,caps.tier==='low'?256:1024),budgetBytes:caps.budgetBytes});
+   const current=await getSeriesVolume(series.imageIds,{maxDimension:caps.max3DTextureSize,budgetBytes:caps.budgetBytes});
    if(disposed)return;
    volumeRef.current=current;viewerPerformance.estimatedGpuBytes=current.bytes;
    const notices:string[]=[];
-   if(current.reduced)notices.push('GPU yaddaşına uyğun azaldılmış həcm. 2D/MPR orijinal ölçüdədir.');
+   element.setAttribute('data-source-slices',String(current.sourceSliceCount));
+   element.setAttribute('data-volume-slices',String(current.imageIds.length));
+   if(current.reduced)notices.push(`${current.sourceSliceCount} kəsitin hamısı istifadə olunur. GPU üçün həcm ${current.volume.dimensions.join(' × ')} ölçüsünə uyğunlaşdırılıb.`);
    if(series.modality!=='CT')notices.push(`${series.modality} siqnalı göstərilir. CT sümük rekonstruksiyası üçün CT seriyası tələb olunur.`);
    else if(Math.max(...current.volume.spacing)>Math.min(...current.volume.spacing)*3)notices.push('Qalın kəsitlər səthdə pillələnmə yarada bilər. Daha incə CT rekonstruksiyasını seçin.');
    setNote(notices.join(' '));

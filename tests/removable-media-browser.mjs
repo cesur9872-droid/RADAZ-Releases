@@ -71,6 +71,7 @@ try {
   await panel.locator('canvas').hover();await page.keyboard.press('F11');await page.waitForFunction(()=>!!document.fullscreenElement);
   await page.keyboard.press('F11');await page.waitForFunction(()=>!document.fullscreenElement);
   await page.getByRole('button',{name:'Ölçmə alətləri',exact:true}).click();await page.getByRole('menuitem',{name:/Uzunluq/}).click();
+  await page.getByRole('menu').waitFor({state:'hidden'});await delay(150);
   const imageBox=await panel.boundingBox(), mx=imageBox.x+imageBox.width/2, my=imageBox.y+imageBox.height/2;
   await page.mouse.move(mx-80,my-30);await page.mouse.down();await page.mouse.move(mx+70,my-30,{steps:5});
   const markers=panel.locator('line[data-id*="-endpoint-"]');
@@ -95,7 +96,7 @@ try {
   await mpr.waitForFunction(before=>document.querySelector('[data-panel="MA"] .localizer-overlay')?.getAttribute('data-world')!==before,worldBefore);
   const lineState=()=>mpr.locator('[data-panel="MA"] .localizer-line').evaluateAll(lines=>Object.fromEntries(lines.map(line=>{const l=line.querySelector('.localizer-stroke');return [line.getAttribute('data-source'),[l.x2.baseVal.value-l.x1.baseVal.value,l.y2.baseVal.value-l.y1.baseVal.value]];})));
   const linesBefore=await lineState();
-  const rotate=mpr.locator('[data-panel="MA"] .localizer-line[data-source="MC"] .localizer-rotate-hit');await rotate.focus();await rotate.press('ArrowRight');
+  const rotate=mpr.locator('[data-panel="MA"] .localizer-line[data-source="MC"] .localizer-rotate-hit').first();await rotate.focus();await rotate.press('ArrowRight');
   await mpr.waitForFunction(()=>!document.querySelector('.viewport-loading'));
   await delay(500);const linesAfter=await lineState();
   const angle=v=>Math.atan2(v[1],v[0]);
@@ -142,6 +143,7 @@ try {
   assert.equal(await page.locator('.series-card').count(),0,'Existing viewer is not replaced');
   const first=viewers[0];await first.bringToFront();
   await first.getByRole('button',{name:'Ölçmə alətləri',exact:true}).click();await first.getByRole('menuitem',{name:/Uzunluq/}).click();
+  await first.getByRole('menu').waitFor({state:'hidden'});await delay(150);
   const vp=first.locator('[data-panel="A"]'), b=await vp.boundingBox(), x=b.x+b.width/2,y=b.y+b.height/2;
   for(const offset of [-50,50]){await first.mouse.move(x-80,y+offset);await first.mouse.down();await first.mouse.move(x+80,y+offset,{steps:4});await first.mouse.up();}
   const points=vp.locator('line[data-id*="-endpoint-"]');await first.mouse.move(x,y+110);await delay(150);

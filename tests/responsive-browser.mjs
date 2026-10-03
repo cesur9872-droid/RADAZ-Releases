@@ -24,13 +24,14 @@ async function checkHeader(route, width, height) {
   const result = await page.evaluate(() => {
     const header = document.querySelector('main>header');
     const h = header.getBoundingClientRect();
+    const scrollable=['auto','scroll'].includes(getComputedStyle(header).overflowX);
     const clipped = [...header.querySelectorAll('button,a,input,select,summary')].filter(element => {
       if (element.closest('details:not([open])') && !element.closest('summary')) return false;
       const r = element.getBoundingClientRect();
       if (!r.width || !r.height || getComputedStyle(element).visibility === 'hidden') return false;
-      return r.left < -1 || r.right > innerWidth + 1 || r.top < h.top - 1 || r.bottom > h.bottom + 1;
+      return (!scrollable&&(r.left < -1 || r.right > innerWidth + 1)) || r.top < h.top - 1 || r.bottom > h.bottom + 1;
     }).map(element => element.getAttribute('aria-label') || element.title || element.textContent);
-    return { clipped, headerOverflow: header.scrollWidth > header.clientWidth + 1,
+    return { clipped, headerOverflow: !scrollable&&header.scrollWidth > header.clientWidth + 1,
       pageOverflow: document.documentElement.scrollWidth > innerWidth + 1,
       footerBottom: document.querySelector('.records-status')?.getBoundingClientRect().bottom,
       archiveRows: [...document.querySelectorAll('.records-upper,.records-lower')].map(e => e.getBoundingClientRect().height) };
@@ -44,6 +45,7 @@ async function checkHeader(route, width, height) {
   {
     const help = page.getByRole('button', { name: 'Yardım və lisenziya', exact: true });
     assert.equal(await help.isVisible(), true, 'Help must exist and stay visible');
+    await help.scrollIntoViewIfNeeded();
     const box = await help.boundingBox();
     assert.ok(box.y >= 0 && box.y + box.height <= height && box.x + box.width <= width);
   }

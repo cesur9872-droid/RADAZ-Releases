@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import {volumeDimensions,areaWeights,resamplePlane} from '../lib/volume-resampling.ts';
+import {localizerRotationHandles} from '../lib/localizer-handles.ts';
+assert.deepEqual(volumeDimensions([512,512,128],2048,64*1024**2,2),[512,512,128]);
+assert.deepEqual(volumeDimensions([512,512,700],2048,64*1024**2),[154,154,700]);
+const weights=areaWeights(701,256);
+const contribution=new Float64Array(701);
+weights.forEach(bin=>bin.forEach(p=>contribution[p.index]+=p.weight));
+assert.ok([...contribution].every(v=>Math.abs(v-256/701)<1e-10),'Every slice contributes equally, including odd and final slices');
+assert.ok(weights.some(bin=>bin.some(p=>p.index===699)),'A thin structure on a formerly skipped slice remains present');
+const pixels=Float32Array.from({length:77},(_,i)=>i),plane=resamplePlane(pixels,11,areaWeights(11,4),areaWeights(7,3));
+assert.ok(Math.abs(plane.reduce((a,b)=>a+b,0)/plane.length-38)<.0001,'Area average conserves the mean over every input pixel');
+const handles=localizerRotationHandles([0,200],[600,200],[300,200],600,400,[490,200]);
+assert.equal(handles.length,2);assert.deepEqual(handles[1].point,[512,200]);assert.equal(handles[0].point[0],180);
+assert.equal(localizerRotationHandles([-1200,200],[1800,200],[300,200],600,400).length,2,'Zoom does not hide both handles outside the viewport');
+console.log('PASS: native volume preservation, all-slice weighted reduction, mean conservation, two visible dynamic rotation handles');

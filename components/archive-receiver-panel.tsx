@@ -29,7 +29,7 @@ export function ArchiveReceiverPanel() {
     catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { setBusy(false); }
   };
-  return <><button type="button" aria-haspopup="dialog" aria-expanded={open} onClick={()=>setOpen(true)}><Settings2 size={18}/><span>Qəbul ayarları</span></button>
+  return <><button type="button" title="Qəbul ayarları" aria-label="Qəbul ayarları" aria-haspopup="dialog" aria-expanded={open} onClick={()=>setOpen(true)}><Settings2 size={18}/><span>Qəbul ayarları</span></button>
    {open && createPortal(<dialog ref={dialog} className="product-dialog receiver-dialog" aria-label="Qəbul ayarları" onCancel={()=>setOpen(false)} onClick={event=>{if(event.target===dialog.current)setOpen(false);}}>
     <header><Database size={24}/><h2>Qəbul ayarları</h2><button type="button" aria-label="Qəbul ayarlarını bağla" onClick={()=>setOpen(false)}><X size={20}/></button></header><div className="product-dialog-body"><section className="archive-receiver" aria-label="Daimi DICOM arxivi">
     <div className="receiver-summary"><Database size={18}/><strong>{status?.running ? 'DICOM qəbulu hazırdır' : status ? 'DICOM qəbul dayandırılıb' : 'Disk arxivi bağlı deyil'}</strong>

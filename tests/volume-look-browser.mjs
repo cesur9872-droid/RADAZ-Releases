@@ -35,6 +35,7 @@ try{
   assert.equal(await viewer.locator('[data-panel="A"][data-has-image="true"]').count(),1,'2D Viewer stays open');
   assert.match(volume.url(),/\/3d\?handoff=/);
   const host=volume.locator('.cornerstone-volume-host');assert.equal(await host.getAttribute('data-interacting'),'false');
+  assert.equal(Number(await host.getAttribute('data-source-slices')),files.length,'Every source slice contributes to the displayed volume');
   assert.equal(await host.getAttribute('data-shaded'),'true');assert.equal(await host.getAttribute('data-occlusion'),'false');
   assert.equal((await volume.evaluate(()=>window.radazPerformance())).decodeCount,0,'3D must borrow already decoded source pixels');
   const pending=context.waitForEvent('page');await viewer.getByRole('button',{name:'MPR rekonstruksiya',exact:true}).click();const mpr=await pending;

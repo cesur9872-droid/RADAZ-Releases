@@ -6,6 +6,7 @@ import { themedMeasurement, installMeasurementTheme } from './measurement-tools'
 import { yieldToBrowser } from './work-progress';
 import { viewerPerformance } from './viewer-performance';
 import { describeVolume } from './volume-geometry';
+import { areaWeights, resamplePlane, volumeDimensions } from './volume-resampling';
 
 type DataSet = ReturnType<typeof dicomParser.parseDicom>;
 type RecordItem = { dataSet: DataSet; pixels: Int16Array | Float32Array; rows: number; columns: number; bits: number; min: number; max: number };
@@ -43,7 +44,7 @@ export function borrowLocalDicoms(images:SharedDicom[]):string[] {
 }
 const geometryOverrides = new Map<string,ImageGeometry>();
 type SeriesVolume = {volumeId:string;volume:Awaited<ReturnType<typeof core.volumeLoader.createAndCacheVolume>>;
-  geometry:ReturnType<typeof describeVolume>;imageIds:string[];range:[number,number];reduced:boolean;bytes:number};
+  geometry:ReturnType<typeof describeVolume>;imageIds:string[];range:[number,number];reduced:boolean;bytes:number;sourceSliceCount:number};
 const seriesVolumes=new Map<string,{sourceIds:string[];owned:string[];promise:Promise<SeriesVolume>}>();
 export type MprMode = 'MPR' | 'MIP' | 'MinIP' | 'Avg';
 type MprPlane = 'SAG' | 'COR' | 'AX';
@@ -192,7 +193,7 @@ function loadImage(imageId: string): core.Types.IImageLoadObject {
   if (derived.has(imageId) && !item.pixels.length) materialize(imageId);
   const { pixels, rows, columns, dataSet: ds } = item;
   const { wl: wc, ww } = defaultWindow(item);
-  const geometry = derived.get(imageId)?.geometry;
+  const geometry = derived.get(imageId)?.geometry || geometryOverrides.get(imageId);
   const spacing = geometry ? [geometry.rowSpacing, geometry.columnSpacing] : values(ds, 'x00280030', [1, 1]);
   const voxelManager = core.utilities.VoxelManager.createImageVoxelManager({ scalarData: pixels, width: columns, height: rows, numberOfComponents: 1 });
   const image = {
@@ -305,7 +306,7 @@ export function sampleLocalDicom(imageId: string, world: readonly number[]): num
   if (!item) return null;
   if (derived.has(imageId) && !item.pixels.length) materialize(imageId);
   const ds = item.dataSet;
-  const geometry = derived.get(imageId)?.geometry;
+  const geometry = derived.get(imageId)?.geometry || geometryOverrides.get(imageId);
   const origin = geometry?.origin || values(ds, 'x00200032', [0, 0, 0]);
   const orientation = geometry ? [...geometry.columnDirection, ...geometry.rowDirection] : values(ds, 'x00200037', [1, 0, 0, 0, 1, 0]);
   const [rowSpacing, columnSpacing] = geometry ? [geometry.rowSpacing, geometry.columnSpacing] : values(ds, 'x00280030', [1, 1]);
@@ -346,13 +347,10 @@ export function seriesGeometry(imageIds:string[]) {
 /** One streaming volume and the same decoded slice buffers serve MPR and 3D. */
 export async function getSeriesVolume(imageIds:string[],limits?:{maxDimension:number;budgetBytes:number}):Promise<SeriesVolume> {
   const geometry=seriesGeometry(imageIds),ids=geometry.imageIds;
-  let stride=1;
   const dimension=limits?.maxDimension||Infinity,budget=limits?.budgetBytes||Infinity;
-  if(dimension<3||budget<108)throw Error('GPU həcm limiti kifayət deyil');
-  const depthStride=()=>Math.min(stride,Math.max(1,Math.floor((ids.length-1)/2)));
-  const dimensions=()=>geometry.dimensions.map((d,i)=>Math.ceil(d/(i===2?depthStride():stride)));
-  while(dimensions().some(d=>d>dimension)||dimensions().reduce((n,d)=>n*d,4)>budget)stride++;
-  const key=ids.join('|')+`@${stride}`;
+  const dimensions=volumeDimensions(geometry.dimensions,dimension,budget,ids.some(id=>records.get(id)?.bits===32)?4:2);
+  const reduced=dimensions.some((n,i)=>n!==geometry.dimensions[i]);
+  const key=ids.join('|')+`@${dimensions.join('x')}`;
   const cached=seriesVolumes.get(key);
   if(cached){viewerPerformance.volumeCacheHits++;return cached.promise;}
   // A growing media series supersedes its partial volume; never retain every prefix.
@@ -365,18 +363,31 @@ export async function getSeriesVolume(imageIds:string[],limits?:{maxDimension:nu
     const start=performance.now();
     await getViewer();
     let volumeIds=ids;
-    if(stride>1){
+    if(reduced){
       volumeIds=[];
-      for(let z=0;z<ids.length;z+=depthStride()){
-        const sourceId=ids[z];await core.imageLoader.loadAndCacheImage(sourceId);
-        const record=records.get(sourceId)!,g=getLocalizerGeometry(sourceId)!;
-        const rows=Math.ceil(record.rows/stride),columns=Math.ceil(record.columns/stride);
+      const [columns,rows,depth]=dimensions;
+      const weights=geometry.dimensions.map((n,i)=>areaWeights(n,dimensions[i]));
+      const scale=geometry.dimensions.map((n,i)=>n/dimensions[i]);
+      const spacing=geometry.spacing.map((n,i)=>n*scale[i]);
+      const g=getLocalizerGeometry(ids[0])!;
+      const origin=geometry.origin.map((n,axis)=>n+scale.reduce((offset,ratio,i)=>offset+geometry.direction[i*3+axis]*geometry.spacing[i]*(ratio-1)/2,0)) as Point3;
+      let lastIndex=-1,lastPlane:Float32Array|undefined;
+      for(let z=0;z<depth;z++){
         const pixels=new Float32Array(rows*columns);
-        for(let y=0;y<rows;y++)for(let x=0;x<columns;x++)pixels[y*columns+x]=record.pixels[y*stride*record.columns+x*stride];
+        for(const source of weights[2][z]){
+          if(lastIndex!==source.index){
+            await core.imageLoader.loadAndCacheImage(ids[source.index]);
+            const record=records.get(ids[source.index])!;
+            lastPlane=resamplePlane(record.pixels,record.columns,weights[0],weights[1]);lastIndex=source.index;
+          }
+          for(let i=0;i<pixels.length;i++)pixels[i]+=lastPlane![i]*source.weight;
+        }
         const id=`localdicom:${serial++}`;owned.push(id);volumeIds.push(id);
+        const record=records.get(ids[weights[2][z][0].index])!;
         records.set(id,{...record,pixels,rows,columns,bits:32});
-        geometryOverrides.set(id,{...g,rows,columns,rowSpacing:g.rowSpacing*stride,columnSpacing:g.columnSpacing*stride});
-        if(z%(stride*8)===0)await yieldToBrowser();
+        geometryOverrides.set(id,{...g,rows,columns,rowSpacing:spacing[1],columnSpacing:spacing[0],
+          origin:origin.map((n,axis)=>n+geometry.direction[6+axis]*z*spacing[2]) as Point3});
+        if(z%4===0)await yieldToBrowser();
       }
     }
     // A cached first image also supplies the actual calibrated scalar type.
@@ -392,8 +403,8 @@ export async function getSeriesVolume(imageIds:string[],limits?:{maxDimension:nu
     viewerPerformance.volumeBuildCount++;viewerPerformance.volumeBuildMs+=performance.now()-start;
     viewerPerformance.voxelBytes=bytes;
     volume.load();
-    return {volumeId,volume,geometry:stride>1?seriesGeometry(volumeIds):geometry,imageIds:volumeIds,
-      get range():[number,number]{return [Math.min(...ids.map(id=>records.get(id)?.min??-1024)),Math.max(...ids.map(id=>records.get(id)?.max??3071))];},reduced:stride>1,bytes};
+    return {volumeId,volume,geometry:reduced?seriesGeometry(volumeIds):geometry,imageIds:volumeIds,
+      get range():[number,number]{return [Math.min(...ids.map(id=>records.get(id)?.min??-1024)),Math.max(...ids.map(id=>records.get(id)?.max??3071))];},reduced,bytes,sourceSliceCount:ids.length};
   })();
   seriesVolumes.set(key,{sourceIds:ids,owned,promise});
   promise.catch(()=>{seriesVolumes.delete(key);for(const id of owned){records.delete(id);geometryOverrides.delete(id);}});

@@ -30,10 +30,10 @@ import { watchRemovableMedia, type MediaImage, type MediaProgress } from '@/lib/
 import type * as Core from '@cornerstonejs/core';
 
 type Tool = 'scroll' | 'arrow' | 'pencil' | 'cursor3d' | 'wl' | 'pan' | 'zoom' | 'length' | 'angle' | 'arch' | 'cobb' | 'ellipse' | 'hu' | 'deviation' | 'erase';
-type Series = { id: string; studyId: string; name: string; modality: string; patient: string; patientId: string; birth: string; date: string; number: string; imageIds: string[]; thumb?: string; mediaSession?: string; discovered?: number; loading?: boolean };
+type Series = { id: string; studyId: string; name: string; modality: string; patient: string; patientId: string; birth: string; date: string; number: string; imageIds: string[]; initialImageId?:string; thumb?: string; mediaSession?: string; discovered?: number; loading?: boolean };
 type Preset = { ww: number; wl: number; token: number; panel: string; seriesId: string } | null;
 type ImportSource = { id: number; label: string; files: File[] };
-type MprData = { sourceId: string; stacks: Record<'SAG' | 'COR' | 'AX', string[]>; planes: Series[]; owned: string[]; orientations: MprOrientations | null };
+type MprData = { sourceId: string; stacks: Record<'SAG' | 'COR' | 'AX', string[]>; planes: Series[]; owned: string[]; orientations: MprOrientations | null; pivot?: Point3 | null };
 type DetachedMode = 'mpr' | '3d';
 const formatDate = (s: string) => s?.length === 8 ? `${s.slice(6, 8)}.${s.slice(4, 6)}.${s.slice(0, 4)}` : '—';
 const newMprSettings = (): MprSettings => ({ SAG: { mode: 'MPR', thickness: 1 }, COR: { mode: 'MPR', thickness: 1 }, AX: { mode: 'MPR', thickness: 1 } });
@@ -91,12 +91,13 @@ function age(birth: string, study: string) {
   return `${+study.slice(0, 4) - +birth.slice(0, 4) - Number(study.slice(4) < birth.slice(4))} yaş`;
 }
 
-function ViewportPane({ cursor, onCursor, hideText, id, series, initialImageId, selected, tool, preset, resetToken, clearToken, ready, marks, selectedMarkId, localizers, otherImages, reconstruction, onImageChange, onMoveSource, onMoveIntersection, loadingProgress, onRotateSource, onRotateStart, onPreviewRotateSource, onAddMark, onUpdateMark, onRemoveMark, onSelectMark, onClearImage, onSelect, onToggleMaximize, onDropSeries }: {
+function ViewportPane({ cursor, onCursor, hideText, id, series, initialImageId, selected, tool, preset, resetToken, clearToken, ready, marks, selectedMarkId, localizers, otherImages, reconstruction, viewAnchor, expanded, concealed, onImageChange, onMoveSource, onMoveIntersection, loadingProgress, onRotateSource, onRotateStart, onPreviewRotateSource, onAddMark, onUpdateMark, onRemoveMark, onSelectMark, onClearImage, onSelect, onToggleMaximize, onDropSeries }: {
   cursor: CursorPosition | null; onCursor: (position: CursorPosition) => void; hideText: boolean;
   id: string; series?: Series; selected: boolean; tool: Tool; preset: Preset; resetToken: number; ready: boolean;
   initialImageId?: string;
   clearToken: number; marks: LocalMark[]; selectedMarkId: string | null; localizers: boolean; otherImages: { panel: string; imageId: string }[];
   reconstruction?: { mode: MprMode; thickness: number };
+  viewAnchor?: Point3 | null; expanded?: boolean; concealed?: boolean;
   onMoveIntersection?: (world: Point3) => void; loadingProgress?: LoadingProgress | null;
   onImageChange: (panel: string, imageId: string) => void; onMoveSource: (panel: string, world: Point3) => void;
   onRotateSource?: (sourcePanel: string, targetPanel: string, angleRadians: number) => void;
@@ -120,6 +121,7 @@ function ViewportPane({ cursor, onCursor, hideText, id, series, initialImageId, 
   const [viewport, setViewport] = useState<Core.Types.IStackViewport | null>(null);
   const [imageId, setImageId] = useState('');
   const lastClear = useRef(clearToken);
+  const lastReset = useRef(resetToken);
   useEffect(()=>setEditingArrow(null),[imageId]);
   const [slice, setSlice] = useState(0);
   const [ww, setWW] = useState<number | null>(null);
@@ -228,15 +230,28 @@ function ViewportPane({ cursor, onCursor, hideText, id, series, initialImageId, 
       if (!vp || token !== requestRef.current) return;
       const extending = stackSeries.current === series.id;
       const current = vp.getCurrentImageId();
-      const initialIndex = series.imageIds.indexOf((extending && current && series.imageIds.includes(current) ? current : initialImageId) || '');
+      const initialIndex = series.imageIds.indexOf((series.initialImageId || (extending && current && series.imageIds.includes(current) ? current : initialImageId)) || '');
       const camera = extending ? vp.getCamera() : null;
+      const presentation = extending && reconstruction ? vp.getViewPresentation() : null;
+      const anchorCanvas = camera && viewAnchor ? vp.worldToCanvas(viewAnchor) : null;
       const properties = extending ? vp.getProperties() : null;
       await vp.setStack(series.imageIds, initialIndex >= 0 ? initialIndex : 0);
       if (token !== requestRef.current) return;
       stackSeries.current = series.id;
       const { wl, ww } = getDefaultWindow(vp.getCurrentImageId() || series.imageIds[0]);
       vp.setProperties(properties || { voiRange: { lower: wl - ww / 2, upper: wl + ww / 2 } });
-      if (camera) vp.setCamera(camera);
+      if (camera && presentation) {
+        // Keep screen scale/pan while accepting the NEW reconstructed plane's
+        // normal and view-up. Restoring the old world camera corrupts oblique MPR.
+        vp.setViewPresentation(presentation);
+        vp.setCamera({parallelScale:camera.parallelScale});
+        if (anchorCanvas && viewAnchor) {
+          const under = vp.canvasToWorld(anchorCanvas), nextCamera = vp.getCamera();
+          const delta = viewAnchor.map((v,i)=>v-under[i]);
+          vp.setCamera({position:nextCamera.position!.map((v,i)=>v+delta[i]) as Point3,
+            focalPoint:nextCamera.focalPoint!.map((v,i)=>v+delta[i]) as Point3});
+        }
+      } else if (camera) vp.setCamera(camera);
       vp.render(); setSlice(vp.getCurrentImageIdIndex());
       const currentImageId = vp.getCurrentImageId() || '';
       setImageId(currentImageId); onImageChange(id, currentImageId); setError('');
@@ -277,7 +292,9 @@ function ViewportPane({ cursor, onCursor, hideText, id, series, initialImageId, 
   }, [enabled, selected, series, preset, viewportId, id]);
 
   useEffect(() => {
-    if (!enabled || !selected || !series || !resetToken) return;
+    if (!enabled || !resetToken || resetToken === lastReset.current) return;
+    lastReset.current = resetToken;
+    if (!selected || !series) return;
     void getViewer().then(({ engine }) => {
       const vp = engine.getViewport(viewportId) as Core.Types.IStackViewport;
       vp.resetCamera(); vp.render();
@@ -302,7 +319,7 @@ function ViewportPane({ cursor, onCursor, hideText, id, series, initialImageId, 
     });
   }, [enabled, selected, clearToken, viewportId, onClearImage]);
 
-  return <section ref={containerRef} data-has-image={!!imageId} data-panel={id} className={`viewport ${selected ? 'active' : ''} ${hideText ? 'hide-image-text' : ''} ${tool === 'scroll' ? 'touch-scroll-mode' : ''}`} onClick={onSelect} onDoubleClick={limited ? undefined : onToggleMaximize}
+  return <section ref={containerRef} data-has-image={!!imageId} data-panel={id} data-expanded={expanded || undefined} aria-hidden={concealed || undefined} className={`viewport ${selected ? 'active' : ''} ${hideText ? 'hide-image-text' : ''} ${tool === 'scroll' ? 'touch-scroll-mode' : ''}`} onClick={onSelect} onDoubleClick={limited ? undefined : onToggleMaximize}
     onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }}
     onDrop={e => { e.preventDefault(); const uid = e.dataTransfer.getData('application/x-series-id'); if (uid) onDropSeries(uid); }}
     aria-label={`Görüntü paneli ${id}`}>
@@ -896,9 +913,10 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
         const firstImage = stacks[plane][position];
         await core.imageLoader.loadAndCacheImage(firstImage);
         if (epoch !== mprBuildEpoch.current) break;
-        const planes = (['SAG','COR','AX'] as const).map((key, number) => ({...source,id:`${source.id}/mpr/${key}`,name:{SAG:'Sagital',COR:'Koronal',AX:'Aksial'}[key],imageIds:stacks[key],number:String(number+1),loading:false}));
+        const displayed = mprDataRef.current?.sourceId === source.id ? mprDataRef.current : null;
+        const planes = (['SAG','COR','AX'] as const).map((key, number) => displayed?.stacks[key] === stacks[key] ? displayed.planes[number] : ({...source,id:`${source.id}/mpr/${key}`,name:{SAG:'Sagital',COR:'Koronal',AX:'Aksial'}[key],imageIds:stacks[key],initialImageId:key===plane?firstImage:undefined,number:String(number+1),loading:false}));
         const owned = [...stacks.SAG,...stacks.COR,...stacks.AX].filter(id => !source.imageIds.includes(id));
-        const next = {sourceId:source.id,stacks,planes,owned,orientations};
+        const next = {sourceId:source.id,stacks,planes,owned,orientations,pivot};
         mprDataRef.current=next;setMprData(next);
         const panel={SAG:'MS',COR:'MC',AX:'MA'}[plane];
         setCurrentImages(images=>({...images,[panel]:firstImage}));
@@ -930,7 +948,7 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
     setMprSettings(next);
     const source = seriesList.find(item => item.id === mprDataRef.current?.sourceId);
     if (!source) return;
-    try { buildMpr(source, next, mprDataRef.current?.orientations || null, mprIntersection(currentImages)); }
+    try { buildMpr(source, next, mprDataRef.current?.orientations || null, mprIntersection(currentImages), false, plane); }
     catch (err) { setMprError(err instanceof Error ? err.message : String(err)); }
   };
   const resetMprLines = () => {
@@ -1035,10 +1053,10 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
         {!limited && detachedMode !== '3d' && <ViewerOutputControls panes={Object.entries(currentImages).map(([panel, imageId]) => ({ panel, imageId, series: [...seriesList, ...(mprData?.planes || [])].find(item => item.imageIds.includes(imageId)) }))} panel={workspace === 'mpr' ? mprActive : active} imageId={currentImages[workspace === 'mpr' ? mprActive : active]} series={workspace === 'mpr' ? mprData?.planes.find(item => item.imageIds.includes(currentImages[mprActive])) : currentSeries} allSeries={seriesList} datasetVersion={datasetVersion} onStatus={setStatus}/>}
       </div>
       {workspace === 'mpr' && <>
-        <div className="mode-identity"><strong><Layers3 size={17}/> MPR rekonstruksiya</strong><span title={seriesList.find(s => s.id === mprData?.sourceId)?.name || ''}>{seriesList.find(s => s.id === mprData?.sourceId)?.name || currentSeries?.name || 'Seriya seçin'}</span></div>
+        <div className="mode-identity" title="MPR rekonstruksiya"><strong><Layers3 size={17}/><span>MPR rekonstruksiya</span></strong><span title={seriesList.find(s => s.id === mprData?.sourceId)?.name || ''}>{seriesList.find(s => s.id === mprData?.sourceId)?.name || currentSeries?.name || 'Seriya seçin'}</span></div>
         <div className="mode-controls mpr-header-controls">
           <div className="mpr-modes" role="group" aria-label="Aktiv MPR panelinin rejimi">{(['MPR','MIP','MinIP','Avg'] as const).map(mode => <button key={mode} type="button" className={mprSettings[panePlane[mprActive as keyof typeof panePlane] || 'AX'].mode === mode ? 'current' : ''} onClick={() => changeMprSetting({ mode })}>{mode}</button>)}</div>
-          <label className="mpr-thickness">Qalınlıq <input type="range" min="1" max="50" step="1" aria-label="Aktiv MPR panelinin qalınlığı" value={mprSettings[panePlane[mprActive as keyof typeof panePlane] || 'AX'].thickness} onChange={e => changeMprSetting({ thickness: Number(e.currentTarget.value) })}/><output>{mprSettings[panePlane[mprActive as keyof typeof panePlane] || 'AX'].thickness} mm</output></label>
+          <label className="mpr-thickness"><span>Qalınlıq</span><input type="range" min="1" max="50" step="1" aria-label="Aktiv MPR panelinin qalınlığı" value={mprSettings[panePlane[mprActive as keyof typeof panePlane] || 'AX'].thickness} onChange={e => changeMprSetting({ thickness: Number(e.currentTarget.value) })}/><output>{mprSettings[panePlane[mprActive as keyof typeof panePlane] || 'AX'].thickness} mm</output></label>
           <button className="mpr-reset" type="button" onClick={resetMprLines} title="MPR xətlərini başlanğıc vəziyyətinə qaytar" aria-label="MPR xətlərini sıfırla"><RotateCcw size={15}/><span>Xətləri sıfırla</span></button>
         </div>
       </>}
@@ -1142,10 +1160,10 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
         {workspace === 'mpr' && <>
           {mprError && <div className="mpr-error-notice" role="alert">{mprError}</div>}
           <div className={`mpr-grid ${maximizedMprPane ? 'maximized' : ''}`}>
-            {(['SAG','COR','AX'] as const).map((plane,index)=>({plane,index,id:['MS','MC','MA'][index]})).filter(({id})=>!maximizedMprPane||id===maximizedMprPane).map(({plane,index,id})=>{
+            {(['SAG','COR','AX'] as const).map((plane,index)=>({plane,index,id:['MS','MC','MA'][index]})).map(({plane,index,id})=>{
               const shown=mprData?.planes[index] || (plane==='AX'?mprPreview:undefined);
               const progress=!shown?.imageIds.length ? mprProgress || sourceLoading : null;
-              return <ViewportPane key={`${id}-${mprData?.sourceId || mprPreview?.id || 'waiting'}`} id={id} initialImageId={currentImages[id]} series={shown} loadingProgress={progress} reconstruction={mprSettings[plane]} selected={mprActive===id} tool={limited?'scroll':tool} cursor={cursor} onCursor={onCursor} hideText={hideText} preset={preset} resetToken={resetToken} clearToken={clearToken} ready={ready} marks={marks} selectedMarkId={selectedMarkId} localizers={localizers}
+              return <ViewportPane key={`${id}-${mprData?.sourceId || mprPreview?.id || 'waiting'}`} id={id} initialImageId={currentImages[id]} series={shown} loadingProgress={progress} reconstruction={mprSettings[plane]} viewAnchor={mprData?.pivot} expanded={maximizedMprPane===id} concealed={!!maximizedMprPane&&maximizedMprPane!==id} selected={mprActive===id} tool={limited?'scroll':tool} cursor={cursor} onCursor={onCursor} hideText={hideText} preset={preset} resetToken={resetToken} clearToken={clearToken} ready={ready} marks={marks} selectedMarkId={selectedMarkId} localizers={localizers}
                 otherImages={(['MS','MC','MA']).filter(other=>other!==id).map(other=>({panel:other,imageId:currentImages[other] || ''})).filter(item=>item.imageId)}
                 onImageChange={onImageChange} onMoveSource={moveMprSource} onMoveIntersection={moveMprIntersection} onRotateSource={rotateMprSource} onRotateStart={beginMprRotation} onPreviewRotateSource={(source,target,radians)=>updateMprRotation(source,target,radians)}
                 onAddMark={onAddMark} onUpdateMark={onUpdateMark} onRemoveMark={onRemoveMark} onClearImage={onClearImage} onSelectMark={markId=>{setMprActive(id);setSelectedMarkId(markId);}} onSelect={()=>{setMprActive(id);setSelectedMarkId(null);}} onToggleMaximize={()=>{setMprActive(id);setMaximizedMprPane(current=>current===id?null:id);}} onDropSeries={sid=>place(sid,'A')}/>;

@@ -5,6 +5,7 @@ import type { PointerEvent as ReactPointerEvent } from 'react';
 import type * as Core from '@cornerstonejs/core';
 import { getLocalizerGeometry } from '@/lib/cornerstone';
 import { localizerSegment, intersectPlanes, type Point3 } from '@/lib/localizer';
+import {localizerRotationHandles} from '@/lib/localizer-handles';
 
 type Props = {
   element: HTMLDivElement | null;
@@ -24,6 +25,7 @@ export function LocalizerOverlay({ element, viewport, imageId, otherImages, enab
   const [, setRevision] = useState(0);
   const [rotation, setRotation] = useState<{ panel: string; origin: [number, number]; start: number; delta: number } | null>(null);
   const rotationRef = useRef<typeof rotation>(null);
+  const [hover,setHover]=useState<{panel:string;point:[number,number]}|null>(null);
   useEffect(() => {
     if (!element || !viewport) return;
     const repaint = () => setRevision(value => value + 1);
@@ -71,20 +73,21 @@ export function LocalizerOverlay({ element, viewport, imageId, otherImages, enab
   return <svg className="localizer-overlay" aria-label="Lokayzer xətləri" data-world={pivotWorld?.join(',')}>
     {lines.map(({ panel, a, b }) => {
       const origin: [number, number] = pivot || [(a[0]+b[0])/2, (a[1]+b[1])/2];
-      const endpoint = Math.hypot(a[0]-origin[0], a[1]-origin[1]) > Math.hypot(b[0]-origin[0], b[1]-origin[1]) ? a : b;
-      const handle: [number, number] = [origin[0] + (endpoint[0]-origin[0])*.57, origin[1] + (endpoint[1]-origin[1])*.57];
+      const handles=localizerRotationHandles(a,b,origin,element.clientWidth,element.clientHeight,hover?.panel===panel?hover.point:undefined);
       return <g key={panel} data-source={panel} className="localizer-line" onClick={event => event.stopPropagation()}
+      onDoubleClick={event=>event.stopPropagation()} onPointerLeave={()=>{if(!rotationRef.current)setHover(null);}}
       onPointerDown={event => { if (event.button !== 0) return; event.currentTarget.setPointerCapture(event.pointerId); move(event, panel); }}
-      onPointerMove={event => { if (event.currentTarget.hasPointerCapture(event.pointerId)) move(event, panel); }}
+      onPointerMove={event => { if (event.currentTarget.hasPointerCapture(event.pointerId)) move(event, panel);
+        else if(!event.buttons&&!(event.target as Element).closest('.localizer-rotate-hit')){const r=element.getBoundingClientRect();setHover({panel,point:[event.clientX-r.left,event.clientY-r.top]});} }}
       onPointerUp={event => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); }}
       transform={!onPreviewRotateSource && rotation?.panel === panel ? `rotate(${rotation.delta*180/Math.PI} ${origin[0]} ${origin[1]})` : undefined}>
       <line className="localizer-glow" x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]}/>
       <line className="localizer-stroke" x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]}/>
       <line className="localizer-hit" x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]}/>
-      {onRotateSource && targetPanel && <>
-        <circle className="localizer-rotate-dot" cx={handle[0]} cy={handle[1]} r={3.5}/>
-        <circle className="localizer-rotate-hit" cx={handle[0]} cy={handle[1]} r={15} role="button" tabIndex={0}
-          aria-label={`${panel} rekonstruksiya müstəvisini fırlat`} onClick={event => event.stopPropagation()}
+      {onRotateSource && targetPanel && handles.map(({side,point:handle})=><g key={side} data-rotate-side={side}>
+        <circle className="localizer-rotate-dot" cx={handle[0]} cy={handle[1]} r={6}/>
+        <circle className="localizer-rotate-hit" cx={handle[0]} cy={handle[1]} r={13} role="button" tabIndex={0}
+          aria-label={`${panel} rekonstruksiya müstəvisini fırlat · ${side<0?'birinci':'ikinci'} tərəf`} onClick={event => event.stopPropagation()}
           onKeyDown={event => { if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') { event.preventDefault(); onRotateSource(panel, targetPanel, (event.key === 'ArrowRight' ? 1 : -1) * Math.PI / 36); } }}
           onPointerDown={event => { if (event.button !== 0) return; event.preventDefault(); event.stopPropagation(); event.currentTarget.setPointerCapture(event.pointerId);
             const start = { panel, origin, start: pointerAngle(event, origin), delta: 0 };
@@ -101,10 +104,10 @@ export function LocalizerOverlay({ element, viewport, imageId, otherImages, enab
             const angle = active?.panel === panel ? wrapAngle(pointerAngle(event, active.origin) - active.start) : 0;
             rotationRef.current=null; setRotation(null); onRotateSource(panel, targetPanel, angle); }}
           onPointerCancel={() => { rotationRef.current=null; setRotation(null); }}/>
-      </>}
+      </g>)}
       <text x={origin[0] + 7} y={origin[1] - 7}>{panel}</text>
     </g>})}
-    {pivot && onMoveIntersection && <g className="localizer-center">
+    {pivot && onMoveIntersection && <g className="localizer-center" onClick={event=>event.stopPropagation()} onDoubleClick={event=>event.stopPropagation()}>
       <circle className="localizer-center-dot" cx={pivot[0]} cy={pivot[1]} r={6}/>
       <circle className="localizer-center-hit" cx={pivot[0]} cy={pivot[1]} r={12} role="button" aria-label="Lokalizer kəsişməsini hərəkət etdir"
         onPointerDown={event => { if(event.button!==0)return; event.currentTarget.setPointerCapture(event.pointerId); moveCenter(event); }}

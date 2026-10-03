@@ -1,6 +1,7 @@
 'use client';
 
 import { CalendarRange, Check, ScanSearch } from 'lucide-react';
+import {DropdownMenu,DropdownMenuTrigger,DropdownMenuContent,DropdownMenuItem,DropdownMenuCheckboxItem} from './ui/dropdown-menu';
 
 type Props = {
   from: string;
@@ -43,11 +44,11 @@ export function StudyFilterControls({ from, to, modalities, options, onFromChang
     </select></label>
     <label className="compact-date"><span>Başlanğıc</span><input aria-label="Başlanğıc tarixi" type="date" value={from} max={to || undefined} onChange={event => onFromChange(event.currentTarget.value)}/></label>
     <label className="compact-date"><span>Son</span><input aria-label="Son tarix" type="date" value={to} min={from || undefined} onChange={event => onToChange(event.currentTarget.value)}/></label>
-    <details className="modality-filter"><summary title="Müayinə növlərini seç"><ScanSearch size={15}/><span>{allSelected ? 'Bütün müayinələr' : modalities.join(', ')}</span></summary>
-      <div className="modality-menu">
-        <button type="button" className={allSelected ? 'selected' : ''} onClick={() => onModalitiesChange([])}><Check size={13}/> Bütün müayinələr</button>
-        {options.map(modality => <label key={modality}><input type="checkbox" checked={modalities.includes(modality)} onChange={() => toggle(modality)}/><span>{modality}</span></label>)}
-      </div>
-    </details>
+    <DropdownMenu><DropdownMenuTrigger asChild><button type="button" className="modality-trigger" title="Müayinə növlərini seç" aria-label="Müayinə növlərini seç"><ScanSearch size={15}/><span>{allSelected ? 'Bütün müayinələr' : modalities.join(', ')}</span></button></DropdownMenuTrigger>
+      <DropdownMenuContent className="header-menu modality-popover" align="start">
+        <DropdownMenuItem onSelect={()=>onModalitiesChange([])}><Check size={13}/> Bütün müayinələr</DropdownMenuItem>
+        {options.map(modality=><DropdownMenuCheckboxItem key={modality} checked={modalities.includes(modality)} onSelect={event=>event.preventDefault()} onCheckedChange={()=>toggle(modality)}>{modality}</DropdownMenuCheckboxItem>)}
+      </DropdownMenuContent>
+    </DropdownMenu>
   </div>;
 }
