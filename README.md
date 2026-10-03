@@ -4,7 +4,7 @@ RADAZ Windows quraşdırıcıları və avtomatik yenilənmə paketləri.
 
 ## Endirmək
 
-[Son versiyanı endir](https://github.com/cesur9872-droid/RADAZ-Releases/releases/latest) və Assets bölməsində **RADAZ-0.2.10-Setup.exe** seçin.
+[Son versiyanı endir](https://github.com/cesur9872-droid/RADAZ-Releases/releases/latest) və Assets bölməsində **RADAZ-0.2.11-Setup.exe** seçin.
 
 Windows 10/11, 64 bit. Setup Node.js, Python və digər lazım olan komponentləri daxil edir.
 
