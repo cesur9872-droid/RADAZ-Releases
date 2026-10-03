@@ -3,7 +3,7 @@ import {useEffect,useRef,useState} from 'react';
 import {Box} from 'lucide-react';
 import {getViewer,getSeriesVolume} from '@/lib/cornerstone';
 import {gpuCapabilities} from '@/lib/gpu-capabilities';
-import {qualityProfiles,volumePresetConfig,type VolumePreset,type VolumeRenderSettings} from '@/lib/volume-presets';
+import {qualityProfiles,volumePresetConfig,volumeStudioLights,type VolumePreset,type VolumeRenderSettings} from '@/lib/volume-presets';
 import {viewerPerformance,performanceSnapshot,instrumentVolumeUpload} from '@/lib/viewer-performance';
 import {WorkProgress} from './work-progress';
 import type {WorkProgress as LoadingProgress} from '@/lib/work-progress';
@@ -27,7 +27,7 @@ export function VolumePreview(props:Props){
   return()=>clearInterval(timer);
  },[inputSeries?.id,inputSeries?.loading]);
  const interacting=useRef(false),lastFrame=useRef(0),finishTimer=useRef<ReturnType<typeof setTimeout>|undefined>(undefined);
- const adjust=useRef<{x:number;y:number;threshold:number;opacity:number}|null>(null);
+ const adjust=useRef<{y:number;scale:number}|null>(null);
  const autoProfile=useRef<Profile>('balanced'),applyRef=useRef<()=>void>(()=>{});
  const [ready,setReady]=useState(false),[error,setError]=useState(''),[note,setNote]=useState('');
  const [effectiveQuality,setEffectiveQuality]=useState<Profile>('balanced');
@@ -42,33 +42,49 @@ export function VolumePreview(props:Props){
   const config=qualityProfiles[selected],actor=viewport.getDefaultActor()?.actor,mapper=actor?.getMapper();
   const spacing=volumeRef.current?.volume.spacing||[1,1,1];
   const preview=interacting.current||!(volumeRef.current?.volume as any)?.loadStatus?.loaded;
-  mapper?.setSampleDistance((spacing[0]+spacing[1]+spacing[2])/6*(preview?config.interaction:config.sample));
+  mapper?.setSampleDistance(Math.min(...spacing)*.7*(preview?config.interaction:config.sample));
   mapper?.setImageSampleDistance(preview?Math.max(3,config.imageSample):config.imageSample);
   const definition=volumePresetConfig[propsRef.current.preset];
-  actor?.getProperty().setShade(definition.shade&&!preview);
-  actor?.getProperty().setUseGradientOpacity(0,definition.shade&&!preview);
-  mapper?.setInteractionSampleDistanceFactor(2);mapper?.setInitialInteractionScale(2);
-  mapper?.setAutoAdjustSampleDistances(true);mapper?.setMaximumSamplesPerRay(caps.tier==='low'?768:2048);
+  const property=actor?.getProperty();
+  property?.setShade(definition.shade); // Keep anatomy legible while dragging, too.
+  property?.setUseGradientOpacity(0,definition.surface?.gradientOpacity??definition.shade);
+  property?.setLocalAmbientOcclusion(!!definition.surface?.occlusion&&!preview&&(selected==='high'||selected==='ultra'));
+  property?.setLAOKernelSize(32);
+  property?.setLAOKernelRadius(1);
+  property?.setVolumetricScatteringBlending(0);
+  mapper?.setInteractionSampleDistanceFactor(1);mapper?.setInitialInteractionScale(1);
+  // Our explicit drag/final profiles own sampling. VTK auto-scaling can leave
+  // a stationary image blurred after a slow frame, even after mouse-up.
+  mapper?.setAutoAdjustSampleDistances(false);mapper?.setMaximumSamplesPerRay(caps.tier==='low'?1536:4096);
   hostRef.current?.setAttribute('data-quality',selected);hostRef.current?.setAttribute('data-interacting',String(interacting.current));
   setEffectiveQuality(selected);
+  elementMaterialState();
+ };
+ const elementMaterialState=()=>{
+  const property=viewportRef.current?.getDefaultActor()?.actor?.getProperty();
+  hostRef.current?.setAttribute('data-shaded',String(!!property?.getShade()));
+  hostRef.current?.setAttribute('data-occlusion',String(!!property?.getLocalAmbientOcclusion()));
  };
  applyRef.current=()=>{
   const viewport=viewportRef.current,current=volumeRef.current;if(!viewport||!current)return;
   const {preset,threshold,opacity,settings,series}=propsRef.current,definition=volumePresetConfig[preset];
   const shift=threshold-definition.threshold,range=current.range,ct=series?.modality==='CT';
-  const coordinate=(value:number)=>ct?value+shift:range[0]+(value+1024)/4095*Math.max(1,range[1]-range[0]);
+  const coordinate=(value:number)=>ct?value+shift:range[0]+(value+shift+1024)/4095*Math.max(1,range[1]-range[0]);
   viewport.setPreset({name:`RADAZ-${preset}`,scalarOpacity:serialize(definition.scalar.map(([x,y])=>[coordinate(x),clamp(y*opacity,0,1)])),
    colorTransfer:serialize(definition.color.map(([x,...rgb])=>[coordinate(x),...rgb])),gradientOpacity:serialize([definition.gradient[0],definition.gradient.at(-1)!]),
    shade:definition.shade?'1':'0',ambient:String(settings.ambient),diffuse:String(settings.diffuse),specular:String(settings.specular),
    specularPower:String(settings.specularPower),interpolation:String(definition.interpolation)},current.volumeId,true);
-  const mapper=viewport.getDefaultActor()?.actor?.getMapper();
+  const actor=viewport.getDefaultActor()?.actor,mapper=actor?.getMapper(),property=actor?.getProperty();
+  property?.setScalarOpacityUnitDistance(0,definition.surface?.opacityUnitDistance??1);
+  property?.setComputeNormalFromOpacity(definition.surface?.normalFromOpacity??false);
+  property?.setInterpolationTypeToLinear();
   if(definition.blend==='maximum')mapper?.setBlendModeToMaximumIntensity();
   else if(definition.blend==='minimum')mapper?.setBlendModeToMinimumIntensity();else mapper?.setBlendModeToComposite();
   applyQuality();viewport.render();
  };
  useEffect(()=>{
-  const element=hostRef.current;if(!element||!series)return;
-  const controller=new AbortController();let disposed=false,viewer:Awaited<ReturnType<typeof getViewer>>|undefined,resize:ResizeObserver|undefined;
+  const element=hostRef.current;if(!element||!series){setReady(false);setProgress(null);setError('');return;}
+  const controller=new AbortController();let disposed=false,viewer:Awaited<ReturnType<typeof getViewer>>|undefined,resize:ResizeObserver|undefined;const lights:any[]=[];
   const opened=performance.now();setReady(false);setError('');setNote('');setProgress({label:'3D hazırlanır',done:0,total:0,phase:'Ortaq volume hazırlanır'});
   (async()=>{
    const caps=gpuCapabilities();viewer=await getViewer();if(disposed)return;
@@ -78,7 +94,11 @@ export function VolumePreview(props:Props){
    const current=await getSeriesVolume(series.imageIds,{maxDimension:Math.min(caps.max3DTextureSize,caps.tier==='low'?256:1024),budgetBytes:caps.budgetBytes});
    if(disposed)return;
    volumeRef.current=current;viewerPerformance.estimatedGpuBytes=current.bytes;
-   if(current.reduced)setNote('GPU yaddaşına uyğun azaldılmış həcm göstərilir. 2D/MPR orijinal ölçüdədir.');
+   const notices:string[]=[];
+   if(current.reduced)notices.push('GPU yaddaşına uyğun azaldılmış həcm. 2D/MPR orijinal ölçüdədir.');
+   if(series.modality!=='CT')notices.push(`${series.modality} siqnalı göstərilir. CT sümük rekonstruksiyası üçün CT seriyası tələb olunur.`);
+   else if(Math.max(...current.volume.spacing)>Math.min(...current.volume.spacing)*3)notices.push('Qalın kəsitlər səthdə pillələnmə yarada bilər. Daha incə CT rekonstruksiyasını seçin.');
+   setNote(notices.join(' '));
    const {viewport:viewportId,tools:toolGroupId}=ids.current;
    engine.enableElement({viewportId,element,type:core.Enums.ViewportType.VOLUME_3D,defaultOptions:{background:[0,0,0]}});
    const gl=(engine.getOffscreenMultiRenderWindow(viewportId).getOpenGLRenderWindow() as any).get3DContext() as WebGL2RenderingContext;
@@ -86,6 +106,8 @@ export function VolumePreview(props:Props){
    const uploadStart=performance.now();await core.setVolumesForViewports(engine,[{volumeId:current.volumeId}],[viewportId],false);
    if(disposed)return;
    const viewport=engine.getViewport(viewportId) as any;viewportRef.current=viewport;
+   const renderer=viewport.getRenderer();renderer.removeAllLights();renderer.setAutomaticLightCreation(false);
+   for(const config of volumeStudioLights){const light=renderer.makeLight();light.setLightTypeToCameraLight();light.setPosition(...config.position);light.setFocalPoint(0,0,0);light.setIntensity(config.intensity);light.setColor(...config.color);renderer.addLight(light);lights.push(light);}
    element.setAttribute('data-volume-id',current.volumeId);element.setAttribute('data-volume-dimensions',current.volume.dimensions.join(','));
    const modified=(event:Event)=>{const detail=(event as CustomEvent).detail;if(detail.volumeId!==current.volumeId)return;
     const done=detail.framesProcessed??0,total=current.imageIds.length;setProgress(done<total?{label:'3D kəsitləri yüklənir',done,total}:null);};
@@ -109,14 +131,19 @@ export function VolumePreview(props:Props){
     lastFrame.current=interacting.current?now:0;
    },{signal:controller.signal});
    gl?.canvas.addEventListener('webglcontextlost',()=>{setError('GPU yaddaşı əlçatan deyil. Daha kiçik seriya açın və ya Performance seçin.');setReady(false);},{signal:controller.signal});
+   // Anatomical anterior view (DICOM LPS), superior up, instead of the axial default.
+   viewport.setCamera({viewPlaneNormal:[0,-1,0],viewUp:[0,0,1]});
    applyRef.current();viewport.resetCamera({resetPan:true,resetZoom:true});viewport.render();
    const group=tools.ToolGroupManager.createToolGroup(toolGroupId);group?.addTool(tools.TrackballRotateTool.toolName);group?.addTool(tools.PanTool.toolName);
    group?.setToolActive(tools.TrackballRotateTool.toolName,{bindings:[{mouseButton:tools.Enums.MouseBindings.Primary}]});
    group?.setToolActive(tools.PanTool.toolName,{bindings:[{mouseButton:tools.Enums.MouseBindings.Auxiliary}]});group?.addViewport(viewportId,engine.id);
    resize=new ResizeObserver(()=>{if(!disposed){engine.resize(true,true);viewport.render();}});resize.observe(element);
+   window.addEventListener('pointerup',finishInteraction,{signal:controller.signal});
+   window.addEventListener('blur',finishInteraction,{signal:controller.signal});
   })().catch(cause=>{if(!disposed){setError(cause instanceof Error?cause.message:String(cause));setProgress(null);}});
   return()=>{disposed=true;controller.abort();resize?.disconnect();clearTimeout(finishTimer.current);interacting.current=false;viewportRef.current=null;volumeRef.current=null;adjust.current=null;
    if(viewer){viewer.tools.ToolGroupManager.destroyToolGroup(ids.current.tools);if(viewer.engine.getViewport(ids.current.viewport))viewer.engine.disableElement(ids.current.viewport);}
+   lights.forEach(light=>light.delete());
    // Shared volume remains cached until its source study closes.
   };
  },[series?.id,series?.imageIds.length]);
@@ -126,12 +153,12 @@ export function VolumePreview(props:Props){
  const finishInteraction=()=>{adjust.current=null;clearTimeout(finishTimer.current);finishTimer.current=setTimeout(()=>{interacting.current=false;lastFrame.current=0;applyQuality();viewportRef.current?.render();},120);};
  return <section className="volume-workspace" aria-label="3D həcm görünüşü"><div className="volume-stage cornerstone-volume-stage" data-ready={ready} onContextMenu={e=>e.preventDefault()}
    onDoubleClick={()=>{viewportRef.current?.resetCamera({resetPan:true,resetZoom:true});viewportRef.current?.render();}}
-   onPointerDownCapture={e=>{startInteraction();if(e.button===2){e.preventDefault();e.stopPropagation();adjust.current={x:e.clientX,y:e.clientY,threshold,opacity};e.currentTarget.setPointerCapture(e.pointerId);}}}
-   onPointerMoveCapture={e=>{const drag=adjust.current;if(!drag)return;e.preventDefault();e.stopPropagation();onThresholdChange(Math.round(clamp(drag.threshold+(e.clientX-drag.x)*4,-1000,2000)));onOpacityChange(clamp(drag.opacity-(e.clientY-drag.y)*.012,.1,2));}}
+   onPointerDownCapture={e=>{startInteraction();if(e.button===2){e.preventDefault();e.stopPropagation();const scale=viewportRef.current?.getCamera()?.parallelScale;if(scale)adjust.current={y:e.clientY,scale};e.currentTarget.setPointerCapture(e.pointerId);}}}
+   onPointerMoveCapture={e=>{const drag=adjust.current;if(!drag)return;e.preventDefault();e.stopPropagation();viewportRef.current?.setCamera({parallelScale:clamp(drag.scale*Math.exp((e.clientY-drag.y)*.008),.00001,1e8)});viewportRef.current?.render();}}
    onPointerUpCapture={finishInteraction} onPointerCancelCapture={finishInteraction} onPointerLeave={e=>{if(!e.buttons)finishInteraction();}}
    onWheel={e=>{e.preventDefault();startInteraction();const viewport=viewportRef.current,camera=viewport?.getCamera();if(camera?.parallelScale)viewport.setCamera({parallelScale:camera.parallelScale*(e.deltaY>0?1.1:.9)});viewport?.render();finishInteraction();}}>
    {series&&<div key={series.id} ref={hostRef} className="cornerstone-volume-host" aria-label="3D DICOM renderi"/>}
-   {ready&&!error&&<div className="volume-help"><span><b>Sol mouse</b> fırlat</span><span><b>Sağ mouse</b> {series?.modality==='CT'?'HU':'intensivlik'} / şəffaflıq</span><span><b>Təkər</b> zoom</span><span>{settings.quality==='auto'?'Auto · ':''}{effectiveQuality[0].toUpperCase()+effectiveQuality.slice(1)}</span><button onClick={()=>setDiagnostics(performanceSnapshot())}>Performans</button>{note&&<span>{note}</span>}</div>}
+   {ready&&!error&&<div className="volume-help"><span><b>Sol mouse</b> fırlat</span><span><b>Orta mouse</b> daşı</span><span><b>Sağ mouse</b> zoom</span><span><b>Təkər</b> zoom</span><span>{settings.quality==='auto'?'Auto · ':''}{effectiveQuality[0].toUpperCase()+effectiveQuality.slice(1)}</span><button onClick={()=>setDiagnostics(performanceSnapshot())}>Performans</button>{note&&<span>{note}</span>}</div>}
    {ready&&(progress||sourceProgress)&&<WorkProgress className="volume-stream-progress" progress={progress||sourceProgress||null}/>}
    {diagnostics&&<div className="volume-diagnostics" role="status"><button onClick={()=>setDiagnostics(null)}>Bağla</button><span>Decode: {diagnostics.decodeMs.toFixed(0)} ms · {diagnostics.decodeCount} kəsit</span><span>Volume: {diagnostics.volumeBuildMs.toFixed(0)} ms · {diagnostics.volumeBuildCount} qurulma · {diagnostics.volumeCacheHits} reuse</span><span>İlk 3D: {diagnostics.first3DFrameMs.toFixed(0)} ms</span><span>GPU ötürmə: CPU {diagnostics.gpuUploadCpuMs.toFixed(0)} ms · GPU {diagnostics.gpuTimerMs===null?'ölçülmür':diagnostics.gpuTimerMs.toFixed(1)+' ms'}</span><span>GPU ötürmə + ilk render: {diagnostics.gpuUploadAndFirstRenderMs.toFixed(0)} ms</span><span>Fırlatma: {diagnostics.interactionFps?.toFixed(1)||'—'} FPS · JS: {diagnostics.jsHeapBytes?Math.round(diagnostics.jsHeapBytes/1048576)+' MB':'ölçülmür'}</span><span>GPU həcm yaddaşı (təxmini): {Math.round(diagnostics.estimatedGpuBytes/1048576)} MB</span></div>}
    {(!ready||error)&&<div className="volume-cover"><Box size={34}/>{error?<><strong>3D həcm açıla bilmədi</strong><span>{error}</span></>:progress||sourceProgress?<WorkProgress progress={progress||sourceProgress||null}/>:<strong>3D üçün DICOM seriyası seçin</strong>}</div>}

@@ -7,7 +7,7 @@ export function DesktopUpdatePanel({fallback,onCheck,busy}:{fallback:React.React
  useEffect(()=>{
   let alive=true,timer:ReturnType<typeof setTimeout>;
   const poll=async()=>{
-   try{const response=await fetch('/radaz-installation.json',{cache:'no-store'});if(!response.ok)throw Error('status');const value=await response.json() as State;if(alive){managed.current=!!value.managed;setState(value);}}
+   try{const response=await fetch('/radaz-installation.json',{cache:'no-store'});if(!response.ok)throw Error('status');const value=await response.json() as State;if(alive){managed.current=!!value.managed;setState(value);setError('');}}
    catch{if(alive&&managed.current)setError('Yeniləmə xidməti ilə əlaqə kəsildi. Yenidən cəhd edin.');}
    finally{if(alive)timer=setTimeout(poll,750);}
   };void poll();return()=>{alive=false;clearTimeout(timer);};

@@ -11,6 +11,36 @@ type DataSet = ReturnType<typeof dicomParser.parseDicom>;
 type RecordItem = { dataSet: DataSet; pixels: Int16Array | Float32Array; rows: number; columns: number; bits: number; min: number; max: number };
 const records = new Map<string, RecordItem>();
 const pendingDicoms = new Map<string, { bytes: Uint8Array; ds: DataSet; promise?: Promise<string> }>();
+const sourceScope = crypto.randomUUID();
+const borrowedKeys = new Map<string,string>();
+const borrowedLoads = new Map<string,()=>Promise<void>>();
+export type SharedDicom = {key:string;record:RecordItem;resolve:()=>Promise<RecordItem>};
+
+/** Same-origin child tabs borrow calibrated buffers, without cloning bytes or decoding again. */
+export function shareLocalDicoms(imageIds:string[]):SharedDicom[] {
+  return imageIds.map(id=>({key:`${sourceScope}/${id}`,record:records.get(id)!,resolve:async()=>{
+    await decodeRegisteredDicom(id);
+    const record=records.get(id);if(!record)throw Error('Mənbə müayinə artıq bağlıdır');return record;
+  }}));
+}
+export function borrowLocalDicoms(images:SharedDicom[]):string[] {
+  const localRecord=(record:RecordItem):RecordItem=>({...record,pixels:record.bits===16
+    ?new Int16Array(record.pixels.buffer,record.pixels.byteOffset,record.pixels.length)
+    :new Float32Array(record.pixels.buffer,record.pixels.byteOffset,record.pixels.length)});
+  return images.map(image=>{
+    const existing=borrowedKeys.get(image.key);
+    if(existing&&records.has(existing))return existing;
+    const id=`localdicom:${serial++}`;borrowedKeys.set(image.key,id);records.set(id,localRecord(image.record));
+    if(!image.record.pixels.length){
+      let pending:Promise<void>|undefined;
+      borrowedLoads.set(id,()=>pending??=image.resolve().then(record=>{
+        if(!records.has(id))throw new DOMException('Source closed','AbortError');
+        records.set(id,localRecord(record));borrowedLoads.delete(id);
+      }));
+    }
+    return id;
+  });
+}
 const geometryOverrides = new Map<string,ImageGeometry>();
 type SeriesVolume = {volumeId:string;volume:Awaited<ReturnType<typeof core.volumeLoader.createAndCacheVolume>>;
   geometry:ReturnType<typeof describeVolume>;imageIds:string[];range:[number,number];reduced:boolean;bytes:number};
@@ -154,6 +184,8 @@ function metadata(type: string, imageId: string) {
 }
 
 function loadImage(imageId: string): core.Types.IImageLoadObject {
+  const borrowed=borrowedLoads.get(imageId);
+  if(borrowed)return {promise:borrowed().then(()=>loadImage(imageId).promise)};
   if (pendingDicoms.has(imageId)) return { promise: decodeRegisteredDicom(imageId).then(() => loadImage(imageId).promise) };
   const item = records.get(imageId);
   if (!item) return { promise: Promise.reject(new Error('DICOM görüntüsü tapılmadı')) };
@@ -291,9 +323,12 @@ export function releaseLocalDicoms(imageIds: string[]) {
     derived.delete(imageId);
     geometryOverrides.delete(imageId);
     pendingDicoms.delete(imageId);
+    borrowedLoads.delete(imageId);
     records.delete(imageId);
     if (core.cache.getImageLoadObject(imageId)) core.cache.removeImageLoadObject(imageId, { force: true });
   }
+  const removed=new Set(imageIds);
+  for(const [key,id] of borrowedKeys)if(removed.has(id))borrowedKeys.delete(key);
 }
 
 const dot3 = (a: readonly number[], b: readonly number[]) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];

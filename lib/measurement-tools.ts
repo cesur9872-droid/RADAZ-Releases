@@ -51,7 +51,7 @@ export function themedMeasurement(Base: any) {
             const [x, y] = enabled.viewport.worldToCanvas(point), r = measurementTheme.markerRadius;
             for (const sign of [-1, 1]) {
               const a: [number, number] = [x-r, y-sign*r], b: [number, number] = [x+r, y+sign*r];
-              tools.drawing.drawLine(svg, uid, `end-halo-${index}-${sign}`, a, b, { color: measurementTheme.halo, lineWidth: style.lineWidth + 3 });
+              tools.drawing.drawLine(svg, uid, `end-halo-${index}-${sign}`, a, b, { color: measurementTheme.halo, lineWidth: style.lineWidth + 2 });
               tools.drawing.drawLine(svg, uid, `end-x-${index}-${sign}`, a, b, { color: style.color, lineWidth: style.lineWidth }, `${uid}-endpoint-${index}`);
             }
           });
@@ -69,6 +69,6 @@ export function installMeasurementTheme() {
     color: theme.normal.color, colorHighlighted: theme.hover.color, colorSelected: theme.selected.color,
     lineWidth: String(theme.normal.width), lineWidthHighlighted: String(theme.hover.width), lineWidthSelected: String(theme.selected.width),
     textBoxColor: theme.normal.color, textBoxColorHighlighted: theme.hover.color, textBoxColorSelected: theme.selected.color,
-    textBoxBackground: '#071018df', textBoxFontSize: '15px', shadow: true,
+    textBoxBackground: '#071018df', textBoxFontSize: '17px', shadow: true,
   } });
 }

@@ -37,10 +37,11 @@ export function useStackNavigation(viewport: Core.Types.IStackViewport | null, i
   };
 }
 
-export function ViewerInteractionOverlay({ viewport, element, imageId, tool, slice, count, marks, selectedMarkId, onSelectMark, cursor, onCursor, onAdd, onRemove, onSelect, navigate }: {
+export function ViewerInteractionOverlay({ viewport, element, imageId, tool, slice, count, marks, selectedMarkId, onSelectMark, cursor, onCursor, onAdd, onRemove, onSelect, onEditArrow, navigate }: {
   viewport: Core.Types.IStackViewport | null; element: HTMLDivElement | null; imageId: string;
   tool: string; slice: number; count: number; marks: LocalMark[]; cursor: CursorPosition | null;
   onCursor: (position: CursorPosition) => void; onAdd: (mark: LocalMark) => void;
+  onEditArrow: (id:string)=>void;
   onRemove: (id: string) => void; onSelect: () => void; navigate: (index: number, relative?: boolean) => void;
   selectedMarkId?: string | null; onSelectMark?: (id: string) => void;
 }) {
@@ -54,8 +55,10 @@ export function ViewerInteractionOverlay({ viewport, element, imageId, tool, sli
   useEffect(() => {
     if (!element) return;
     const update = () => repaint(n => n + 1);
+    const clear=()=>{gesture.current=null;setDraft([]);};
+    element.addEventListener('radaz-clear-measurements',clear);
     element.addEventListener('CORNERSTONE_IMAGE_RENDERED', update);
-    return () => element.removeEventListener('CORNERSTONE_IMAGE_RENDERED', update);
+    return () => {element.removeEventListener('radaz-clear-measurements',clear);element.removeEventListener('CORNERSTONE_IMAGE_RENDERED', update);};
   }, [element]);
   const world = (event: PointerEvent<SVGSVGElement>) => {
     const rect = element!.getBoundingClientRect();
@@ -106,11 +109,18 @@ export function ViewerInteractionOverlay({ viewport, element, imageId, tool, sli
         gesture.current = null; setDraft([]);
         event.currentTarget.releasePointerCapture(event.pointerId);
       }} onPointerCancel={() => { gesture.current = null; setDraft([]); }} onLostPointerCapture={() => { gesture.current = null; setDraft([]); }}>
-      {marks.filter(mark => mark.imageId === imageId && (mark.kind === 'arrow' || mark.kind === 'pencil')).map(mark => <g key={mark.id} data-drawing={mark.kind} className={selectedMarkId === mark.id ? 'selected-measurement' : undefined}
-        onPointerDown={event=>{event.preventDefault();event.stopPropagation();if(tool==='erase')onRemove(mark.id);else onSelectMark?.(mark.id);}}>
+      {marks.filter(mark => mark.imageId === imageId && (mark.kind === 'arrow' || mark.kind === 'pencil')).map(mark => <g key={mark.id} data-drawing={mark.kind} data-mark-id={mark.id} className={selectedMarkId === mark.id ? 'selected-measurement' : undefined}
+        onClick={event=>event.stopPropagation()} onDoubleClick={event=>{event.stopPropagation();if(mark.kind==='arrow')onEditArrow(mark.id);}}
+        onPointerDown={event=>{if(event.button!==0)return;event.preventDefault();event.stopPropagation();if(tool==='erase')onRemove(mark.id);else onSelectMark?.(mark.id);}}>
         <polyline points={points(mark.points)} />
         {mark.kind === 'arrow' && <polyline points={arrowHead(mark.points)} />}
-        {tool === 'erase' && <polyline className="drawing-hit" points={points(mark.points)} onPointerDown={event => { event.stopPropagation(); onRemove(mark.id); }} />}
+        <polyline className="drawing-hit" points={points(mark.points)} />
+        {mark.kind==='arrow'&&mark.comment&&(()=>{
+          const [x,y]=viewport.worldToCanvas(mark.points[0]);
+          const lines=mark.comment.split('\n').flatMap(line=>line.match(/.{1,32}(?:\s|$)|.{1,32}/g)||['']);
+          const width=Math.min(320,Math.max(80,...lines.map(line=>line.length*9))+16);
+          return <g className="arrow-comment" transform={`translate(${x+12},${y+12})`}><rect width={width} height={lines.length*21+12} rx={4}/><text x={8} y={21}>{lines.map((line,i)=><tspan key={i} x={8} dy={i?21:0}>{line.trim()}</tspan>)}</text></g>;
+        })()}
       </g>)}
       {draft.length > 1 && <g className="drawing-draft"><polyline points={points(draft)}/>{tool === 'arrow' && <polyline points={arrowHead(draft)}/>}</g>}
       {cursorPoint && <g className="world-cursor"><path d={`M ${cursorPoint[0]-18} ${cursorPoint[1]} h 36 M ${cursorPoint[0]} ${cursorPoint[1]-18} v 36`}/><circle cx={cursorPoint[0]} cy={cursorPoint[1]} r="6"/></g>}

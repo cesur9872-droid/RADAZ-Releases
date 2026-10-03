@@ -20,9 +20,11 @@ export function ViewerFullscreen() {
       if (document.fullscreenElement) void document.exitFullscreen();
       else void viewport.requestFullscreen().catch(() => {});
     };
+    const contextMenu=(event:MouseEvent)=>event.preventDefault();
+    document.addEventListener('contextmenu',contextMenu);
     document.addEventListener('pointermove', move); document.addEventListener('pointerleave', leave);
     window.addEventListener('blur', leave); window.addEventListener('keydown', key, true);
-    return () => { document.removeEventListener('pointermove', move); document.removeEventListener('pointerleave', leave); window.removeEventListener('blur', leave); window.removeEventListener('keydown', key, true); };
+    return () => { document.removeEventListener('contextmenu',contextMenu); document.removeEventListener('pointermove', move); document.removeEventListener('pointerleave', leave); window.removeEventListener('blur', leave); window.removeEventListener('keydown', key, true); };
   }, []);
   return null;
 }

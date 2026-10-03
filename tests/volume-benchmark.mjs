@@ -16,7 +16,7 @@ try {
   if(p.includes('/file/'))return route.fulfill({contentType:'application/dicom',body:files[Number(p.split('/').pop())]});
   return route.fulfill({json:[]});
  });
- await context.route('**/product.json',route=>route.fulfill({json:{name:'RADAZ',version:'0.2.10',licenseRequired:true}}));
+ await context.route('**/product.json',route=>route.fulfill({json:{name:'RADAZ',version:'0.2.11',licenseRequired:true}}));
  const page=await context.newPage();const started=Date.now();
  page.on('pageerror',error=>console.error('PAGE',error.message));
  page.on('console',message=>{if(message.type()==='error')console.error('CONSOLE',message.text());});
@@ -41,7 +41,7 @@ try {
  for(let i=0;i<90;i++){await volume.mouse.move(box.x+box.width/2+Math.sin(i/12)*150,box.y+box.height/2+Math.cos(i/12)*80);await new Promise(r=>setTimeout(r,16));}
  await volume.mouse.up();
  const interaction=await volume.evaluate(()=>window.radazPerformance());
- if(process.env.RADAZ_IN_PLACE){
+ {
   await volume.waitForFunction(()=>document.querySelector('.cornerstone-volume-host')?.getAttribute('data-interacting')==='false');
   const volumeId=await volume.locator('.cornerstone-volume-host').getAttribute('data-volume-id');
   await volume.getByRole('button',{name:'Professional 3D ayarları',exact:true}).click();
@@ -58,6 +58,7 @@ try {
  await mpr.waitForFunction(()=>document.querySelectorAll('[data-panel][data-has-image="true"]').length===3&&!document.querySelector('.viewport-loading'));
  const afterMpr=await mpr.evaluate(()=>window.radazPerformance());
  if(process.env.RADAZ_IN_PLACE){assert.equal(afterMpr.decodeCount,source.decodeCount);assert.equal(afterMpr.volumeBuildCount,1);assert.ok(afterMpr.volumeCacheHits>0);}
+ else{assert.equal(first.decodeCount,0);assert.equal(afterMpr.decodeCount,0);assert.equal((await page.evaluate(()=>window.radazPerformance())).decodeCount,source.decodeCount);}
  const gpuSession=await browser.newBrowserCDPSession();const gpu=(await gpuSession.send('SystemInfo.getInfo')).gpu;
  const result={fixture:{width:512,height:512,slices:files.length},importMs,source,first,interaction,afterMpr,gpu:gpu.devices,errors};
  mkdirSync('outputs/performance',{recursive:true});writeFileSync(`outputs/performance/${process.env.RADAZ_BENCH_LABEL||'baseline'}.json`,JSON.stringify(result,null,2));

@@ -9,8 +9,8 @@ import http from 'node:http';
 const {chromium}=createRequire(import.meta.url)(process.env.PLAYWRIGHT_MODULE||'playwright');
 const free=()=>new Promise(resolve=>{const s=http.createServer();s.listen(0,'127.0.0.1',()=>{const p=s.address().port;s.close(()=>resolve(p));});});
 const root=mkdtempSync(path.join(tmpdir(),'radaz-update-ui-')),port=await free(),worker=await free(),archive=await free();
-const message='RADAZ 0.2.10 yeniləməsi uğurla hazırlandı. Növbəti açılışda avtomatik tətbiq olunacaq.';
-const state=(state,message,progress)=>writeFileSync(path.join(root,'update-state.json'),JSON.stringify({state,version:'0.2.10',message,progress}));
+const message='RADAZ 99.0.1 yeniləməsi uğurla hazırlandı. Növbəti açılışda avtomatik tətbiq olunacaq.';
+const state=(state,message,progress)=>writeFileSync(path.join(root,'update-state.json'),JSON.stringify({state,version:'99.0.1',message,progress}));
 state('current','Ən yeni versiya quraşdırılıb.');
 const server=spawn(process.execPath,['scripts/start-release.mjs'],{windowsHide:true,stdio:'ignore',env:{...process.env,RADAZ_PORT:String(port),RADAZ_WORKER_PORT:String(worker),RADAZ_ARCHIVE_PORT:String(archive),RADAZ_INSTALL_ROOT:root}});
 const browser=await chromium.launch({headless:true,channel:'msedge'});
@@ -28,6 +28,10 @@ try{
  await page.getByRole('menuitem',{name:'Yeniləmələri yoxla'}).click();
  await page.getByText('25%',{exact:false}).waitFor();
  assert.equal(requested,1);assert.equal(await page.getByRole('progressbar',{name:'Yenilənmə prosesi'}).getAttribute('value'),'25');
+ await page.locator('dialog footer').getByRole('button',{name:'Bağla',exact:true}).click();
+ await page.locator('.update-toast').getByText(/yeni versiya/).waitFor({timeout:20000});
+ await page.getByRole('button',{name:'Yenilənməyə bax',exact:true}).click();
+ await page.getByRole('progressbar',{name:'Yenilənmə prosesi'}).waitFor();assert.equal(requested,1,'Opening notification must reuse current progress');
  state('installing','Komponentlər quraşdırılır…',{done:8,total:10,unit:'fayl'});
  await page.getByText('80%',{exact:true}).waitFor();
  state('ready',message); // Older staged updates may have no progress field.
@@ -45,7 +49,7 @@ try{
  assert.equal(await page.locator('.update-confirmation').count(),0,'Failure must never show success');
  state('ready',message,{done:1,total:1});await page.getByText(message,{exact:true}).waitFor();
  await page.locator('dialog footer').getByRole('button',{name:'Bağla',exact:true}).click();
- await page.locator('.update-toast').waitFor({timeout:20000});
+ await page.locator('.update-toast').getByText(/qısayolunu yenidən açın/).waitFor({timeout:20000});
  assert.match(await page.locator('.update-toast').textContent(),/qısayolunu yenidən açın/);
  await page.getByRole('button',{name:'Bildirişi bağla'}).click();
  assert.equal(await page.locator('.update-toast').count(),0);

@@ -1,10 +1,10 @@
 # RADAZ — alıcı üçün yükləmə və quraşdırma
 
-Azərbaycan dilində radiologiya iş sahəsi: DICOM viewer, lokal arxiv, PACS, MPR/3D, hesabat, çap və CD/DVD. Bu mənbə 0.2.10 paketini hazırlayır; qiymət 10 AZN/aydır. Satıcı üçün [geniş ödəniş və paylaşma təlimatı](DISTRIBUTION.md) ayrıca yazılıb.
+Azərbaycan dilində radiologiya iş sahəsi: DICOM viewer, lokal arxiv, PACS, MPR/3D, hesabat, çap və CD/DVD. Bu mənbə 0.2.11 paketini hazırlayır; qiymət 10 AZN/aydır. Satıcı üçün [geniş ödəniş və paylaşma təlimatı](DISTRIBUTION.md) ayrıca yazılıb.
 
 ## Alıcı hansı faylı endirməlidir?
 
-Satıcının verdiyi GitHub Release keçidində **Assets → RADAZ-0.2.10-Setup.exe** endirilir. **Source code (zip)** və **Code → Download ZIP** hazır quraşdırma paketi deyil.
+Satıcının verdiyi GitHub Release keçidində **Assets → RADAZ-0.2.11-Setup.exe** endirilir. **Source code (zip)** və **Code → Download ZIP** hazır quraşdırma paketi deyil.
 
 [Quraşdırıcılar və avtomatik yenilənmələr](https://github.com/cesur9872-droid/RADAZ-Releases/releases/latest) ayrıca açıq depoda yayımlanır. 0.2.9 və daha köhnə versiyalar köhnə ünvana bağlıdır: onlarda yeni Setup-ı bir dəfə açmaq lazımdır; sonrakı yenilənmələr yeni kanaldan avtomatik gələcək.
 
@@ -48,7 +48,7 @@ Müddət bitdikdə **PACS və Local arxiv işləyir**. Viewer-də seriya seçimi
 - Cədvəldə “Hamısını seç” yalnız görünən müayinələri seçir. Filtri dəyişəndə gizlənən müayinələr seçimdən çıxır. “Sil” təsdiqdən sonra diskdəki və brauzerdəki lokal nüsxələri silir; PACS-də serverin orijinalları saxlanılır.
 - Görüntünün solundakı kiçik checkbox cari görünüşü çap siyahısına əlavə edir.
 - Viewer-də ayrıca **CD/DVD import** düyməsini aktiv edin. Kompüterə taxılmış və sonradan taxılan optik disk avtomatik açılır; fayl/qovluq seçimi və təsdiq yoxdur. DICOMDIR oxunur, alt qovluqlardakı uzantısız və raw DICOM faylları da aşkar edilir.
-- Seriyalar və ilk thumbnail dərhal görünür, qalan kəsitlər arxa planda yüklənir. MPR/3D tam seriya hazır olduqda açılır.
+- Seriyalar və ilk thumbnail dərhal görünür, qalan kəsitlər arxa planda yüklənir. 3D ilk kəsitlərdən tədricən göstərilir; MPR aksial görüntünü dərhal, digər müstəviləri seriya tamamlandıqda açır.
 - CD/DVD görüntüləri Local Archive-a yazılmır. Disk çıxarılanda həmin sessiyanın görüntüləri, thumbnail, MPR/3D və hesabatın müvəqqəti mənbələri açıq pəncərələrdən təmizlənir. Əl ilə fayl/qovluq importu əvvəlki arxiv davranışını saxlayır.
 - Hesabat viewer-də uğurla açılmış DICOM dəstini qəbul edir; digər arxiv müayinələri avtomatik daxil edilmir.
 - Hesabatdakı seçilmiş seriyaların bütün görüntüləri bir ZIP-ə yığılır. 10 görüntü məhdudiyyəti yoxdur; yerli ZIP həddi 480 MB-dır.
@@ -93,12 +93,20 @@ Quraşdırıcı [Inno Setup](https://jrsoftware.org/) ilə yaradılır. [Node.js
 
 Quraşdırma və CD/DVD yeniləmə üçün [çap edilə bilən addım-addım təlimat](public/RADAZ-Qurasdirma.html).
 
-## Viewer və 3D (0.2.10)
+## Viewer və 3D (0.2.11)
 
-Arxiv/PACS-də checkbox-la seçilmiş müayinələr bir Viewer-də açılır. CD/DVD izləməsi yalnız həmin Viewer-də düymə ilə başladılır. 2D, MPR və 3D keçidləri eyni pəncərədə eyni decode olunmuş kəsitləri və Cornerstone streaming volume cache-ni istifadə edir. Böyük həcm GPU limitini aşanda yalnız 3D üçün azaldılmış həcm hazırlanır; MPR orijinal kəsitləri saxlayır.
+Arxiv/PACS-də checkbox-la seçilmiş müayinələr bir Viewer-də açılır. CD/DVD izləməsi yalnız həmin Viewer-də düymə ilə başladılır. MPR və 3D ayrıca vərəqələrdə açılır; 2D Viewer yerində qalır. Təkrar klik mövcud vərəqəni önə gətirir. Vərəqələr eyni decode edilmiş piksel buferlərini kopyalamadan istifadə edir. Hər səhifənin öz Cornerstone volume obyekti var; tam 3D texture yalnız 3D səhifəsində GPU-ya ötürülür. Mənbə seriyanın dəyişməsi və CD çıxarılması açıq vərəqələrə ötürülür. Böyük həcm GPU limitini aşanda yalnız 3D üçün azaldılmış həcm hazırlanır; MPR orijinal kəsitləri saxlayır.
+
+CT Bone rejimi dolğun fil sümüyü rəngi, üç işıq mənbəyi və xətti interpolasiya istifadə edir. High/Ultra rejimlərində səth kölgələri aktivdir; Balanced təmiz və daha sürətli səth göstərir. MRT üçün ayrıca siqnal intensivliyi rejimi var, CT presetləri və HU yazısı göstərilmir. Qalın kəsitlərdən yaranan səth pillələnməsini rəngləmə aradan qaldırmır.
 
 Balanced standart keyfiyyətdir; Performance, High, Ultra və Auto ayrıca seçilir. Fırlatma/zoom zamanı nümunələmə azaldılır, mouse buraxıldıqda son keyfiyyət qaytarılır. Presetlər `lib/volume-presets.ts` daxilindədir. CT intensiteti `pixel × RescaleSlope + RescaleIntercept` ilə saxlanır. Physical slice mövqeləri və istiqamətləri sıralamanı müəyyən edir; uyğunsuz frame, təkrarlanan/natamam aralıqlar və shear təhlükəsiz xəta ilə bildirilir.
 
-3D-də **Performans** decode, volume qurulması, ilk görüntü, GPU upload, fırlatma FPS və yaddaş göstəricilərini açır. WebGL tam GPU yaddaşını vermir: göstərilən MB yalnız scalar texture üçün təxmindir, framebuffer/driver xərclərini əhatə etmir. GPU timer və JS heap brauzer dəstəyi olduqda ölçülür. Sintetik benchmark üçün `python tests/volume-fixture.py --output outputs/volume-fixture`, sonra işləyən test serverinə qarşı `RADAZ_TEST_URL`, `PLAYWRIGHT_MODULE`, `RADAZ_IN_PLACE=1` ilə `node tests/volume-benchmark.mjs` işlədin. Nəticələr `outputs/performance` daxilindədir; bu sınaqlar klinik preset validasiyası deyil.
+3D-də **Performans** decode, volume qurulması, ilk görüntü, GPU upload, fırlatma FPS və yaddaş göstəricilərini açır. WebGL tam GPU yaddaşını vermir: göstərilən MB yalnız scalar texture üçün təxmindir, framebuffer/driver xərclərini əhatə etmir. GPU timer və JS heap brauzer dəstəyi olduqda ölçülür. Sintetik benchmark üçün `python tests/volume-fixture.py --output outputs/volume-fixture`, sonra işləyən test serverinə qarşı `RADAZ_TEST_URL`, `PLAYWRIGHT_MODULE` ilə `node tests/volume-benchmark.mjs` işlədin. Nəticələr `outputs/performance` daxilindədir; bu sınaqlar klinik preset validasiyası deyil.
 
 **Yardım → Yeniləmələri yoxla → Yenilə** quraşdırılmış updater-i dərhal oyadır. Progress yüklənən baytları və açılan faylları göstərir; tamamlananda növbəti açılış üçün təsdiq çıxır. Hər versiyanın ayrıca Setup ilə quraşdırılması tələb olunmur.
+
+Yeni versiya hazırlanarkən bildiriş görünür; **Yenilənməyə bax** eyni prosesin gedişini açır. Hazır olduqda ayrıca təsdiq göstərilir.
+
+2D/MPR-də ilkin sol düymə WW/WL, orta düyməni basıb sürükləmək move, sağ düyməni basıb sürükləmək zoom edir. Qısa sağ klik ölçmə menyusunu açır: xətt üzərində **Sil**, ox üçün **Şərhi dəyiş**, həmçinin **Cari kəsitdə hamısını sil**. **Ctrl+D** yalnız aktiv kəsitdəki ölçüləri və çəkilmiş xətləri silir. Brauzerin standart sağ klik menyusu söndürülüb. 3D-də sol düymə fırlatma, orta düymə move, sağ düymə zoom üçündür.
+
+Ölçü və çəkilmiş xətlər incəldilib, məlumat yazıları böyüdülüb; xəttə yaxınlaşanda əl kursoru görünür. Ox çəkiləndə şərh əlavə etmək olur; sonradan iki kliklə və ya sağ klik menyusundan dəyişilir. Deviasiya iki nöqtə ilə ölçülür: bucaq görüntünün üfüqi oxuna görə, **H** isə kalibrə edilmiş şaquli məsafədir. Ayaq tağında hündürlük **H**, bucaq **°** ilə göstərilir.

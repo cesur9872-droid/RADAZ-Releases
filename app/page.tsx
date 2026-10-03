@@ -5,6 +5,9 @@ import { measurementVariables } from '@/lib/measurement-theme';
 import { RadazLogo } from '@/components/radaz-logo';
 import { AppHelpMenu, useViewerLicense } from '@/components/app-product';
 import { registerViewer, requestedStudies } from '@/lib/viewer-session';
+import {publishDetachedSource,readDetachedSource} from '@/lib/detached-viewer';
+import {ViewportMouseControls} from '@/components/viewport-mouse-controls';
+import {ArrowCommentEditor} from '@/components/arrow-comment-editor';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -18,7 +21,7 @@ import { LocalizerOverlay } from '@/components/localizer-overlay';
 import { VolumePreview, type VolumeRenderSettings } from '@/components/volume-preview';
 import { volumeStyles, type VolumePreset, type VolumeQuality } from '@/lib/volume-presets';
 import { ArrowUpRight, Pencil, MoveVertical, Eye, EyeOff, Download, PanelLeftClose, Activity, Box, ChevronDown, CircleDot, Crosshair, Database, Disc3, Eraser, FileArchive, FileText, Focus, Grid2X2, Hand, Layers3, MoveDiagonal2, RotateCcw, Ruler, ScanLine, ScanSearch, ServerCog, Settings2, SlidersHorizontal, Trash2, FolderOpen, Triangle, Waypoints } from 'lucide-react';
-import { addLocalDicom, registerLocalDicom, getSeriesVolume, createMprStacks, createObliqueMprStacks, getDefaultWindow, getLocalizerGeometry, getMprOrientations, getViewer, releaseLocalDicoms, rotateMprOrientation, thumbnailLocalDicom, type MprOrientations, type MprMode, type MprSettings } from '@/lib/cornerstone';
+import { addLocalDicom, registerLocalDicom, shareLocalDicoms, borrowLocalDicoms, getSeriesVolume, createMprStacks, createObliqueMprStacks, getDefaultWindow, getLocalizerGeometry, getMprOrientations, getViewer, releaseLocalDicoms, rotateMprOrientation, thumbnailLocalDicom, type MprOrientations, type MprMode, type MprSettings } from '@/lib/cornerstone';
 import { closestSlice, sameCoordinateSpace, normalOf, planeLabel, intersectPlanes, type Point3 } from '@/lib/localizer';
 import { expandSources, filesFromDrop } from '@/lib/import-sources';
 import { parseDicomFile } from '@/lib/dicom-file';
@@ -107,6 +110,8 @@ function ViewportPane({ cursor, onCursor, hideText, id, series, initialImageId, 
   const limitedRef = useRef(limited);
   limitedRef.current = limited;
   const elementRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLElement>(null);
+  const [editingArrow,setEditingArrow]=useState<string|null>(null);
   const groupRef = useRef<any>(null);
   const requestRef = useRef(0);
   const stackQueue = useRef<Promise<void>>(Promise.resolve());
@@ -115,6 +120,7 @@ function ViewportPane({ cursor, onCursor, hideText, id, series, initialImageId, 
   const [viewport, setViewport] = useState<Core.Types.IStackViewport | null>(null);
   const [imageId, setImageId] = useState('');
   const lastClear = useRef(clearToken);
+  useEffect(()=>setEditingArrow(null),[imageId]);
   const [slice, setSlice] = useState(0);
   const [ww, setWW] = useState<number | null>(null);
   const [wl, setWL] = useState<number | null>(null);
@@ -256,8 +262,8 @@ function ViewportPane({ cursor, onCursor, hideText, id, series, initialImageId, 
       Object.values(mapping).filter(Boolean).forEach(name => limited ? group.setToolDisabled(name) : group.setToolPassive(name));
       if (limited) return;
       if (mapping[tool]) group.setToolActive(mapping[tool], { bindings: [{ mouseButton: tools.Enums.MouseBindings.Primary }, { numTouchPoints: 1 }] });
-      if (tool !== 'zoom') group.setToolActive(mapping.zoom, { bindings: [{ mouseButton: tools.Enums.MouseBindings.Secondary }] });
-      if (tool !== 'pan') group.setToolActive(mapping.pan, { bindings: [{ mouseButton: tools.Enums.MouseBindings.Auxiliary }] });
+      // Middle-button pan and secondary-button zoom are handled on the viewport
+      // container so they work over both Cornerstone and SVG annotations.
     });
   }, [enabled, tool, limited]);
 
@@ -286,6 +292,8 @@ function ViewportPane({ cursor, onCursor, hideText, id, series, initialImageId, 
       const vp = engine.getViewport(viewportId) as Core.Types.IStackViewport;
       const currentImage = vp.getCurrentImageId();
       if (!currentImage) return;
+      tools.cancelActiveManipulations(vp.element);
+      vp.element.dispatchEvent(new Event('radaz-clear-measurements'));
       tools.annotation.state.getAllAnnotations()
         .filter(annotation => annotation.metadata?.referencedImageId === currentImage)
         .forEach(annotation => tools.annotation.state.removeAnnotation(annotation.annotationUID!));
@@ -294,7 +302,7 @@ function ViewportPane({ cursor, onCursor, hideText, id, series, initialImageId, 
     });
   }, [enabled, selected, clearToken, viewportId, onClearImage]);
 
-  return <section data-has-image={!!imageId} data-panel={id} className={`viewport ${selected ? 'active' : ''} ${hideText ? 'hide-image-text' : ''} ${tool === 'scroll' ? 'touch-scroll-mode' : ''}`} onClick={onSelect} onDoubleClick={limited ? undefined : onToggleMaximize}
+  return <section ref={containerRef} data-has-image={!!imageId} data-panel={id} className={`viewport ${selected ? 'active' : ''} ${hideText ? 'hide-image-text' : ''} ${tool === 'scroll' ? 'touch-scroll-mode' : ''}`} onClick={onSelect} onDoubleClick={limited ? undefined : onToggleMaximize}
     onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }}
     onDrop={e => { e.preventDefault(); const uid = e.dataTransfer.getData('application/x-series-id'); if (uid) onDropSeries(uid); }}
     aria-label={`Görüntü paneli ${id}`}>
@@ -303,7 +311,10 @@ function ViewportPane({ cursor, onCursor, hideText, id, series, initialImageId, 
       onAdd={onAddMark} onUpdate={onUpdateMark} onRemove={onRemoveMark} onSelectMark={onSelectMark}/>}
     {!limited && <LocalizerOverlay element={elementRef.current} viewport={viewport} imageId={imageId} otherImages={otherImages} enabled={localizers} onMoveSource={onMoveSource} onMoveIntersection={onMoveIntersection} targetPanel={id} onRotateSource={onRotateSource} onRotateStart={onRotateStart} onPreviewRotateSource={onPreviewRotateSource}/>}
     <ViewerInteractionOverlay viewport={viewport} element={elementRef.current} imageId={imageId} tool={tool} slice={slice} count={series?.imageIds.length || 0}
-      marks={marks} selectedMarkId={selectedMarkId} onSelectMark={onSelectMark} cursor={cursor} onCursor={onCursor} onAdd={onAddMark} onRemove={onRemoveMark} onSelect={onSelect} navigate={navigate}/>
+      marks={marks} selectedMarkId={selectedMarkId} onSelectMark={onSelectMark} cursor={cursor} onCursor={onCursor} onEditArrow={setEditingArrow} onAdd={mark=>{onAddMark(mark);if(mark.kind==='arrow')setEditingArrow(mark.id);}} onRemove={onRemoveMark} onSelect={onSelect} navigate={navigate}/>
+    <ViewportMouseControls container={containerRef} element={elementRef.current} viewport={viewport} imageId={imageId} disabled={limited} marks={marks}
+      onSelect={onSelect} onRemove={onRemoveMark} onClear={onClearImage} onEditArrow={setEditingArrow}/>
+    {editingArrow&&marks.filter(mark=>mark.id===editingArrow&&mark.imageId===imageId&&mark.kind==='arrow').map(mark=><ArrowCommentEditor key={mark.id} mark={mark} onSave={comment=>onUpdateMark(mark.id,{comment})} onClose={()=>setEditingArrow(null)}/>)}
     {loadingProgress && <WorkProgress className="viewport-work-progress" progress={loadingProgress}/>}
     <div className="pane-badge">{id}</div>
     {series ? <>
@@ -377,14 +388,25 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
   const mprBuildEpoch = useRef(0);
   const mediaId = (session: string, item: MediaImage) => `media:${session}:${item.studyId}/${item.seriesUID}`;
   const channels = useRef<Map<DetachedMode | 'report', BroadcastChannel>>(new Map());
+  const detachedWindows=useRef(new Map<DetachedMode,Window>());
+  const detachedSources=useRef(new Map<DetachedMode,()=>void>());
   const selectedIdRef = useRef<string | undefined>(undefined);
   selectedIdRef.current=assigned[active];
   const connectHandoff = (mode: DetachedMode | 'report', token: string) => {
+    if(mode!=='report'){
+      detachedSources.current.get(mode)?.();
+      detachedSources.current.set(mode,publishDetachedSource(token,()=>{
+        const selected=listRef.current.find(s=>s.id===selectedIdRef.current)||listRef.current[0];
+        return {revision:selected?`${selected.id}:${selected.imageIds.join(',')}:${selected.loading}`:'empty',
+          series:selected?[{...selected,images:shareLocalDicoms(selected.imageIds)}]:[],preferredSeriesId:selected?.id};
+      }));
+    }
     channels.current.get(mode)?.close();
     const channel = new BroadcastChannel(`radaz-${token}`);
     const reportSnapshot = mode === 'report' && openedFiles.current.length ? [...openedFiles.current] : null;
     channel.onmessage = event => {
       if (event.data?.kind === 'READY') {
+        if(mode!=='report'){channel.postMessage({kind:'SHARED_READY'});return;}
         const selectedMedia = listRef.current.find(s => s.id === selectedIdRef.current)?.mediaSession;
         const mediaSessions = selectedMedia ? [selectedMedia] : [];
         const files = selectedMedia ? mediaFiles.current.get(selectedMedia) || [] : reportSnapshot || openedFiles.current;
@@ -585,7 +607,7 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
     if (request !== importEpoch.current) { discardUnpublished(); return false; }
     finished = true; publish(); setLoadProgress(null);
     if (published) {
-      if (!detachedMode) channels.current.forEach((channel, mode) => { if (mode === 'report') return; try { channel.postMessage({ kind: 'LOAD', files: acceptedFiles, preferredSeriesId: preferredSeriesId || listRef.current[0]?.id }); } catch { /* Closed tabs reconnect on demand. */ } });
+      if (!detachedMode) channels.current.forEach((channel, mode) => { if (mode === 'report') return; try { channel.postMessage({ kind: 'SHARED_READY' }); } catch { /* Closed tabs reconnect on demand. */ } });
       setStatus(`${found.size} seriya · ${files.length - rejected - ignored} DICOM görüntüsü yükləndi${rejected ? ` · ${rejected} fayl keçildi` : ''}`);
       return true;
     }
@@ -599,19 +621,41 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
     const handoff = new URLSearchParams(window.location.search).get('handoff');
     if (!handoff) return;
     const channel = new BroadcastChannel(`radaz-${handoff}`);
-    channel.onmessage = event => {
-      if (event.data?.kind === 'MEDIA_LOAD' && Array.isArray(event.data.mediaSessions)) {
-        preferredMediaSeries.current = event.data.preferredSeriesId;
-        setMediaFilter(event.data.mediaSessions); setMediaEnabled(true); return;
+    let revision='',wasConnected=false,cancelled=false;
+    const sync=()=>{
+      if(cancelled)return;
+      let snapshot=readDetachedSource(handoff);
+      if(!snapshot){
+        if(!listRef.current.some(series=>series.mediaSession)){
+          if(wasConnected)setStatus('Mənbə Viewer bağlıdır. Açılmış görüntü yaddaşda saxlanılır.');
+          return;
+        }
+        // Removable-media tabs must not retain an unmonitored CD after its source closes.
+        snapshot={revision:'source-closed',series:[]};
       }
-      if (event.data?.kind === 'LOAD' && Array.isArray(event.data.files)) {
-        setMediaEnabled(false);
-        void importFiles(event.data.files as File[], ++importEpoch.current, event.data.preferredSeriesId);
+      wasConnected=true;if(snapshot.revision===revision)return;revision=snapshot.revision;
+      const previous=listRef.current,oldIds=previous.flatMap(s=>s.imageIds);
+      const next:Series[]=snapshot.series.map(({images,...series})=>({...series,imageIds:borrowLocalDicoms(images)}));
+      const selected=next.find(s=>s.id===snapshot.preferredSeriesId)||next[0];
+      const replacement=previous[0]?.id!==selected?.id||!!previous[0]?.imageIds.length&&previous[0].imageIds[0]!==selected?.imageIds[0];
+      if(replacement||!selected){
+        mprBuildEpoch.current++;setMprProgress(null);setMprError('');
+        const mpr=mprDataRef.current;mprDataRef.current=null;setMprData(null);
+        if(mpr)oldIds.push(...mpr.owned);
+        setCurrentImages({});setMarks([]);setDatasetVersion(v=>v+1);
+        void getViewer().then(v=>v.tools.annotation.state.removeAllAnnotations());
       }
+      listRef.current=next;setSeriesList(next);setAssigned(selected?{A:selected.id}:{});
+      setLoadProgress(selected?.loading?{label:'Mənbə Viewer-dən yüklənir',done:selected.imageIds.length,total:selected.discovered||0}:null);
+      const retained=new Set(next.flatMap(s=>s.imageIds));
+      window.setTimeout(()=>releaseLocalDicoms(oldIds.filter(id=>!retained.has(id))),100);
+      setStatus(selected?`${selected.name} · ${selected.imageIds.length} kəsit · ortaq DICOM yaddaşı`:'Mənbə Viewer-də seriya seçin');
     };
+    channel.onmessage=()=>sync();sync();
+    const timer=setInterval(sync,750);
     channel.postMessage({ kind: 'READY' });
     document.title = `RADAZ ${detachedMode.toUpperCase()}`;
-    return () => channel.close();
+    return () => {cancelled=true;clearInterval(timer);channel.close();};
   }, [detachedMode, importFiles]);
 
   useEffect(() => {
@@ -619,7 +663,7 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
       const token=sessionStorage.getItem(`radaz-${mode}-handoff`);
       if(token) connectHandoff(mode,token);
     }
-    return () => { channels.current.forEach(channel => channel.close()); channels.current.clear(); };
+    return () => { channels.current.forEach(channel => channel.close()); channels.current.clear();detachedSources.current.forEach(dispose=>dispose());detachedSources.current.clear(); };
   // Restore existing handoffs if the parent browser tab reloads.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detachedMode]);
@@ -630,7 +674,7 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
       try {
         await getViewer(); if (cancelled) return; setReady(true);
         if (detachedMode && new URLSearchParams(window.location.search).has('handoff')) {
-          setStatus('Açıq müayinə gözlənilir…'); return;
+          if(!listRef.current.length)setStatus('Açıq müayinə gözlənilir…'); return;
         }
         const archivedStudies = detachedMode?[]:requestedStudies(window.location.hash);
         if (archivedStudies.length) {
@@ -672,7 +716,13 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
   }, [detachedMode, ready, importFiles]);
 
   const openDetached = (mode: DetachedMode) => {
-    if (mode === 'mpr') openMpr(); else setWorkspace('3d');
+    const existing=detachedWindows.current.get(mode);
+    if(existing&&!existing.closed){existing.focus();return;}
+    const token=sessionStorage.getItem(`radaz-${mode}-handoff`)||crypto.randomUUID();
+    connectHandoff(mode,token);sessionStorage.setItem(`radaz-${mode}-handoff`,token);
+    const tab=window.open(`/${mode}?handoff=${encodeURIComponent(token)}`,`radaz-${mode}-${token}`);
+    if(tab){detachedWindows.current.set(mode,tab);tab.focus();}
+    else setStatus(`${mode.toUpperCase()} səhifəsi bloklandı. Brauzerdə RADAZ üçün yeni vərəqələrə icazə verin.`);
   };
 
   const openReport = () => {
@@ -686,7 +736,13 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if(limited)return;
-      if (e.altKey || e.ctrlKey || e.metaKey || ['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement).tagName) || document.querySelector('[role=dialog], dialog[open]') || (e.target as HTMLElement).isContentEditable) return;
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement).tagName) || document.querySelector('[role=dialog], dialog[open]') || (e.target as HTMLElement).isContentEditable) return;
+      if(e.ctrlKey&&!e.altKey&&!e.shiftKey&&e.code==='KeyD'){
+        e.preventDefault();
+        if(workspace!=='3d'&&currentImages[workspace==='mpr'?mprActive:active])setClearToken(value=>value+1);
+        return;
+      }
+      if(e.altKey||e.ctrlKey||e.metaKey)return;
       if (e.key === 'Delete') {
         const panel = workspace === 'mpr' ? mprActive : active;
         const imageId = currentImages[panel];
@@ -806,6 +862,14 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
     : seriesList.filter(s => s.studyId === currentSeries?.studyId && s.imageIds.length >= 3)
       .sort((a, b) => b.imageIds.length - a.imageIds.length)[0];
   const grouped = groupSeries(seriesList);
+  const ctVolume = volumeSeries?.modality === 'CT';
+  const availableVolumeStyles = volumeStyles.filter(style => ctVolume ? style.key !== 'mr' : ['mr','mip','minip'].includes(style.key));
+  useEffect(() => {
+    if (!volumeSeries) return;
+    const style = volumeStyles.find(item => item.key === (volumeSeries.modality === 'CT' ? 'bone' : 'mr'))!;
+    setVolumePreset(style.key); setVolumeThreshold(style.threshold); setVolumeOpacity(style.opacity);
+    setVolumeSettings(current => ({...style.lighting, quality:current.quality}));
+  }, [volumeSeries?.modality]);
   const buildMpr = async (source: Series, settings: MprSettings, orientations: MprOrientations | null, pivot: Point3 | null, center = false, onlyPlane?: 'SAG'|'COR'|'AX') => {
     const epoch = ++mprBuildEpoch.current;
     const previousData = mprDataRef.current;
@@ -981,8 +1045,8 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
       {workspace === '3d' && <>
         <div className="mode-identity"><strong><Box size={17}/> 3D VR</strong><span title={volumeSeries?.name || ''}>{volumeSeries ? `${volumeSeries.name} · ${volumeSeries.imageIds.length} kəsit` : 'Seriya seçin'}</span></div>
         <div className="mode-controls volume-header-controls">
-          <DropdownMenu><DropdownMenuTrigger asChild><Button variant="outline" className="header-control volume-preset-trigger" title={`3D preset: ${volumeStyles.find(style => style.key === volumePreset)?.title}`} aria-label="3D göstərmə presetləri"><SlidersHorizontal size={18}/><ChevronDown size={13}/></Button></DropdownMenuTrigger><DropdownMenuContent align="start" className="header-menu volume-preset-menu"><div className="volume-menu-heading">KLİNİK 3D PRESETLƏR</div>{volumeStyles.map(style => <DropdownMenuItem key={style.key} className={volumePreset === style.key ? 'menu-selected' : ''} onSelect={() => { setVolumePreset(style.key); setVolumeThreshold(style.threshold); setVolumeOpacity(style.opacity); setVolumeSettings(current => ({...style.lighting,quality:current.quality})); }}><span className="volume-preset-swatch" style={{ background: style.tone }}/><span className="volume-preset-copy"><strong>{style.title}</strong><small>{style.subtitle}</small></span></DropdownMenuItem>)}</DropdownMenuContent></DropdownMenu>
-          <label className="volume-parameter">HU həddi <input aria-label="3D HU həddi" type="range" min="-1000" max="1400" step="10" value={volumeThreshold} onChange={event => setVolumeThreshold(+event.currentTarget.value)}/><output>{volumeThreshold}</output></label>
+          <DropdownMenu><DropdownMenuTrigger asChild><Button variant="outline" className="header-control volume-preset-trigger" title={`3D preset: ${volumeStyles.find(style => style.key === volumePreset)?.title}`} aria-label="3D göstərmə presetləri"><SlidersHorizontal size={18}/><ChevronDown size={13}/></Button></DropdownMenuTrigger><DropdownMenuContent align="start" className="header-menu volume-preset-menu"><div className="volume-menu-heading">KLİNİK 3D PRESETLƏR</div>{availableVolumeStyles.map(style => <DropdownMenuItem key={style.key} className={volumePreset === style.key ? 'menu-selected' : ''} onSelect={() => { setVolumePreset(style.key); setVolumeThreshold(style.threshold); setVolumeOpacity(style.opacity); setVolumeSettings(current => ({...style.lighting,quality:current.quality})); }}><span className="volume-preset-swatch" style={{ background: style.tone }}/><span className="volume-preset-copy"><strong>{style.title}</strong><small>{style.subtitle}</small></span></DropdownMenuItem>)}</DropdownMenuContent></DropdownMenu>
+          <label className="volume-parameter">{ctVolume ? 'HU həddi' : 'İntensivlik'} <input aria-label={ctVolume ? '3D HU həddi' : '3D intensivlik həddi'} type="range" min="-1000" max="1400" step="10" value={volumeThreshold} onChange={event => setVolumeThreshold(+event.currentTarget.value)}/><output>{ctVolume ? volumeThreshold : `${Math.round(volumeThreshold/40.95)}%`}</output></label>
           <label className="volume-parameter">Şəffaflıq <input aria-label="3D şəffaflıq" type="range" min="0.2" max="2" step="0.1" value={volumeOpacity} onChange={event => setVolumeOpacity(+event.currentTarget.value)}/><output>{Math.round(volumeOpacity * 100)}%</output></label>
           <DropdownMenu><DropdownMenuTrigger asChild><Button variant="outline" className="header-control volume-preset-trigger" title="Professional işıq və keyfiyyət ayarları" aria-label="Professional 3D ayarları"><Settings2 size={18}/></Button></DropdownMenuTrigger><DropdownMenuContent align="end" className="header-menu volume-settings-menu"><div className="volume-menu-heading">İŞIQ VƏ RENDER</div><div className="volume-settings-panel" onPointerDown={event => event.stopPropagation()} onClick={event => event.stopPropagation()}>
             <label><span>Ətraf işıq <output>{Math.round(volumeSettings.ambient*100)}%</output></span><input type="range" min="0.05" max="0.6" step="0.01" value={volumeSettings.ambient} onChange={event => { const value = +event.currentTarget.value; setVolumeSettings(current => ({ ...current, ambient: value })); }}/></label>
@@ -1003,7 +1067,7 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
         </div>}
         {!limited && detachedMode !== '3d' && <div className="toolbar-group" role="group" aria-label="Naviqasiya və ölçmə">{viewTools.map(t => <Button key={t.id} variant="ghost" className={`header-control view-tool ${tool === t.id ? 'selected-tool' : ''}`} aria-pressed={tool === t.id} title={`${t.label} · ${t.hint}`} onClick={() => setTool(t.id)}><t.icon size={17}/><span>{t.label}</span></Button>)}
         <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" className="header-control" title="Ölçmə alətləri" aria-label="Ölçmə alətləri"><Ruler size={17}/><span>Ölçmə</span><ChevronDown size={14}/></Button></DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="header-menu">{measureTools.map(t => <DropdownMenuItem key={t.id} onSelect={() => setTool(t.id)} className={tool === t.id ? 'menu-selected' : ''}><t.icon size={16}/>{t.label}<kbd>{t.hint}</kbd></DropdownMenuItem>)}<div className="menu-separator"/><DropdownMenuItem onSelect={() => setClearToken(x => x + 1)}><Trash2 size={16}/> Cari kəsitdə hamısını sil</DropdownMenuItem><div className="menu-hint">Ölçünü seçin · Delete ilə silin</div></DropdownMenuContent>
+          <DropdownMenuContent align="end" className="header-menu">{measureTools.map(t => <DropdownMenuItem key={t.id} onSelect={() => setTool(t.id)} className={tool === t.id ? 'menu-selected' : ''}><t.icon size={16}/>{t.label}<kbd>{t.hint}</kbd></DropdownMenuItem>)}<div className="menu-separator"/><DropdownMenuItem onSelect={() => setClearToken(x => x + 1)}><Trash2 size={16}/> Cari kəsitdə hamısını sil<kbd>Ctrl+D</kbd></DropdownMenuItem><div className="menu-hint">Ölçünü seçin · Delete ilə silin</div></DropdownMenuContent>
         </DropdownMenu>
         </div>}
         {!limited && detachedMode !== '3d' && <div className="toolbar-group" role="group" aria-label="Pəncərə və lokayzer">

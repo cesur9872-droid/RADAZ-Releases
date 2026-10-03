@@ -1,8 +1,8 @@
 export const measurementTheme = {
-  normal: { color: '#ffe45e', width: 1.6, dash: '' },
-  hover: { color: '#56edff', width: 2.1, dash: '' },
-  selected: { color: '#ff83dc', width: 2.1, dash: '' },
-  drawing: { color: '#7dff91', width: 1.8, dash: '5,2' },
+  normal: { color: '#ffe45e', width: 1.2, dash: '' },
+  hover: { color: '#56edff', width: 1.6, dash: '' },
+  selected: { color: '#ff83dc', width: 1.6, dash: '' },
+  drawing: { color: '#7dff91', width: 1.4, dash: '5,2' },
   halo: '#071018', markerRadius: 5,
 } as const;
 export type MeasurementState = 'normal' | 'hover' | 'selected' | 'drawing';
