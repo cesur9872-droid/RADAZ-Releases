@@ -36,8 +36,20 @@ def read_json(file):
 def atomic_json(file, value):
     file = Path(file)
     temporary = file.with_name(file.name + '.' + secrets.token_hex(6) + '.tmp')
-    temporary.write_text(json.dumps(value, ensure_ascii=False), encoding='utf-8')
-    os.replace(temporary, file)
+    try:
+        temporary.write_text(json.dumps(value, ensure_ascii=False), encoding='utf-8')
+        # Windows readers and virus scanners can briefly deny rename/delete.
+        # Preserve the old complete JSON until the atomic replacement succeeds.
+        for attempt in range(10):
+            try:
+                os.replace(temporary, file)
+                break
+            except PermissionError:
+                if attempt == 9:
+                    raise
+                time.sleep(min(.025 * 2 ** attempt, .25))
+    finally:
+        temporary.unlink(missing_ok=True)
 
 def version_dir(root, value):
     version(value)

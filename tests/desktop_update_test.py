@@ -2,7 +2,9 @@
 import hashlib
 import importlib.util
 import json
+import os
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -44,6 +46,34 @@ class DesktopUpdates(unittest.TestCase):
         self.assertEqual(desktop.read_json(self.root/'pending.json')['version'],'0.2.9')
         self.assertEqual(desktop.read_json(self.root/'update-state.json')['state'],'ready')
         desktop.validate_directory(self.root/'versions/0.2.9','0.2.9')
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows sharing violation regression')
+    def test_progress_survives_a_real_windows_reader_blocking_replace(self):
+        import ctypes
+        from ctypes import wintypes
+        file=self.root/'update-state.json'
+        desktop.atomic_json(file, {'state':'downloading','progress':10})
+        kernel=ctypes.WinDLL('kernel32',use_last_error=True)
+        kernel.CreateFileW.argtypes=[wintypes.LPCWSTR,wintypes.DWORD,wintypes.DWORD,ctypes.c_void_p,wintypes.DWORD,wintypes.DWORD,wintypes.HANDLE]
+        kernel.CreateFileW.restype=wintypes.HANDLE
+        kernel.CloseHandle.argtypes=[wintypes.HANDLE]
+        # Share read/write but deliberately omit FILE_SHARE_DELETE, as a transient reader can.
+        handle=kernel.CreateFileW(str(file),0x80000000,3,None,3,0,None)
+        self.assertNotEqual(handle,ctypes.c_void_p(-1).value)
+        timer=threading.Timer(.12,lambda:kernel.CloseHandle(handle));timer.start()
+        try:
+            desktop.atomic_json(file, {'state':'downloading','progress':20})
+        finally:
+            timer.join()
+        self.assertEqual(desktop.read_json(file)['progress'],20)
+        self.assertEqual(list(self.root.glob('*.tmp')),[])
+
+    def test_permanent_replace_failure_preserves_old_json_and_cleans_temporary(self):
+        file=self.root/'update-state.json';desktop.atomic_json(file, {'state':'downloading','progress':10})
+        with patch.object(desktop.os,'replace',side_effect=PermissionError('locked')),patch.object(desktop.time,'sleep'),self.assertRaises(PermissionError):
+            desktop.atomic_json(file, {'state':'ready'})
+        self.assertEqual(desktop.read_json(file),{'state':'downloading','progress':10})
+        self.assertEqual(list(self.root.glob('*.tmp')),[])
 
     def test_staging_reports_real_extraction_progress_and_completion(self):
         updates=[]

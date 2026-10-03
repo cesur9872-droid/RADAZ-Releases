@@ -1,10 +1,10 @@
 # RADAZ — alıcı üçün yükləmə və quraşdırma
 
-Azərbaycan dilində radiologiya iş sahəsi: DICOM viewer, lokal arxiv, PACS, MPR/3D, hesabat, çap və CD/DVD. Bu mənbə 0.2.11 paketini hazırlayır; qiymət 10 AZN/aydır. Satıcı üçün [geniş ödəniş və paylaşma təlimatı](DISTRIBUTION.md) ayrıca yazılıb.
+Azərbaycan dilində radiologiya iş sahəsi: DICOM viewer, lokal arxiv, PACS, MPR/3D, hesabat, çap və CD/DVD. Bu mənbə 0.2.12 paketini hazırlayır; qiymət 10 AZN/aydır. Satıcı üçün [geniş ödəniş və paylaşma təlimatı](DISTRIBUTION.md) ayrıca yazılıb.
 
 ## Alıcı hansı faylı endirməlidir?
 
-Satıcının verdiyi GitHub Release keçidində **Assets → RADAZ-0.2.11-Setup.exe** endirilir. **Source code (zip)** və **Code → Download ZIP** hazır quraşdırma paketi deyil.
+Satıcının verdiyi GitHub Release keçidində **Assets → RADAZ-0.2.12-Setup.exe** endirilir. **Source code (zip)** və **Code → Download ZIP** hazır quraşdırma paketi deyil.
 
 [Quraşdırıcılar və avtomatik yenilənmələr](https://github.com/cesur9872-droid/RADAZ-Releases/releases/latest) ayrıca açıq depoda yayımlanır. 0.2.9 və daha köhnə versiyalar köhnə ünvana bağlıdır: onlarda yeni Setup-ı bir dəfə açmaq lazımdır; sonrakı yenilənmələr yeni kanaldan avtomatik gələcək.
 
@@ -93,7 +93,7 @@ Quraşdırıcı [Inno Setup](https://jrsoftware.org/) ilə yaradılır. [Node.js
 
 Quraşdırma və CD/DVD yeniləmə üçün [çap edilə bilən addım-addım təlimat](public/RADAZ-Qurasdirma.html).
 
-## Viewer və 3D (0.2.11)
+## Viewer və 3D (0.2.12)
 
 Arxiv/PACS-də checkbox-la seçilmiş müayinələr bir Viewer-də açılır. CD/DVD izləməsi yalnız həmin Viewer-də düymə ilə başladılır. MPR və 3D ayrıca vərəqələrdə açılır; 2D Viewer yerində qalır. Təkrar klik mövcud vərəqəni önə gətirir. Vərəqələr eyni decode edilmiş piksel buferlərini kopyalamadan istifadə edir. Hər səhifənin öz Cornerstone volume obyekti var; tam 3D texture yalnız 3D səhifəsində GPU-ya ötürülür. Mənbə seriyanın dəyişməsi və CD çıxarılması açıq vərəqələrə ötürülür. Böyük həcm GPU limitini aşanda yalnız 3D üçün azaldılmış həcm hazırlanır; MPR orijinal kəsitləri saxlayır.
 

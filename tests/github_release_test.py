@@ -1,5 +1,6 @@
 """Release publication must never expose incomplete or changed assets."""
 import hashlib
+import io
 import importlib.util
 import json
 import tempfile
@@ -7,6 +8,7 @@ import unittest
 from pathlib import Path
 from zipfile import ZipFile
 from unittest.mock import patch
+from urllib.error import HTTPError
 
 spec = importlib.util.spec_from_file_location('github_release', Path(__file__).resolve().parents[1] / 'scripts/github-release.py')
 release = importlib.util.module_from_spec(spec)
@@ -56,6 +58,19 @@ class Releases(unittest.TestCase):
 
     def test_first_release_is_planned(self):
         self.assertTrue(release.release_plan(FakeGitHub(), VERSION))
+
+    def test_asset_upload_allows_slow_uplink(self):
+        api=release.GitHub('owner/binaries','synthetic-token')
+        with patch.object(release,'urlopen',return_value=io.BytesIO(b'{"state":"uploaded"}')) as request:
+            api.request('/releases/7/assets?name=test.zip','POST',upload=self.archive)
+        self.assertEqual(request.call_args.kwargs['timeout'],900)
+
+    def test_existing_untagged_draft_is_found_before_retry(self):
+        api=release.GitHub('owner/binaries','synthetic-token')
+        draft={'id':7,'tag_name':'v0.2.4','draft':True}
+        responses=[HTTPError('https://api.github.com',404,'no tag',{},None),io.BytesIO(json.dumps([draft]).encode())]
+        with patch.object(release,'urlopen',side_effect=responses):
+            self.assertEqual(api.request('/releases/tags/v0.2.4',missing=True),draft)
 
     def test_published_version_is_skipped_and_not_overwritten(self):
         published = {'draft': False, 'prerelease': False, 'assets': [

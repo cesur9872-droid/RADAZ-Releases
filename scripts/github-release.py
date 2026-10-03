@@ -50,10 +50,14 @@ class GitHub:
             headers['Content-Type'] = 'application/json'
         request = Request(f'{base}/repos/{self.repo}{path}', data=data, method=method, headers=headers)
         try:
-            with urlopen(request, timeout=120) as response:
+            with urlopen(request, timeout=900 if upload else 120) as response:
                 return json.load(response)
         except HTTPError as error:
             if missing and error.code == 404:
+                # A draft may have no tag yet and be absent from the tag endpoint.
+                if self.token and path.startswith('/releases/tags/'):
+                    tag = path.rsplit('/', 1)[-1]
+                    return next((r for r in self.request('/releases?per_page=100') if r['tag_name'] == tag), None)
                 return None
             raise RuntimeError(f'GitHub {method} {path}: HTTP {error.code}') from None
 
