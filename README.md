@@ -1,12 +1,12 @@
 # RADAZ — alıcı üçün yükləmə və quraşdırma
 
-Azərbaycan dilində radiologiya iş sahəsi: DICOM viewer, lokal arxiv, PACS, MPR/3D, hesabat, çap və CD/DVD. Bu mənbə 0.2.9 paketini hazırlayır; qiymət 10 AZN/aydır. Satıcı üçün [geniş ödəniş və paylaşma təlimatı](DISTRIBUTION.md) ayrıca yazılıb.
+Azərbaycan dilində radiologiya iş sahəsi: DICOM viewer, lokal arxiv, PACS, MPR/3D, hesabat, çap və CD/DVD. Bu mənbə 0.2.10 paketini hazırlayır; qiymət 10 AZN/aydır. Satıcı üçün [geniş ödəniş və paylaşma təlimatı](DISTRIBUTION.md) ayrıca yazılıb.
 
 ## Alıcı hansı faylı endirməlidir?
 
-Satıcının verdiyi GitHub Release keçidində **Assets → RADAZ-0.2.9-Setup.exe** endirilir. **Source code (zip)** və **Code → Download ZIP** hazır quraşdırma paketi deyil.
+Satıcının verdiyi GitHub Release keçidində **Assets → RADAZ-0.2.10-Setup.exe** endirilir. **Source code (zip)** və **Code → Download ZIP** hazır quraşdırma paketi deyil.
 
-[Mənbə deposu](https://github.com/drnaghiyev/RADAZ-D-COM) və [Releases səhifəsi](https://github.com/drnaghiyev/RADAZ-D-COM/releases/latest). Yeni versiyalar main qoluna göndərildikdən, GitHub yoxlamaları və paket yığımı uğurla tamamlandıqdan sonra yayımlanır. Alıcıya giriş tələb etməyən buraxılış keçidi verilməlidir; şəxsi depodakı buraxılışı RADAZ-ın anonim yeniləmə xidməti endirə bilməz.
+[Quraşdırıcılar və avtomatik yenilənmələr](https://github.com/cesur9872-droid/RADAZ-Releases/releases/latest) ayrıca açıq depoda yayımlanır. 0.2.9 və daha köhnə versiyalar köhnə ünvana bağlıdır: onlarda yeni Setup-ı bir dəfə açmaq lazımdır; sonrakı yenilənmələr yeni kanaldan avtomatik gələcək.
 
 ## Windows-da başlatma
 
@@ -83,7 +83,7 @@ Python testləri üçün `pydicom`, `pynetdicom` və Pillow lazımdır. PACS kit
 Texniki quraşdırma: [LOKAL-ISTIFADE.md](LOKAL-ISTIFADE.md). Paylama və aylıq lisenziya: [DISTRIBUTION.md](DISTRIBUTION.md). Təmizləmə və yoxlama nəticələri: [CLEANUP-AUDIT.md](CLEANUP-AUDIT.md).
 # Windows-da quraşdırma və avtomatik yeniləmə
 
-[Son GitHub buraxılışından](https://github.com/drnaghiyev/RADAZ-D-COM/releases/latest) **RADAZ-…-Setup.exe** endirin və açın. Windows 10/11 64 bit üçün per-user quraşdırıcıdır. Node.js, Python, Pillow, DICOM paketləri və FFmpeg daxildir; ayrıca paket quraşdırılması tələb olunmur. İş masası və Başlat menyusunda RADAZ qısayolu yaradılır. Qısayol serveri və arxiv xidmətini arxa planda başladıb brauzerdə RADAZ-ı açır.
+[Son GitHub buraxılışından](https://github.com/cesur9872-droid/RADAZ-Releases/releases/latest) **RADAZ-…-Setup.exe** endirin və açın. Windows 10/11 64 bit üçün per-user quraşdırıcıdır. Node.js, Python, Pillow, DICOM paketləri və FFmpeg daxildir; ayrıca paket quraşdırılması tələb olunmur. İş masası və Başlat menyusunda RADAZ qısayolu yaradılır. Qısayol serveri və arxiv xidmətini arxa planda başladıb brauzerdə RADAZ-ı açır.
 
 Yeniləmələr GitHub-dan avtomatik endirilir və SHA-256/file manifest ilə yoxlanılır. Hazır yeniləmə RADAZ qısayolundan növbəti açılışda tətbiq olunur. Aktiv müayinə qəfil yenidən yüklənmir. Server açıla bilməsə əvvəlki versiyaya qayıdılır. DICOM qəbulu və çıxış işi davam edirsə arxiv yeniləməsi təxirə salınır. İnternet olmayanda quraşdırılmış versiya işləyir. Yoxlama açılışda başlayır, açıq qaldıqda hər 6 saat təkrarlanır.
 
@@ -92,3 +92,13 @@ Proqram `%LOCALAPPDATA%\Programs\RADAZ` altında, klinik arxiv isə ayrıca `Doc
 Quraşdırıcı [Inno Setup](https://jrsoftware.org/) ilə yaradılır. [Node.js](https://nodejs.org/), [Python embedded distribution](https://docs.python.org/3/using/windows.html#the-embeddable-package), [Pillow](https://pillow.readthedocs.io/) və [imageio-ffmpeg](https://github.com/imageio/imageio-ffmpeg) mənbələri və SHA-256 identifikatorları paketdə `runtime/sources.json`, onların lisenziyaları isə müvafiq runtime qovluqlarındadır.
 
 Quraşdırma və CD/DVD yeniləmə üçün [çap edilə bilən addım-addım təlimat](public/RADAZ-Qurasdirma.html).
+
+## Viewer və 3D (0.2.10)
+
+Arxiv/PACS-də checkbox-la seçilmiş müayinələr bir Viewer-də açılır. CD/DVD izləməsi yalnız həmin Viewer-də düymə ilə başladılır. 2D, MPR və 3D keçidləri eyni pəncərədə eyni decode olunmuş kəsitləri və Cornerstone streaming volume cache-ni istifadə edir. Böyük həcm GPU limitini aşanda yalnız 3D üçün azaldılmış həcm hazırlanır; MPR orijinal kəsitləri saxlayır.
+
+Balanced standart keyfiyyətdir; Performance, High, Ultra və Auto ayrıca seçilir. Fırlatma/zoom zamanı nümunələmə azaldılır, mouse buraxıldıqda son keyfiyyət qaytarılır. Presetlər `lib/volume-presets.ts` daxilindədir. CT intensiteti `pixel × RescaleSlope + RescaleIntercept` ilə saxlanır. Physical slice mövqeləri və istiqamətləri sıralamanı müəyyən edir; uyğunsuz frame, təkrarlanan/natamam aralıqlar və shear təhlükəsiz xəta ilə bildirilir.
+
+3D-də **Performans** decode, volume qurulması, ilk görüntü, GPU upload, fırlatma FPS və yaddaş göstəricilərini açır. WebGL tam GPU yaddaşını vermir: göstərilən MB yalnız scalar texture üçün təxmindir, framebuffer/driver xərclərini əhatə etmir. GPU timer və JS heap brauzer dəstəyi olduqda ölçülür. Sintetik benchmark üçün `python tests/volume-fixture.py --output outputs/volume-fixture`, sonra işləyən test serverinə qarşı `RADAZ_TEST_URL`, `PLAYWRIGHT_MODULE`, `RADAZ_IN_PLACE=1` ilə `node tests/volume-benchmark.mjs` işlədin. Nəticələr `outputs/performance` daxilindədir; bu sınaqlar klinik preset validasiyası deyil.
+
+**Yardım → Yeniləmələri yoxla → Yenilə** quraşdırılmış updater-i dərhal oyadır. Progress yüklənən baytları və açılan faylları göstərir; tamamlananda növbəti açılış üçün təsdiq çıxır. Hər versiyanın ayrıca Setup ilə quraşdırılması tələb olunmur.

@@ -1,11 +1,34 @@
 import * as tools from '@cornerstonejs/tools';
 import { measurementState, measurementTheme } from './measurement-theme';
+const hoverEvents=new WeakMap<HTMLElement,{event:unknown;uid?:string}>();
+const leaveListeners=new WeakSet<HTMLElement>();
 
 /** Keep Cornerstone hit testing/geometry; apply one theme to every annotation state. */
 export function themedMeasurement(Base: any) {
   return class extends Base {
     constructor(...args: any[]) {
       super(...args);
+      const move=this.mouseMoveCallback.bind(this);
+      this.mouseMoveCallback=(event:any,annotations:any[])=>{
+        let redraw=move(event,annotations);
+        const element=event.detail.element as HTMLDivElement;
+        if(!leaveListeners.has(element)){
+          leaveListeners.add(element);
+          element.addEventListener('pointerleave',()=>{
+            for(const Tool of [tools.LengthTool,tools.AngleTool,tools.CobbAngleTool,tools.EllipticalROITool]){
+              for(const annotation of tools.annotation.state.getAnnotations(Tool.toolName,element)||[])annotation.highlighted=false;
+            }
+            hoverEvents.delete(element);tools.utilities.triggerAnnotationRender(element);
+          });
+        }
+        let hover=hoverEvents.get(element);
+        if(hover?.event!==event){hover={event};hoverEvents.set(element,hover);}
+        for(const annotation of annotations||[])if(annotation.highlighted){
+          if(!hover!.uid)hover!.uid=annotation.annotationUID;
+          else if(hover!.uid!==annotation.annotationUID){annotation.highlighted=false;redraw=true;}
+        }
+        return redraw;
+      };
       const baseStyle = this.getAnnotationStyle.bind(this);
       this.getAnnotationStyle = (context: any) => {
         const annotation = context.annotation;
@@ -46,6 +69,6 @@ export function installMeasurementTheme() {
     color: theme.normal.color, colorHighlighted: theme.hover.color, colorSelected: theme.selected.color,
     lineWidth: String(theme.normal.width), lineWidthHighlighted: String(theme.hover.width), lineWidthSelected: String(theme.selected.width),
     textBoxColor: theme.normal.color, textBoxColorHighlighted: theme.hover.color, textBoxColorSelected: theme.selected.color,
-    textBoxBackground: '#071018df', shadow: true,
+    textBoxBackground: '#071018df', textBoxFontSize: '15px', shadow: true,
   } });
 }

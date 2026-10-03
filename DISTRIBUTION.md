@@ -1,6 +1,6 @@
 # RADAZ — satıcı, ödəniş və buraxılış təlimatı
 
-Bu sənəd proqramın sahibi üçündür. Alıcıya göndəriləcək quraşdırma qaydası [README.md](README.md)-dədir. Cari versiya 0.2.9-dur. Aylıq qiymət 10 AZN, seçim 1–120 aydır; ayrıca illik paket və avtomatik kartdan təkrar pul çəkmə yoxdur.
+Bu sənəd proqramın sahibi üçündür. Alıcıya göndəriləcək quraşdırma qaydası [README.md](README.md)-dədir. Cari versiya 0.2.10-dur. Aylıq qiymət 10 AZN, seçim 1–120 aydır; ayrıca illik paket və avtomatik kartdan təkrar pul çəkmə yoxdur.
 
 ## Kapital Bank hesabları
 
@@ -91,15 +91,15 @@ Açar avtomatik e-poçt/SMS ilə göndərilmir; bu funksiya qoşulmayıb. Açard
 
 ## Alıcıya hansı GitHub linki verilir?
 
-Mənbə və buraxılış deposu: [RADAZ-D-COM](https://github.com/drnaghiyev/RADAZ-D-COM). 1 oktyabr 2026 yoxlamasında depo public-dır. Tətbiqin yeniləmə yoxlaması `public/product.json` daxilindəki `repository` sahəsinin göstərdiyi deponun yayımlanmış son GitHub Release buraxılışını soruşur.
+Quraşdırıcılar üçün açıq buraxılış deposu: [RADAZ-Releases](https://github.com/cesur9872-droid/RADAZ-Releases). `public/product.json` daxilində `updateRepository` yenilənmə ünvanıdır; `repository` köhnə quraşdırmalarla uyğun məhsul kimliyini saxlayır. Desktop updater yalnız sabit `UPDATE_REPOSITORY` ünvanından SHA-256 yoxlanmış paket qəbul edir.
 
-Mənbə kodunu gələcəkdə private etmək istəsəniz, quraşdırma paketləri üçün ayrıca public release deposu tələb olunur. Bu dəyişiklikdən əvvəl tətbiqlərdəki `repository` ünvanını yeniləyin. Cari yayım depo görünürlüğünü dəyişmir.
+3 oktyabr 2026 yoxlamasında köhnə ünvan 404 qaytardı. 0.2.9 və daha köhnə quraşdırmalar üçün yeni Setup bir dəfə açılmalıdır; 0.2.10-dan sonrakı versiyalar yeni kanaldan gəlir. Yeni repo yalnız buraxılış faylları və istifadə təlimatı üçündür.
 
-GitHub-da Releases → Draft a new release → məsələn `v0.2.5` tag → buraxılış adı və quraşdırma qaydası → ZIP və `.sha256` faylını əlavə edin. Faylları yoxladıqdan sonra buraxılışı yayımlayıb Latest kimi qeyd edin. Draft və pre-release `releases/latest` yoxlamasına düşmür.
+Buraxılış əvvəl draft kimi yaradılır, Setup, tam Windows-x64 paketi və SHA-256 faylları yüklənib yoxlanır, sonra Latest kimi yayımlanır. Draft və pre-release avtomatik yenilənmədə görünmür. Artıq yayımlanmış versiyanın faylları dəyişdirilmir.
 
-Alıcıya relizin **Assets** bölməsindəki `RADAZ-0.2.5-Windows-preview.zip` verilir. **Code → Download ZIP** və **Source code (zip)** quraşdırma paketləri deyil. Keçid: [v0.2.5 buraxılışı](https://github.com/drnaghiyev/RADAZ-D-COM/releases/tag/v0.2.5).
+Alıcıya relizin **Assets** bölməsindəki `RADAZ-0.2.10-Setup.exe` verilir. **Code → Download ZIP** və **Source code (zip)** quraşdırma paketləri deyil. Keçid: [son buraxılış](https://github.com/cesur9872-droid/RADAZ-Releases/releases/latest).
 
-Digər kompüterdə RADAZ → **Yardım (?) → Yeniləmələri yoxla** seçin. Yeni paket keçidi açılır; proqram faylları avtomatik əvəzlənmir. Köhnə RADAZ serverini bağlayın, ZIP-i yeni qovluğa açın, **SETUP-RADAZ.cmd**, sonra **START-RADAZ.cmd** başladın. Arxiv mövcud `Documents\RADAZ-Archive` qovluğunda qalır. Yeniləmə xəbərinin keşlənmiş nəticəsi qalarsa ən azı 30 saniyə sonra yenidən yoxlayın.
+Setup ilə quraşdırılmış RADAZ-da **Yardım (?) → Yeniləmələri yoxla → Yenilə** endirmə və quraşdırmanı başladır. Real progressbar və tamamlanma mesajı görünür. Müayinə davam edir; yeni versiya növbəti açılışda sağlamlıq yoxlamasından sonra aktivləşir. Arxiv mövcud `Documents\RADAZ-Archive` qovluğunda qalır. Portable ZIP istifadəçiləri Setup keçidini açır.
 
 ## Paket hazırlamaq və yoxlamaq
 
@@ -107,7 +107,7 @@ Digər kompüterdə RADAZ → **Yardım (?) → Yeniləmələri yoxla** seçin. 
 
 `.github/workflows/windows-release.yml` hər `main` göndərişində `public/product.json` versiyasını yoxlayır. Bu versiya artıq yayımlanıbsa paket yenidən yazılmır. Yeni buraxılış üçün versiyanı artırın, `releases/X.Y.Z.md` qeydlərini hazırlayın və dəyişiklikləri `main` qoluna göndərin. İstəyə görə Actions → Publish RADAZ Windows release → Run workflow ilə təkrar yoxlama başlatmaq olar.
 
-Windows işçisi asılılıqları kilid faylı ilə quraşdırır, TypeScript/Node/Python yoxlamalarını keçir, Node.js serverini real açılış və əsas səhifə sınaqlarından keçirir, paketi yığır və bütün faylların SHA-256 cəmini yoxlayır. Ayrı yayım işi ZIP və yoxlama faylını əvvəl draft kimi yükləyir, uzaqdakı fayl cəmlərini təsdiqləyir, sonra Latest Release kimi yayımlayır. Depoya yazma səlahiyyəti yalnız bu yayım işinə verilir; ayrıca şəxsi GitHub tokeni tələb olunmur. Yoxlamalardan biri uğursuz olarsa natamam paket istifadəçilərə yeniləmə kimi göstərilmir.
+Windows işçisi asılılıqları kilid faylı ilə quraşdırır, TypeScript/Node/Python yoxlamalarını keçir və paketi yığır. Ayrı yayım işi uzaqdakı fayl cəmlərini təsdiqləyib sonra Latest Release kimi yayımlayır. Mənbə reposunun Actions secret-i `RADAZ_RELEASES_TOKEN` ayrıca `cesur9872-droid/RADAZ-Releases` reposuna Contents: write hüququ verməlidir; bu secret bu lokal yayımda konfiqurasiya edilməyib. Mənbə reposunun adi GITHUB_TOKEN-i başqa repoya yaza bilmir. Lokal yayımda credential helper-dən alınmış token yalnız proses yaddaşında saxlanır. Token müştəri paketinə daxil edilmir.
 
 Digər kompüterlər proqram açıldıqdan təxminən 15 saniyə sonra, daha sonra hər 6 saatda GitHub Release yoxlayır. Dərhal yoxlama üçün **Yardım (?) → Yeniləmələri yoxla** istifadə edin. Bildiriş üçün yeni versiyanın uğurla yayımlanması və kompüterin internetə çıxışı lazımdır.
 
@@ -122,7 +122,7 @@ python scripts/package-release.py
 
 Paket `outputs/releases` içində yaranır. İmza public açarı və `billingUrl` düzgün olmalıdır. `licenseRequired=true` saxlanır. Paketdə satıcı paneli, billing bazası, gizli açar, merchant rekvizitləri və pasiyent arxivi olmamalıdır. Ayrı təmiz Windows kompüterində setup/start, ödənişin sınaq axını, aktivləşdirmə və müddət bitməsini yoxlamadan satışa hazır hesab etməyin.
 
-Bu ZIP hələ imzalı, müstəqil EXE installer deyil. İlk setup internetdən asılılıqlar yükləyir. İstifadəçinin tam idarə etdiyi lokal proqramda lisenziya nəzarəti dəyişdirilməyə qarşı mütləq DRM təmin etmir.
+Setup.exe bütün runtime-ları daxil edir və offline quraşdırılır; Authenticode imzası yoxdur. Portable preview ZIP ayrıca asılılıq quraşdırılması üçündür. İstifadəçinin tam idarə etdiyi lokal proqramda lisenziya nəzarəti dəyişdirilməyə qarşı mütləq DRM təmin etmir.
 
 
 ## 7 günlük demo və sahib kompüteri

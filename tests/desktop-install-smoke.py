@@ -8,7 +8,7 @@ import socket
 import subprocess
 import tempfile
 import time
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 ROOT=Path(__file__).resolve().parents[1]
 STAGE=ROOT/'outputs/desktop-stage'
@@ -68,6 +68,16 @@ try:
     for route in ('/','/archive','/pacs','/mpr','/3d'):
         with urlopen(base+route,timeout=10) as response:assert response.status==200
     assert get('/radaz-installation.json')['managed'] is True
+    # The real gateway wakes the bundled updater. The network is deliberately
+    # unavailable in this smoke test, so it must report failure, never success.
+    (install/'update-state.json').write_text(json.dumps({'state':'current','message':'Synthetic idle state'}))
+    with urlopen(Request(base+'/radaz-update',data=b'{}',headers={'Origin':base,'Content-Type':'application/json'}),timeout=5) as response:
+        assert response.status==202
+    for _ in range(50):
+        if get('/radaz-installation.json')['state']=='error':break
+        time.sleep(.2)
+    assert get('/radaz-installation.json')['state']=='error'
+    assert not (install/'update-request.json').exists()
     assert get('/local-archive-api/status')['running'] is True
     assert get('/local-archive-api/status')['databasePath']==str(data/'archive.sqlite3')
     assert get('/local-archive-api/removable/status') == {'sessions': []}

@@ -23,10 +23,11 @@ def version_parts(version):
 def config(root=ROOT):
     product = json.loads((root / 'public/product.json').read_text(encoding='utf-8-sig'))
     version_parts(product['version'])
-    if not re.fullmatch(r'[\w.-]+/[\w.-]+', product['repository']):
+    product['updateRepository'] = product.get('updateRepository') or product['repository']
+    if not all(re.fullmatch(r'[\w.-]+/[\w.-]+', product[field]) for field in ('repository','updateRepository')):
         raise ValueError('Invalid release repository')
     if os.environ.get('GITHUB_REPOSITORY', product['repository']) != product['repository']:
-        raise ValueError('Workflow repository must match the application update repository')
+        raise ValueError('Workflow repository must match the application source repository')
     return product
 
 
@@ -43,7 +44,7 @@ class GitHub:
         data = None
         if upload:
             data = upload.read_bytes()
-            headers['Content-Type'] = 'application/zip' if upload.suffix == '.zip' else 'text/plain'
+            headers['Content-Type'] = {'.zip':'application/zip','.exe':'application/octet-stream'}.get(upload.suffix, 'text/plain')
         elif payload is not None:
             data = json.dumps(payload).encode()
             headers['Content-Type'] = 'application/json'
@@ -113,19 +114,23 @@ def validate_package(root, version):
     return tuple(files)
 
 
-def publish(api, root, version, commit):
+def publish(api, root, version, commit, release_commit=None):
     if not re.fullmatch(r'[a-f0-9]{40}', commit):
         raise ValueError('An exact source commit is required')
+    release_commit = release_commit or commit
+    if not re.fullmatch(r'[a-f0-9]{40}', release_commit):
+        raise ValueError('An exact release repository commit is required')
     files = validate_package(root, version)
     notes = (root / f'releases/{version}.md').read_text(encoding='utf-8')
+    notes += f'\n\nBuild source commit: `{commit}`.\n'
     release = api.request(f'/releases/tags/v{version}', missing=True)
     if release and not release['draft']:
         raise ValueError('Refusing to overwrite a published release')
-    if release and release['target_commitish'] != commit:
+    if release and release['target_commitish'] != release_commit:
         raise ValueError('Existing draft belongs to a different source commit')
     if not release:
         release = api.request('/releases', 'POST', {
-            'tag_name': f'v{version}', 'target_commitish': commit, 'name': f'RADAZ {version} — Windows preview',
+            'tag_name': f'v{version}', 'target_commitish': release_commit, 'name': f'RADAZ {version} — Windows',
             'body': notes, 'draft': True, 'prerelease': False,
         })
     # Publish only after every portable, offline and installer asset is verified.
@@ -150,7 +155,7 @@ def main():
     args = parser.parse_args()
     product = config()
     version = product['version']
-    api = GitHub(product['repository'], os.environ.get('GH_TOKEN'))
+    api = GitHub(product['updateRepository'], os.environ.get('GH_TOKEN'))
     if args.command == 'plan':
         needed = release_plan(api, version)
         output = f'version={version}\npublish={str(needed).lower()}\n'
@@ -166,8 +171,12 @@ def main():
     else:
         if not api.token:
             raise ValueError('The publishing job requires GH_TOKEN')
-        release = publish(api, ROOT, version, os.environ.get('GITHUB_SHA', ''))
-        public = GitHub(product['repository'])
+        release_commit = None
+        if product['updateRepository'] != product['repository']:
+            metadata = api.request('')
+            release_commit = api.request('/commits/' + quote(metadata['default_branch'], safe=''))['sha']
+        release = publish(api, ROOT, version, os.environ.get('GITHUB_SHA', ''), release_commit)
+        public = GitHub(product['updateRepository'])
         for attempt in range(6):
             latest = public.request('/releases/latest', missing=True)
             if latest and latest['tag_name'] == f'v{version}':

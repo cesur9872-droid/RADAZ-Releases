@@ -167,7 +167,7 @@ class ProductService:
         with self.lock:
             now=time.time()
             if self.cached_update and now-self.last_check < (30 if force else 21600): return self.cached_update
-            repo=self.config.get('repository','')
+            repo=self.config.get('updateRepository') or self.config.get('repository','')
             if not re.fullmatch(r'[\w.-]+/[\w.-]+',repo): return dict(state='error',message='GitHub repozitoriyası ayarlanmayıb.')
             try:
                 req=Request(f'https://api.github.com/repos/{repo}/releases/latest',headers={'Accept':'application/vnd.github+json','User-Agent':'RADAZ-update-check'})

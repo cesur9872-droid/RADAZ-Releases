@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {registerViewer,openStudyInViewer,focusViewer,notifyViewerProgress} from '../lib/viewer-session.ts';
+import {registerViewer,openStudyInViewer,openStudiesInViewer,requestedStudies,focusViewer,notifyViewerProgress} from '../lib/viewer-session.ts';
 let opened=[],navigated=[];
 const open=(url,name)=>{opened.push([url,name]);return {name,closed:false,focus(){},location:{assign:url=>navigated.push(url)}};};
 globalThis.window={name:'',open,location:{origin:'http://localhost',assign:url=>navigated.push(url)}};
@@ -16,3 +16,9 @@ test('popup denial preserves the current patient and reports a recoverable error
   navigated=[];window.open=()=>null;try{await assert.rejects(openStudyInViewer('1.2.5'),/pop-up/);assert.deepEqual(navigated,[]);}finally{window.open=open;}
 });
 test('reject malformed study IDs before opening',async()=>{await assert.rejects(openStudyInViewer('https://external.invalid'));await assert.rejects(openStudyInViewer('1.'.repeat(40)+'2'));});
+test('a checkbox selection opens once and round-trips exactly those study IDs',async()=>{
+ opened=[];await openStudiesInViewer(['1.2.3','1.2.4','1.2.3']);assert.equal(opened.length,1);
+ assert.deepEqual(requestedStudies(opened[0][0].slice(1)),['1.2.3','1.2.4']);
+ assert.deepEqual(requestedStudies('#archive-study=1.2.5'),['1.2.5']);
+ assert.throws(()=>requestedStudies('#archive-studies=1.2.3,https://bad'));await assert.rejects(openStudiesInViewer([]));
+});

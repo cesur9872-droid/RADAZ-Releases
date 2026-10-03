@@ -48,12 +48,19 @@ try {
   const scrolled=await page.locator('[data-panel="A"] .overlay.bottom-right').textContent();assert.notEqual(scrolled,before);
   await page.screenshot({path:'outputs/media/progressive-first-images.png'});
   console.log('First 19 slices are usable before remaining files load');
-  const mprPromise=context.waitForEvent('page'); await page.getByRole('button',{name:'MPR rekonstruksiya',exact:true}).click();const mpr=await mprPromise;
+  await page.getByRole('button',{name:'3D həcm görüntüləmə',exact:true}).click();
+  await page.locator('.cornerstone-volume-stage[data-ready="true"]').waitFor({timeout:90000});
+  assert.ok(await page.locator('.volume-stream-progress').count(),'3D is usable while the CD transfer is blocked');
+  assert.equal(context.pages().length,1,'3D reuses the current Viewer');
+  console.log('Partial 3D renders with only 19/700 slices available');
+  await page.getByRole('button',{name:'MPR rekonstruksiya',exact:true}).click();const mpr=page;
   await mpr.locator('[data-panel="MA"][data-has-image="true"]').waitFor();
   await mpr.locator('[data-panel="MC"] progress').waitFor();
-  assert.equal(await mpr.locator('.brand').count(),0,'No logo in MPR');
+  assert.equal(context.pages().length,1,'MPR reuses the current Viewer');
   console.log('MPR shows axial slices while the rest of the CD is loading');
   await control('resume');
+  await mpr.waitForFunction(()=>document.querySelectorAll('[data-panel][data-has-image="true"]').length===3&&!document.querySelector('.viewport-loading'),{},{timeout:90000});
+  await page.getByRole('button',{name:'2D Viewer',exact:true}).click();
   await page.waitForFunction(()=>document.querySelector('[data-panel="A"] .overlay.bottom-right')?.textContent.includes('/ 700'),{},{timeout:90000});
   await page.waitForFunction(()=>!document.querySelector('.series-rail progress'));
   console.log('All CT and JPEG instances loaded');
@@ -79,6 +86,7 @@ try {
   await page.waitForFunction(()=>document.querySelector('[data-panel="A"] .overlay.top-right')?.textContent.includes('JPEG compressed CD'));
   assert.equal(await page.locator('[data-panel="A"] .viewport-error').count(),0);
   await page.locator('.series-card').filter({hasText:'CD progressive CT'}).click();
+  await page.getByRole('button',{name:'MPR rekonstruksiya',exact:true}).click();
   await mpr.waitForFunction(()=>document.querySelectorAll('[data-panel][data-has-image="true"]').length===3&&!document.querySelector('.viewport-loading'),{},{timeout:90000});
   const geometry=()=>mpr.locator('[data-panel="MA"] .localizer-overlay').getAttribute('data-world');
   const worldBefore=await geometry();
@@ -96,9 +104,9 @@ try {
   assert.equal(await mpr.locator('.localizer-center-hit').count(),3);
   console.log('World intersection moves and localizer lines rotate independently');
   console.log('MPR opened from media session');
-  const volumePromise=context.waitForEvent('page');await page.getByRole('button',{name:'3D həcm görüntüləmə',exact:true}).click();const volume=await volumePromise;
+  await page.getByRole('button',{name:'3D həcm görüntüləmə',exact:true}).click();const volume=page;
   await volume.locator('.cornerstone-volume-stage[data-ready="true"] canvas').waitFor({timeout:90000});
-  assert.equal(await volume.locator('.brand').count(),0,'No logo in 3D');
+  assert.equal(context.pages().length,1,'3D and MPR share source data in one Viewer');
   assert.equal(await volume.locator('.volume-cover progress').count(),0);
   console.log('3D opened from media session');
   const reportPromise=context.waitForEvent('page');await page.getByRole('button',{name:'Radioloji hesabat',exact:true}).click();const report=await reportPromise;
@@ -113,6 +121,7 @@ try {
   await report.waitForFunction(()=>document.querySelectorAll('.report-study').length===0);
   await page.screenshot({path:'outputs/media/ejected-clean.png'});
   // Reinsert, then eject during the deliberately blocked transfer.
+  await page.getByRole('button',{name:'2D Viewer',exact:true}).click();
   await control('insert');await page.locator('.series-card').filter({hasText:'CD progressive CT'}).waitFor();await page.locator('.series-card').filter({hasText:'CD progressive CT'}).click();await page.waitForFunction(()=>document.querySelector('[data-panel="A"] .overlay.bottom-right')?.textContent.includes('/ 19'));
   await control('eject');await page.waitForFunction(()=>document.querySelectorAll('.series-card').length===0);await delay(1000);
   assert.equal(await page.locator('.series-card').count(),0);
@@ -144,6 +153,11 @@ try {
   assert.deepEqual(await points.evaluateAll(lines=>lines.map(l=>l.getAttribute('stroke'))),normalColors,'Hover clears on pointer leave and preserves selection');
   await first.mouse.click(x,y-50);await first.mouse.move(x,y+110);await delay(150);
   assert.ok((await points.evaluateAll(lines=>lines.map(l=>l.getAttribute('stroke')))).includes('#ff83dc'),'Selected state differs from hover');
+  await first.mouse.move(x,y-100);await first.mouse.down();await first.mouse.move(x,y+90,{steps:4});await first.mouse.up();
+  await first.mouse.move(x,y-50);await delay(100);
+  assert.equal((await points.evaluateAll(lines=>lines.map(l=>l.getAttribute('stroke')))).filter(c=>c==='#56edff').length,4,'An intersection still highlights only one measurement');
+  await first.locator('.brand').hover();await delay(100);
+  assert.equal((await points.evaluateAll(lines=>lines.map(l=>l.getAttribute('stroke')))).filter(c=>c==='#56edff').length,0,'Leaving the viewport clears hover');
   const others=await Promise.all(viewers.slice(1).map(p=>p.locator('.bottom-left').textContent()));
   await first.keyboard.press('w');await first.mouse.move(x,y);await first.mouse.down();await first.mouse.move(x+80,y+50,{steps:5});await first.mouse.up();
   assert.deepEqual(await Promise.all(viewers.slice(1).map(p=>p.locator('.bottom-left').textContent())),others,'Other patients retain their window settings');

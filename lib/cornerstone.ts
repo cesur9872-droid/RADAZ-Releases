@@ -4,10 +4,17 @@ import dicomParser from 'dicom-parser';
 import type { ImageGeometry, Point3 } from './localizer';
 import { themedMeasurement, installMeasurementTheme } from './measurement-tools';
 import { yieldToBrowser } from './work-progress';
+import { viewerPerformance } from './viewer-performance';
+import { describeVolume } from './volume-geometry';
 
 type DataSet = ReturnType<typeof dicomParser.parseDicom>;
 type RecordItem = { dataSet: DataSet; pixels: Int16Array | Float32Array; rows: number; columns: number; bits: number; min: number; max: number };
 const records = new Map<string, RecordItem>();
+const pendingDicoms = new Map<string, { bytes: Uint8Array; ds: DataSet; promise?: Promise<string> }>();
+const geometryOverrides = new Map<string,ImageGeometry>();
+type SeriesVolume = {volumeId:string;volume:Awaited<ReturnType<typeof core.volumeLoader.createAndCacheVolume>>;
+  geometry:ReturnType<typeof describeVolume>;imageIds:string[];range:[number,number];reduced:boolean;bytes:number};
+const seriesVolumes=new Map<string,{sourceIds:string[];owned:string[];promise:Promise<SeriesVolume>}>();
 export type MprMode = 'MPR' | 'MIP' | 'MinIP' | 'Avg';
 type MprPlane = 'SAG' | 'COR' | 'AX';
 export type MprSettings = Record<MprPlane, { mode: MprMode; thickness: number }>;
@@ -60,6 +67,7 @@ export function getOriginalDicom(imageId: string): Uint8Array | null {
 }
 
 export function getLocalizerGeometry(imageId: string): ImageGeometry | null {
+  if(geometryOverrides.has(imageId))return geometryOverrides.get(imageId)!;
   if (derived.has(imageId)) return derived.get(imageId)!.geometry;
   const item = records.get(imageId);
   if (!item) return null;
@@ -90,7 +98,7 @@ export function getMeasurementUnit(imageId: string): 'mm' | 'px' {
 
 export function thumbnailLocalDicom(imageId: string): string | undefined {
   const item = records.get(imageId);
-  if (!item || typeof document === 'undefined') return;
+  if (!item || !item.pixels.length || typeof document === 'undefined') return;
   const { rows, columns, pixels, dataSet } = item;
   const width = Math.min(112, columns), height = Math.min(112, rows);
   const canvas = document.createElement('canvas');
@@ -120,13 +128,13 @@ function metadata(type: string, imageId: string) {
   const m = core.Enums.MetadataModules;
   if (type === m.IMAGE_PLANE) {
     const reformat = derived.get(imageId);
-    if (reformat) {
-      const g = reformat.geometry;
+    if (reformat || geometryOverrides.has(imageId)) {
+      const g = reformat?.geometry || geometryOverrides.get(imageId)!;
       return { frameOfReferenceUID: g.frameId || g.studyId, rows: g.rows, columns: g.columns,
         rowCosines: g.columnDirection, columnCosines: g.rowDirection,
         imageOrientationPatient: [...g.columnDirection, ...g.rowDirection], imagePositionPatient: g.origin,
         rowPixelSpacing: g.rowSpacing, columnPixelSpacing: g.columnSpacing,
-        pixelSpacing: [g.rowSpacing, g.columnSpacing], sliceThickness: reformat.thickness, usingDefaultValues: false };
+        pixelSpacing: [g.rowSpacing, g.columnSpacing], sliceThickness: reformat?.thickness || 1, usingDefaultValues: false };
     }
     const orientation = values(ds, 'x00200037', [1, 0, 0, 0, 1, 0]);
     const spacing = values(ds, 'x00280030', [1, 1]);
@@ -146,6 +154,7 @@ function metadata(type: string, imageId: string) {
 }
 
 function loadImage(imageId: string): core.Types.IImageLoadObject {
+  if (pendingDicoms.has(imageId)) return { promise: decodeRegisteredDicom(imageId).then(() => loadImage(imageId).promise) };
   const item = records.get(imageId);
   if (!item) return { promise: Promise.reject(new Error('DICOM görüntüsü tapılmadı')) };
   if (derived.has(imageId) && !item.pixels.length) materialize(imageId);
@@ -172,7 +181,23 @@ function loadCachedVolumeSlice(imageId: string): core.Types.IImageLoadObject {
   return image ? { promise: Promise.resolve(image) } : { promise: Promise.reject(new Error(`3D həcm kəsiti cache-də tapılmadı: ${imageId}`)) };
 }
 
+export function registerLocalDicom(bytes: Uint8Array, ds: DataSet): string {
+  const rows=ds.uint16('x00280010')||0,columns=ds.uint16('x00280011')||0;
+  if(!rows||!columns||!ds.elements.x7fe00010)throw Error('DICOM piksel məlumatı tapılmadı');
+  const id=`localdicom:${serial++}`;
+  records.set(id,{dataSet:ds,pixels:new Float32Array(0),rows,columns,bits:32,min:-1024,max:3071});
+  pendingDicoms.set(id,{bytes,ds});return id;
+}
+function decodeRegisteredDicom(id:string):Promise<string> {
+  const entry=pendingDicoms.get(id);
+  if(!entry)return Promise.resolve(id);
+  return entry.promise ??= decodeLocalDicom(entry.bytes,entry.ds,id).then(value=>{pendingDicoms.delete(id);return value;});
+}
 export async function addLocalDicom(bytes: Uint8Array, ds: DataSet): Promise<string> {
+  return decodeRegisteredDicom(registerLocalDicom(bytes,ds));
+}
+async function decodeLocalDicom(bytes: Uint8Array, ds: DataSet, imageId: string): Promise<string> {
+  const decodeStart = performance.now();
   const syntax = ds.string('x00020010') || '1.2.840.10008.1.2.1';
   const rows = ds.uint16('x00280010') || 0;
   const columns = ds.uint16('x00280011') || 0;
@@ -186,14 +211,15 @@ export async function addLocalDicom(bytes: Uint8Array, ds: DataSet): Promise<str
       ds.uint16('x00280002') !== 1 || !['MONOCHROME1', 'MONOCHROME2'].includes(photometric) || !pixelElement)
     throw new Error('Bu görüntünün piksel formatı dəstəklənmir (monoxrom 8/16-bit tələb olunur)');
   const uncompressed = ['1.2.840.10008.1.2', '1.2.840.10008.1.2.1', '1.2.840.10008.1.2.2'].includes(syntax);
-  const imageId = `localdicom:${serial++}`;
   const byteLength = rows * columns * (bits / 8);
   let stored: Uint8Array | Uint16Array | Int16Array | Float32Array;
   if (uncompressed && !pixelElement.encapsulatedPixelData) {
     if (pixelElement.length < byteLength || pixelElement.dataOffset + byteLength > bytes.length) throw new Error('Piksel məlumatı natamamdır');
     const view = new DataView(bytes.buffer, bytes.byteOffset + pixelElement.dataOffset, byteLength);
-    stored = bits === 8 ? bytes.subarray(pixelElement.dataOffset, pixelElement.dataOffset + byteLength) :
-      Uint16Array.from({ length: rows * columns }, (_, index) => view.getUint16(index * 2, syntax !== '1.2.840.10008.1.2.2'));
+    if(bits===8) stored=bytes.subarray(pixelElement.dataOffset,pixelElement.dataOffset+byteLength);
+    else if(syntax!=='1.2.840.10008.1.2.2' && (bytes.byteOffset+pixelElement.dataOffset)%2===0)
+      stored=new Uint16Array(bytes.buffer,bytes.byteOffset+pixelElement.dataOffset,rows*columns);
+    else { stored=new Uint16Array(rows*columns); for(let i=0;i<stored.length;i++)stored[i]=view.getUint16(i*2,syntax!=='1.2.840.10008.1.2.2'); }
   } else {
     // The DICOM loader supplies JPEG, JPEG-LS, JPEG 2000 and RLE codecs.
     // Decode directly because a second worker registry can stall when this
@@ -216,7 +242,7 @@ export async function addLocalDicom(bytes: Uint8Array, ds: DataSet): Promise<str
     }
   }
   const slope = asNumber(ds, 'x00281053', 1), intercept = asNumber(ds, 'x00281052', 0);
-  let rawMin = Infinity, rawMax = -Infinity;
+  const rawMin = signed ? -(2 ** (storedBits-1)) : 0, rawMax = signed ? 2 ** (storedBits-1)-1 : 2 ** storedBits-1;
   const shift = highBit + 1 - storedBits, mask = 2 ** storedBits - 1, signBit = 2 ** (storedBits - 1);
   const pixelValue = (value: number) => {
     // Decoders return signed pixels already expanded; native pixels need
@@ -225,7 +251,6 @@ export async function addLocalDicom(bytes: Uint8Array, ds: DataSet): Promise<str
     const encoded = (value >>> shift) & mask;
     return signed && encoded >= signBit ? encoded - (mask + 1) : encoded;
   };
-  for (const value of stored) { const raw = pixelValue(value); if (raw < rawMin) rawMin = raw; if (raw > rawMax) rawMax = raw; }
   const scaledMin = Math.min(rawMin * slope + intercept, rawMax * slope + intercept);
   const scaledMax = Math.max(rawMin * slope + intercept, rawMax * slope + intercept);
   const useInt16 = Number.isInteger(slope) && Number.isInteger(intercept) && scaledMin >= -32768 && scaledMax <= 32767;
@@ -237,7 +262,9 @@ export async function addLocalDicom(bytes: Uint8Array, ds: DataSet): Promise<str
     if (value < min) min = value;
     if (value > max) max = value;
   }
+  if(!records.has(imageId))throw new DOMException('DICOM import cancelled','AbortError');
   records.set(imageId, { dataSet: ds, pixels, rows, columns, bits: useInt16 ? 16 : 32, min, max });
+  viewerPerformance.decodeCount++; viewerPerformance.decodeMs += performance.now() - decodeStart;
   return imageId;
 }
 
@@ -259,8 +286,11 @@ export function sampleLocalDicom(imageId: string, world: readonly number[]): num
 }
 
 export function releaseLocalDicoms(imageIds: string[]) {
+  releaseSeriesVolumes(imageIds);
   for (const imageId of imageIds) {
     derived.delete(imageId);
+    geometryOverrides.delete(imageId);
+    pendingDicoms.delete(imageId);
     records.delete(imageId);
     if (core.cache.getImageLoadObject(imageId)) core.cache.removeImageLoadObject(imageId, { force: true });
   }
@@ -270,6 +300,86 @@ const dot3 = (a: readonly number[], b: readonly number[]) => a[0] * b[0] + a[1] 
 const plus3 = (a: Point3, b: Point3, multiplier = 1): Point3 => [a[0] + b[0] * multiplier, a[1] + b[1] * multiplier, a[2] + b[2] * multiplier];
 const cross3 = (a: Point3, b: Point3): Point3 => [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
 const normalized = (point: Point3): Point3 => point.map(value => value / Math.hypot(...point)) as Point3;
+
+export function seriesGeometry(imageIds:string[]) {
+  return describeVolume(imageIds.map(id=>{
+    const g=getLocalizerGeometry(id),ds=records.get(id)?.dataSet;
+    if(!g||!ds)throw Error('Volume üçün DICOM məkan koordinatları tələb olunur');
+    return {...g,id,sliceThickness:asNumber(ds,'x00180050',0),spacingBetweenSlices:asNumber(ds,'x00180088',0)};
+  }));
+}
+/** One streaming volume and the same decoded slice buffers serve MPR and 3D. */
+export async function getSeriesVolume(imageIds:string[],limits?:{maxDimension:number;budgetBytes:number}):Promise<SeriesVolume> {
+  const geometry=seriesGeometry(imageIds),ids=geometry.imageIds;
+  let stride=1;
+  const dimension=limits?.maxDimension||Infinity,budget=limits?.budgetBytes||Infinity;
+  if(dimension<3||budget<108)throw Error('GPU həcm limiti kifayət deyil');
+  const depthStride=()=>Math.min(stride,Math.max(1,Math.floor((ids.length-1)/2)));
+  const dimensions=()=>geometry.dimensions.map((d,i)=>Math.ceil(d/(i===2?depthStride():stride)));
+  while(dimensions().some(d=>d>dimension)||dimensions().reduce((n,d)=>n*d,4)>budget)stride++;
+  const key=ids.join('|')+`@${stride}`;
+  const cached=seriesVolumes.get(key);
+  if(cached){viewerPerformance.volumeCacheHits++;return cached.promise;}
+  // A growing media series supersedes its partial volume; never retain every prefix.
+  const sourceSet=new Set(ids);
+  for(const [oldKey,entry] of seriesVolumes)if(entry.sourceIds.length<ids.length&&entry.sourceIds.every(id=>sourceSet.has(id))){
+    seriesVolumes.delete(oldKey);disposeSeriesVolume(entry);
+  }
+  const owned:string[]=[];
+  const promise=(async()=>{
+    const start=performance.now();
+    await getViewer();
+    let volumeIds=ids;
+    if(stride>1){
+      volumeIds=[];
+      for(let z=0;z<ids.length;z+=depthStride()){
+        const sourceId=ids[z];await core.imageLoader.loadAndCacheImage(sourceId);
+        const record=records.get(sourceId)!,g=getLocalizerGeometry(sourceId)!;
+        const rows=Math.ceil(record.rows/stride),columns=Math.ceil(record.columns/stride);
+        const pixels=new Float32Array(rows*columns);
+        for(let y=0;y<rows;y++)for(let x=0;x<columns;x++)pixels[y*columns+x]=record.pixels[y*stride*record.columns+x*stride];
+        const id=`localdicom:${serial++}`;owned.push(id);volumeIds.push(id);
+        records.set(id,{...record,pixels,rows,columns,bits:32});
+        geometryOverrides.set(id,{...g,rows,columns,rowSpacing:g.rowSpacing*stride,columnSpacing:g.columnSpacing*stride});
+        if(z%(stride*8)===0)await yieldToBrowser();
+      }
+    }
+    // A cached first image also supplies the actual calibrated scalar type.
+    await core.imageLoader.loadAndCacheImage(volumeIds[0]);
+    const volumeId=`radaz-stream:${serial++}`;
+    const volume=await core.volumeLoader.createAndCacheVolume(volumeId,{imageIds:[...volumeIds]});
+    // Per-slice rescale can differ. A later fractional slice must never be cast
+    // to the first slice's Int16 type by the streaming GPU uploader.
+    if(volumeIds.some(id=>records.get(id)?.bits===32)){
+      volume.dataType='Float32Array';volume.imageData!.set({dataType:'Float32Array'},true);
+    }
+    const bytes=volume.dimensions.reduce((n,d)=>n*d,volume.dataType==='Float32Array'?4:2);
+    viewerPerformance.volumeBuildCount++;viewerPerformance.volumeBuildMs+=performance.now()-start;
+    viewerPerformance.voxelBytes=bytes;
+    volume.load();
+    return {volumeId,volume,geometry:stride>1?seriesGeometry(volumeIds):geometry,imageIds:volumeIds,
+      get range():[number,number]{return [Math.min(...ids.map(id=>records.get(id)?.min??-1024)),Math.max(...ids.map(id=>records.get(id)?.max??3071))];},reduced:stride>1,bytes};
+  })();
+  seriesVolumes.set(key,{sourceIds:ids,owned,promise});
+  promise.catch(()=>{seriesVolumes.delete(key);for(const id of owned){records.delete(id);geometryOverrides.delete(id);}});
+  return promise;
+}
+function releaseSeriesVolumes(imageIds:string[]) {
+  const removed=new Set(imageIds);
+  for(const [key,entry] of seriesVolumes)if(entry.sourceIds.some(id=>removed.has(id))){
+    seriesVolumes.delete(key);
+    disposeSeriesVolume(entry);
+  }
+}
+function disposeSeriesVolume(entry:{owned:string[];promise:Promise<SeriesVolume>}) {
+  void entry.promise.then(({volumeId,volume})=>{
+    volume.cancelLoading?.();
+    if(core.cache.getVolume(volumeId))core.cache.removeVolumeLoadObject(volumeId);
+    volume.vtkOpenGLTexture.releaseGraphicsResources();
+    volume.vtkOpenGLTexture.delete();
+    for(const id of entry.owned){records.delete(id);geometryOverrides.delete(id);if(core.cache.getImageLoadObject(id))core.cache.removeImageLoadObject(id,{force:true});}
+  }).catch(()=>{});
+}
 
 export function getMprAxes(imageId: string): MprAxes | null {
   const g = getLocalizerGeometry(imageId);
@@ -300,12 +410,12 @@ export function rotateMprOrientation(orientation: MprOrientation, axis: Point3, 
 
 /** Reconstruct one actual oblique frame from the original calibrated voxel volume. */
 export function createObliqueMprStacks(imageIds: string[], settings: MprSettings, orientations: MprOrientations, pivot: Point3, planes: MprPlane[] = ['SAG','COR','AX']): Record<MprPlane, string[]> {
+  seriesGeometry(imageIds);
   // Use the existing volume validation before registering any new derived images.
   const slices = imageIds.map(id => ({ id, record: records.get(id), geometry: getLocalizerGeometry(id) }));
   if (slices.length < 3 || slices.some(s => !s.record || !s.geometry)) throw new Error('MPR üçün məkan koordinatlı kəsitlər lazımdır');
   const first = slices[0].geometry!;
   const sourceAxes = getMprAxes(imageIds[0])!;
-  if (Math.abs(sourceAxes.w[2]) < .98) throw new Error('MPR üçün aksial seriya seçin');
   slices.sort((a, b) => dot3(a.geometry!.origin, sourceAxes.w) - dot3(b.geometry!.origin, sourceAxes.w));
   const start = slices[0].geometry!;
   const gap = (dot3(slices.at(-1)!.geometry!.origin, sourceAxes.w) - dot3(start.origin, sourceAxes.w)) / (slices.length - 1);
@@ -357,6 +467,7 @@ export function createObliqueMprStacks(imageIds: string[], settings: MprSettings
 
 /** Reformat one parallel, regularly spaced mono volume into three patient-space stacks. */
 export function createMprStacks(imageIds: string[], settings: MprSettings, planes: MprPlane[] = ['SAG','COR','AX']): Record<MprPlane, string[]> {
+  seriesGeometry(imageIds);
   if (imageIds.length < 3) throw new Error('MPR üçün ən azı 3 məkan koordinatlı kəsit lazımdır');
   const slices = imageIds.map(id => ({ id, record: records.get(id), geometry: getLocalizerGeometry(id) }));
   if (slices.some(s => !s.record || !s.geometry)) throw new Error('MPR üçün DICOM məkan koordinatları tələb olunur');
@@ -367,7 +478,6 @@ export function createMprStacks(imageIds: string[], settings: MprSettings, plane
     const size = Math.hypot(...n); return n.map(v => v / size) as Point3;
   })();
   if (!normal.every(Number.isFinite)) throw new Error('DICOM müstəvi istiqaməti etibarsızdır');
-  if (Math.abs(normal[2]) < .98) throw new Error('Bu MPR rekonstruksiyası aksial KT/MRT seriyası tələb edir');
   const dot = (a: Point3, b: Point3) => a.reduce((sum, value, i) => sum + value * b[i], 0);
   const ordered = slices.map(s => ({ ...s, z: dot(s.geometry!.origin, normal) })).sort((a, b) => a.z - b.z);
   const gap = (ordered.at(-1)!.z - ordered[0].z) / (ordered.length - 1);
@@ -502,87 +612,6 @@ function sampleOblique(volume: ObliqueVolume, x: number, y: number, z: number): 
   };
   const first = interpolate(volume.source[z0]);
   return z0 === z1 ? first : first * (1 - dz) + interpolate(volume.source[z1]) * dz;
-}
-
-/** A decimated sample for an interactive volume preview; values remain in calibrated intensity units. */
-export function getVolumeSample(imageIds: string[]) {
-  const frames = imageIds.map(id => ({ id, item: records.get(id), geometry: getLocalizerGeometry(id) })).filter(s => s.item && s.geometry);
-  if (frames.length < 3) return null;
-  const ref = frames[0].item!;
-  if (frames.some(s => s.item!.rows !== ref.rows || s.item!.columns !== ref.columns)) return null;
-  const axes = frames[0].geometry!;
-  const c = axes.columnDirection, r = axes.rowDirection;
-  const n: Point3 = [c[1]*r[2]-c[2]*r[1],c[2]*r[0]-c[0]*r[2],c[0]*r[1]-c[1]*r[0]];
-  const position = (point: Point3) => point.reduce((sum, value, i) => sum + value * n[i], 0);
-  frames.sort((a,b) => position(a.geometry!.origin)-position(b.geometry!.origin));
-  const depth = Math.abs(position(frames.at(-1)!.geometry!.origin)-position(frames[0].geometry!.origin));
-  // Keep large clinical stacks responsive: cap the browser preview near 90,000 voxels.
-  const stepZ = Math.max(1, Math.ceil(frames.length / 48));
-  const sampledSlices = Math.ceil(frames.length / stepZ);
-  const axisBudget = Math.min(64, Math.max(16, Math.floor(Math.sqrt(90000 / sampledSlices))));
-  const strideX = Math.max(1, Math.ceil(ref.columns / axisBudget));
-  const strideY = Math.max(1, Math.ceil(ref.rows / axisBudget));
-  const points: { x: number; y: number; z: number; value: number }[] = [];
-  for (let z = 0; z < frames.length; z += stepZ)
-    for (let y = 0; y < ref.rows; y += strideY)
-      for (let x = 0; x < ref.columns; x += strideX)
-        points.push({ x: x * (frames[z].geometry?.columnSpacing || 1), y: y * (frames[z].geometry?.rowSpacing || 1),
-          z: z * depth / (frames.length - 1),
-          value: frames[z].item!.pixels[y * ref.columns + x] });
-  return points;
-}
-
-/** Compact regular voxel grid for the local WebGL volume renderer. No DICOM bytes leave the browser. */
-export async function getVolumeTexture(imageIds: string[], maxDimension = 256, maxSlices = 224, onProgress?: (done: number, total: number) => void, signal?: AbortSignal) {
-  const frames = imageIds.map(id => ({ item: records.get(id), geometry: getLocalizerGeometry(id) }));
-  if (frames.length < 3 || frames.some(frame => !frame.item || !frame.geometry)) return null;
-  const base = frames[0].geometry!, reference = frames[0].item!;
-  const axes = getMprAxes(imageIds[0])!;
-  frames.sort((a, b) => dot3(a.geometry!.origin, axes.w) - dot3(b.geometry!.origin, axes.w));
-  const depth = dot3(plus3(frames.at(-1)!.geometry!.origin, frames[0].geometry!.origin, -1), axes.w);
-  const gap = depth / (frames.length - 1);
-  if (gap <= 0 || frames.some((frame, index) => frame.item!.rows !== reference.rows || frame.item!.columns !== reference.columns ||
-      frame.geometry!.studyId !== base.studyId || frame.geometry!.frameId !== base.frameId ||
-      dot3(frame.geometry!.columnDirection, base.columnDirection) < .999 ||
-      dot3(frame.geometry!.rowDirection, base.rowDirection) < .999 ||
-      Math.abs(dot3(frame.geometry!.origin, axes.w) - dot3(frames[0].geometry!.origin, axes.w) - index * gap) > Math.max(.1, gap * .2))) return null;
-  // The GPU path keeps more of a 512 px acquisition; the CPU fallback requests less.
-  const [width, height, slices] = [Math.min(maxDimension, reference.columns), Math.min(maxDimension, reference.rows), Math.min(maxSlices, frames.length)];
-  const modality = reference.dataSet.string('x00080060') || 'CT';
-  const lower = modality === 'CT' ? -1024 : reference.min;
-  const upper = modality === 'CT' ? 2048 : Math.max(lower + 1, reference.max);
-  const data = new Uint8Array(width * height * slices);
-  onProgress?.(0, slices);
-  for (let z = 0; z < slices; z++) {
-    signal?.throwIfAborted();
-    const position = Math.max(0, Math.min(frames.length - 1, (z + .5) * frames.length / slices - .5));
-    const lowerSlice = frames[Math.floor(position)].item!.pixels;
-    const upperSlice = frames[Math.min(frames.length - 1, Math.ceil(position))].item!.pixels;
-    const depthBlend = position - Math.floor(position);
-    for (let y = 0; y < height; y++) {
-      const sourceY = Math.max(0, Math.min(reference.rows - 1, (y + .5) * reference.rows / height - .5));
-      const y0 = Math.floor(sourceY), y1 = Math.min(reference.rows - 1, y0 + 1), fy = sourceY - y0;
-      for (let x = 0; x < width; x++) {
-        const sourceX = Math.max(0, Math.min(reference.columns - 1, (x + .5) * reference.columns / width - .5));
-        const x0 = Math.floor(sourceX), x1 = Math.min(reference.columns - 1, x0 + 1), fx = sourceX - x0;
-        const a = y0 * reference.columns + x0, b = y1 * reference.columns + x0;
-        const lowTop = lowerSlice[a] * (1 - fx) + lowerSlice[a + (x1 - x0)] * fx;
-        const lowBottom = lowerSlice[b] * (1 - fx) + lowerSlice[b + (x1 - x0)] * fx;
-        let value = lowTop * (1 - fy) + lowBottom * fy;
-        if (depthBlend) {
-          const highTop = upperSlice[a] * (1 - fx) + upperSlice[a + (x1 - x0)] * fx;
-          const highBottom = upperSlice[b] * (1 - fx) + upperSlice[b + (x1 - x0)] * fx;
-          value = value * (1 - depthBlend) + (highTop * (1 - fy) + highBottom * fy) * depthBlend;
-        }
-        data[(z * height + y) * width + x] = Math.round(Math.max(0, Math.min(1, (value - lower) / (upper - lower))) * 255);
-      }
-    }
-    onProgress?.(z + 1, slices);
-    if (z % 4 === 0) await yieldToBrowser();
-  }
-  return { data, width, height, slices, range: [lower, upper] as [number, number],
-    size: [reference.columns * base.columnSpacing, reference.rows * base.rowSpacing, frames.length * gap] as Point3,
-    modality };
 }
 
 export async function getViewer() {

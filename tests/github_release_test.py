@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from zipfile import ZipFile
+from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location('github_release', Path(__file__).resolve().parents[1] / 'scripts/github-release.py')
 release = importlib.util.module_from_spec(spec)
@@ -96,6 +97,20 @@ class Releases(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'different source commit'):
             release.publish(api, self.root, VERSION, COMMIT)
         self.assertEqual(len(api.calls), 1)
+
+    def test_binary_repository_tag_uses_its_own_commit_and_preserves_source_provenance(self):
+        api = FakeGitHub()
+        release.publish(api, self.root, VERSION, COMMIT, 'b' * 40)
+        self.assertEqual(api.calls[1][2]['target_commitish'], 'b' * 40)
+        self.assertIn(COMMIT, api.calls[-1][2]['body'])
+
+    def test_source_workflow_can_publish_to_separate_binary_repository(self):
+        (self.root/'public').mkdir()
+        (self.root/'public/product.json').write_text(json.dumps({'version':VERSION,'repository':'owner/source','updateRepository':'owner/binaries'}))
+        with patch.dict('os.environ',{'GITHUB_REPOSITORY':'owner/source'}):
+            self.assertEqual(release.config(self.root)['updateRepository'], 'owner/binaries')
+        with patch.dict('os.environ',{'GITHUB_REPOSITORY':'wrong/source'}), self.assertRaisesRegex(ValueError,'source repository'):
+            release.config(self.root)
 
 
 if __name__ == '__main__':

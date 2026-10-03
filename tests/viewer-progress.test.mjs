@@ -7,9 +7,9 @@ test('progress reports completed units and never invented elapsed time',()=>{
   assert.equal(progressPercent(842,1241),67);assert.equal(progressPercent(0,0),0);assert.equal(progressPercent(1241,1241),100);
   assert.equal(progressPercent(2,3),66);assert.equal(progressPercent(200,100),100);
 });
-test('each measurement state has a distinct theme and selected wins over hover',()=>{
+test('each measurement state is distinct and hover returns to selected when the pointer leaves',()=>{
   assert.equal(new Set(['normal','hover','selected','drawing'].map(s=>measurementTheme[s].color)).size,4);
-  assert.equal(measurementState(false,true,true),'selected');assert.equal(measurementState(true,true,true),'drawing');assert.equal(measurementState(false,false,true),'hover');
+  assert.equal(measurementState(false,true,true),'hover');assert.equal(measurementState(false,true,false),'selected');assert.equal(measurementState(true,true,true),'drawing');assert.equal(measurementState(false,false,true),'hover');
 });
 const base={studyId:'1.2.3',frameId:'1.2.4',origin:[10,20,30],columnDirection:[1,0,0],rowDirection:[0,1,0],columnSpacing:.7,rowSpacing:1.2,columns:512,rows:512};
 test('shared intersection uses DICOM millimetres with anisotropic pixels',()=>{

@@ -22,8 +22,18 @@ export function notifyViewerProgress(tab: Window | null, progress: WorkProgress 
   channel.postMessage({ kind: 'PROGRESS', target: tab.name, progress, error }); channel.close();
 }
 export async function openStudyInViewer(study: string, reserved?: Window | null): Promise<'new'> {
-  if (!validStudy(study)) throw new Error('DICOM Study UID düzgün deyil');
-  const url = `/#archive-study=${encodeURIComponent(study)}`;
+  return openStudiesInViewer([study],reserved);
+}
+export function requestedStudies(hash:string):string[] {
+  const params=new URLSearchParams(hash.replace(/^#/,''));
+  const studies=(params.get('archive-studies')||params.get('archive-study')||'').split(',').filter(Boolean);
+  if(studies.length>200||studies.some(id=>!validStudy(id)))throw new Error('DICOM Study UID düzgün deyil');
+  return [...new Set(studies)];
+}
+export async function openStudiesInViewer(studies: string[], reserved?: Window | null): Promise<'new'> {
+  if (!studies.length||studies.length>200||studies.some(study=>!validStudy(study))) throw new Error('DICOM Study UID düzgün deyil');
+  const unique=[...new Set(studies)];
+  const url = unique.length===1?`/#archive-study=${encodeURIComponent(unique[0])}`:`/#archive-studies=${encodeURIComponent(unique.join(','))}`;
   const tab = reserved === undefined ? window.open(url, `RADAZ_VIEWER_${randomId()}`) : reserved;
   if (!tab || tab.closed) throw new Error('Yeni Viewer vərəqəsi açıla bilmədi. RADAZ üçün pop-up icazəsini aktiv edin.');
   if (reserved !== undefined) tab.location.assign(url);

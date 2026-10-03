@@ -1,7 +1,7 @@
 'use client';
 import { ResizableTable, ResizableHeader } from '@/components/resizable-table';
 import { SortHeader, useTableSort } from '@/components/table-sort';
-import { openStudyInViewer, focusViewer, notifyViewerProgress } from '@/lib/viewer-session';
+import { openStudyInViewer, openStudiesInViewer, focusViewer, notifyViewerProgress } from '@/lib/viewer-session';
 
 import { useEffect, useRef, useState } from 'react';
 import { Activity, ExternalLink, Network, Plus, Search, Settings2, Trash2, Wifi, Download, Database, RefreshCw, X, Disc3 } from 'lucide-react';
@@ -173,6 +173,7 @@ export default function PacsPage() {
     finally { setBusy(false); }
   };
   const chooseStudy = async (item: RemoteStudy, open = false) => {
+    if(open&&selection.checked.length){await openSelectedStudies(true);return;}
     if (openingStudy.current || (busy && !open)) return;
     const query = ++studyQuery.current;
     if (open) openingStudy.current = true;
@@ -191,6 +192,7 @@ export default function PacsPage() {
     finally { if (query === studyQuery.current) setBusy(false); if (open) openingStudy.current = false; }
   };
   const retrieve = async (destination: 'viewer' | 'media' = 'viewer', onlySeries?: string, selectedStudy = activeStudy, selectedSeries?: RemoteSeries[], reservedViewer?: Window | null) => {
+    if(destination==='viewer'&&!onlySeries&&!selectedSeries&&selection.checked.length){await openSelectedStudies();return;}
     if ((busy && !selectedSeries) || !location || !selectedStudy || (!selectedSeries && !onlySeries && !checked.length)) return;
     // Open synchronously so browsers allow the private viewer tab after a long download.
     const viewer = destination === 'viewer' ? (reservedViewer === undefined ? focusViewer() : reservedViewer) : window.open('about:blank', '_blank');
@@ -232,6 +234,32 @@ export default function PacsPage() {
     finally { setBusy(false); }
   };
 
+  const openSelectedStudies = async (fromRow = false) => {
+    if((busy&&!fromRow)||openingStudy.current||!location||!selection.checked.length)return;
+    ++studyQuery.current; // Supersede the single-click series query on double-click.
+    const targets=visibleStudies.filter(item=>selection.checked.includes(item.uid));
+    const viewer=focusViewer();if(!viewer){setStatus('Viewer açıla bilmədi. Pop-up icazəsini yoxlayın.');return;}
+    setBusy(true);openingStudy.current=true;
+    try{
+      if(!location.dicomwebUrl&&await getDimseBridgeVersion()<3)throw Error('PACS körpüsünü yeni versiyaya yeniləyin');
+      for(const [index,item] of targets.entries()){
+        const label=`PACS ${index+1}/${targets.length}`;
+        const progress=(done:number,total:number)=>{setStatus(`${label}: ${done}/${total}`);notifyViewerProgress(viewer,{label,done,total});};
+        progress(0,0);
+        const entries=location.dicomwebUrl?await queryRemoteSeries(location.dicomwebUrl,token,item.uid):(await queryDimseSeries(location,aeTitle,item.uid)).items;
+        if(!entries.length)throw Error(`${index+1}-ci müayinədə seriya tapılmadı`);
+        if(!location.dicomwebUrl&&(entries.length>30||entries.reduce((n,s)=>n+s.instanceCount,0)>800))throw Error('Müayinə böyükdür. Seriyaları ayrıca seçib açın.');
+        const files=location.dicomwebUrl?await retrieveRemoteStudy(location.dicomwebUrl,token,item.uid,entries,progress):
+          await retrieveDimseStudy(location,aeTitle,listenerPort,item.uid,entries.map(s=>s.uid),progress);
+        if(!await saveArchiveFiles(files,progress))throw Error(`${index+1}-ci müayinədə oxuna bilən DICOM tapılmadı`);
+        await recordStudyOpened(item.uid);
+      }
+      await openStudiesInViewer(targets.map(item=>item.uid),viewer);
+      setStatus(`${targets.length} seçilmiş müayinə Viewer-də açıldı`);
+    }catch(error){const message=error instanceof Error?error.message:String(error);setStatus(message);notifyViewerProgress(viewer,null,message);}
+    finally{setBusy(false);openingStudy.current=false;}
+  };
+
   const removeCopies = async () => {
     const ids = selection.checked.length ? selection.checked : activeStudy ? [activeStudy.uid] : [];
     if (busy || !ids.length) return;
@@ -255,7 +283,7 @@ export default function PacsPage() {
         <button className="pacs-check-button" title="Əlaqəni yoxla" aria-label="PACS əlaqəsini yoxla" disabled={busy || !canSearch} onClick={() => { void test(); }}><RefreshCw size={16}/></button>
         <label className="pacs-token">Bearer token <input aria-label="PACS Bearer token" type="password" autoComplete="off" placeholder={location?.dicomwebUrl ? 'Yalnız bu vərəqədə istifadə edilir' : 'Yalnız DICOMweb üçün'} disabled={!location?.dicomwebUrl} value={token} onChange={event => setToken(event.currentTarget.value)}/></label>
       </div>
-      <div className="records-header-actions"><button disabled={busy || (!selection.checked.length && !activeStudy)} onClick={() => void removeCopies()} title="Bu kompüterə endirilmiş nüsxələri sil"><Trash2 size={16}/><span>Lokal nüsxələri sil{selection.checked.length ? ` (${selection.checked.length})` : ''}</span></button><button type="button" title="PACS konfiqurasiyası" onClick={openConfig} aria-label="PACS konfiqurasiyasını aç"><Settings2 size={18}/><span>PACS ayarları</span></button><AppHelpMenu/></div>
+      <div className="records-header-actions"><button disabled={busy || !selection.checked.length} onClick={() => void openSelectedStudies()}><ExternalLink size={18}/><span>Seçilmişləri aç ({selection.checked.length})</span></button><button disabled={busy || (!selection.checked.length && !activeStudy)} onClick={() => void removeCopies()} title="Bu kompüterə endirilmiş nüsxələri sil"><Trash2 size={16}/><span>Lokal nüsxələri sil{selection.checked.length ? ` (${selection.checked.length})` : ''}</span></button><button type="button" title="PACS konfiqurasiyası" onClick={openConfig} aria-label="PACS konfiqurasiyasını aç"><Settings2 size={18}/><span>PACS ayarları</span></button><AppHelpMenu/></div>
     </header>
     <div className="pacs-content">
       <div className="pacs-browser"><div className="pacs-card-title"><Network size={19}/><div><strong>PACS müayinələri</strong><span>{location ? `${location.description || location.host || location.aeTitle || location.dicomwebUrl} · ${location.dicomwebUrl ? 'DICOMweb' : 'DICOM C-FIND'}` : 'Server seçin'}</span></div></div>

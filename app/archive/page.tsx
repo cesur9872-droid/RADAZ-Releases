@@ -1,5 +1,5 @@
 'use client';
-import { openStudyInViewer } from '@/lib/viewer-session';
+import { openStudiesInViewer } from '@/lib/viewer-session';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Activity, FolderOpen, FileArchive, Search, Trash2, ExternalLink, HardDriveDownload, RefreshCw, Settings2, Disc3 } from 'lucide-react';
@@ -72,10 +72,11 @@ export default function ArchivePage() {
   const seriesSort=useTableSort((current?.series||[]).map((r,i)=>({...r,ordinal:i+1})),{ordinal:r=>r.ordinal,addedAt:r=>r.addedAt,number:r=>r.number,modality:r=>r.modality,description:r=>r.description,protocol:r=>r.protocol,imageCount:r=>r.imageCount,openedAt:()=>current?.openedAt},{key:'number',direction:'asc'});
   const openStudy = async (uid: string) => {
     try {
-      const destination = await openStudyInViewer(uid);
-      await recordStudyOpened(uid);
+      const targets=selection.checked.length?selection.checked:[uid];
+      await openStudiesInViewer(targets);
+      await Promise.all(targets.map(recordStudyOpened));
       await refresh();
-      setMessage('Müayinə ayrıca Viewer vərəqəsində açıldı');
+      setMessage(`${targets.length} seçilmiş müayinə Viewer-də açıldı`);
     } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
   };
   const remove = async () => {
@@ -91,6 +92,7 @@ export default function ArchivePage() {
     <header className="records-header records-unified-header archive-unified-header">
       <div className="records-summary records-filterbar records-header-filters"><StudyFilterControls from={dateFrom} to={dateTo} modalities={modalities} options={modalityOptions} onFromChange={setDateFrom} onToChange={setDateTo} onModalitiesChange={setModalities}/><label className="records-search"><Search size={16}/><input aria-label="Bütün müayinələrdə axtar" placeholder="Pasiyent, ID, təsvir…" value={search} onChange={event => setSearch(event.currentTarget.value)}/></label></div>
       <div className="records-header-actions labeled-header-actions">
+        <button className="records-primary" disabled={!selection.checked.length||busy} onClick={()=>void openStudy(selection.checked[0])}><ExternalLink size={18}/> Seçilmişləri aç ({selection.checked.length})</button>
         <div className="record-action-group"><div className="toolbar-group" role="group" aria-label="DICOM import">        <button title="DICOM qovluğu əlavə et" aria-label="DICOM qovluğu əlavə et" disabled={busy} onClick={() => folderRef.current?.click()}><FolderOpen size={18}/><span>Qovluq</span></button>        <button title="ZIP arxivi əlavə et" aria-label="ZIP arxivi əlavə et" disabled={busy} onClick={() => zipRef.current?.click()}><FileArchive size={18}/><span>ZIP</span></button>        <button title="DICOM faylları əlavə et" aria-label="DICOM faylları əlavə et" disabled={busy} onClick={() => filesRef.current?.click()}><HardDriveDownload size={18}/><span>DICOM</span></button></div></div>
         <div className="record-action-group"><div className="toolbar-group" role="group" aria-label="Müayinə">        <button title="Siyahını yenilə" aria-label="Siyahını yenilə" onClick={() => { void refresh(); }}><RefreshCw size={18}/><span>Yenilə</span></button>        <button title="Seçilmiş müayinəni CD üçün hazırla" aria-label="CD üçün hazırla" disabled={!current || busy} onClick={() => current && window.open(`/media?study=${encodeURIComponent(current.uid)}`, '_blank')}><Disc3 size={18}/><span>CD / DVD</span></button>                <button title="Seçilmiş müayinəni sil" aria-label="Seçilmiş müayinəni sil" disabled={(!current && !selection.checked.length) || busy} onClick={() => { void remove(); }}><Trash2 size={18}/><span>Sil{selection.checked.length ? ` (${selection.checked.length})` : ''}</span></button></div></div>
         <ArchiveReceiverPanel/><AppHelpMenu/>

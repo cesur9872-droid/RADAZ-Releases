@@ -13,9 +13,11 @@ import sys
 import time
 from pathlib import Path, PurePosixPath
 from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
 from zipfile import ZipFile
 
 REPOSITORY = 'drnaghiyev/RADAZ-D-COM'
+UPDATE_REPOSITORY = 'cesur9872-droid/RADAZ-Releases'
 SOURCE = Path(__file__).resolve().parent.parent
 NO_WINDOW = 0x08000000 if os.name == 'nt' else 0
 MAX_PACKAGE = 512 * 1024 * 1024
@@ -100,8 +102,9 @@ def lock(root, name, wait=0):
             file.seek(0); msvcrt.locking(file.fileno(), msvcrt.LK_UNLCK, 1)
         file.close()
 
-def state(root, status, message, target=None):
-    atomic_json(root / 'update-state.json', {'state': status, 'message': message, 'version': target, 'checkedAt': int(time.time())})
+def state(root, status, message, target=None, progress=None):
+    atomic_json(root / 'update-state.json', {'state': status, 'message': message, 'version': target,
+        'checkedAt': int(time.time()), 'progress': progress})
 
 def get_json(url, timeout=15):
     with urlopen(Request(url, headers={'User-Agent': 'RADAZ-desktop-updater', 'Accept': 'application/vnd.github+json'}), timeout=timeout) as response:
@@ -116,7 +119,7 @@ def select_asset(release, current):
     matches = [a for a in release['assets'] if a['name'] == name and a['state'] == 'uploaded']
     if len(matches) != 1: raise ValueError('Complete desktop update is not available')
     asset = matches[0]
-    if asset['browser_download_url'] != f'https://github.com/{REPOSITORY}/releases/download/v{target}/{name}':
+    if asset['browser_download_url'] != f'https://github.com/{UPDATE_REPOSITORY}/releases/download/v{target}/{name}':
         raise ValueError('Unexpected update download location')
     if not isinstance(asset.get('digest'), str) or not re.fullmatch(r'sha256:[a-f0-9]{64}', asset['digest']) or not isinstance(asset.get('size'), int) or not 0 < asset['size'] <= MAX_PACKAGE:
         raise ValueError('Update has no valid SHA-256 digest or size')
@@ -124,6 +127,7 @@ def select_asset(release, current):
 
 def stage_package(root, archive, target, digest, size):
     version(target)
+    state(root, 'verifying', 'Yeniləmənin bütövlüyü yoxlanılır…', target)
     if archive.stat().st_size != size or hashlib.sha256(archive.read_bytes()).hexdigest() != digest:
         raise ValueError('Downloaded update SHA-256 mismatch')
     destination = version_dir(root, target)
@@ -141,13 +145,18 @@ def stage_package(root, archive, target, digest, size):
                     raise ValueError('Package links are not allowed')
                 manifest = json.loads(package.read('SHA256SUMS.json'))
                 validate_files(package.namelist(), manifest, package.read, target)
-                package.extractall(staging)
+                for index, entry in enumerate(entries):
+                    package.extract(entry, staging)
+                    if index % 20 == 0 or index == len(entries)-1:
+                        state(root, 'installing', 'Yeni versiya və bütün komponentləri quraşdırılır…', target,
+                              {'done': index+1, 'total': len(entries), 'unit': 'fayl'})
             os.replace(staging, destination)
         finally:
             if staging.exists() and staging.resolve().parent == (root / 'versions').resolve():
                 shutil.rmtree(staging)
     atomic_json(root / 'pending.json', {'version': target})
-    state(root, 'ready', f'RADAZ {target} hazırdır. İşinizi bitirdikdən sonra iş masasındakı RADAZ qısayolunu açın.', target)
+    state(root, 'ready', f'RADAZ {target} yeniləməsi uğurla hazırlandı. Növbəti açılışda avtomatik tətbiq olunacaq.', target,
+          {'done': 1, 'total': 1, 'unit': 'yeniləmə'})
 
 def check_update(root):
     active = read_json(root / 'active.json')['version']
@@ -157,7 +166,7 @@ def check_update(root):
             state(root, 'ready', f'RADAZ {pending} hazırdır. Növbəti açılışda avtomatik tətbiq olunacaq.', pending)
             return
     state(root, 'checking', 'Yeniləmələr arxa planda yoxlanılır.')
-    choice = select_asset(get_json(f'https://api.github.com/repos/{REPOSITORY}/releases/latest'), active)
+    choice = select_asset(get_json(f'https://api.github.com/repos/{UPDATE_REPOSITORY}/releases/latest'), active)
     if choice is None:
         state(root, 'current', 'Avtomatik yeniləmə aktivdir. Ən yeni versiya quraşdırılıb.'); return
     target, asset = choice
@@ -169,11 +178,15 @@ def check_update(root):
     try:
         request = Request(asset['browser_download_url'], headers={'User-Agent': 'RADAZ-desktop-updater'})
         with urlopen(request, timeout=30) as response, temporary.open('wb') as stream:
-            total = 0
+            total = 0; last_progress = 0
             while block := response.read(1024 * 1024):
                 total += len(block)
                 if total > asset['size']: raise ValueError('Unexpected download size')
                 stream.write(block)
+                if time.monotonic() - last_progress >= .2 or total == asset['size']:
+                    state(root, 'downloading', f'RADAZ {target} yüklənir…', target,
+                          {'done': total, 'total': asset['size'], 'unit': 'bayt'})
+                    last_progress = time.monotonic()
         stage_package(root, temporary, target, asset['digest'][7:], asset['size'])
     finally:
         temporary.unlink(missing_ok=True)
@@ -283,23 +296,37 @@ def install(root, shortcuts=True):
             if staging.exists() and staging.resolve().parent == (root / 'versions').resolve(): shutil.rmtree(staging)
     initialize(root, shortcuts)
 
+def update_error_message(error):
+    if isinstance(error, HTTPError):
+        if error.code == 404:
+            return 'Yenilənmə mənbəyi və ya yayımlanmış buraxılış tapılmadı (404). Yenilənmə ünvanını dəstəklə yoxlayın.'
+        if error.code in (403, 429):
+            return 'GitHub yenilənmə sorğusunu məhdudlaşdırdı. Bir qədər sonra yenidən yoxlayın.'
+    if isinstance(error, (URLError, TimeoutError)):
+        return 'Yenilənmə serveri ilə əlaqə qurulmadı. İnternet bağlantısını yoxlayıb yenidən cəhd edin.'
+    return 'Yeniləmə yüklənmədi. Mövcud versiya işləyir; növbəti yoxlamada yenidən cəhd ediləcək.'
+
+
 def watch(root):
     handoff = None
     own_version = read_json(SOURCE / 'public/product.json')['version']
     try:
         with lock(root, 'update'):
             while True:
+                (root / 'update-request.json').unlink(missing_ok=True)
                 try: check_update(root)
                 except Exception as error:
-                    state(root, 'error', 'Yeniləmə yüklənmədi. Mövcud versiya işləyir; növbəti yoxlamada yenidən cəhd ediləcək.')
+                    state(root, 'error', update_error_message(error))
                     print(type(error).__name__, ascii(str(error)), flush=True)
                 # Check every six hours while the local server runs.
-                for _ in range(6 * 60):
-                    time.sleep(60)
+                for tick in range(6 * 60 * 60):
+                    time.sleep(1)
                     active = read_json(root / 'active.json')['version']
                     if active != own_version:
                         handoff = version_dir(root, active)
                         break
+                    if (root / 'update-request.json').exists(): break
+                    if tick % 60: continue
                     try: get_json(f'http://127.0.0.1:{os.environ.get("RADAZ_PORT", "5173")}/radaz-runtime.json', 3)
                     except Exception: return
                 if handoff: break

@@ -4,7 +4,7 @@ import { type WorkProgress as LoadingProgress, yieldToBrowser } from '@/lib/work
 import { measurementVariables } from '@/lib/measurement-theme';
 import { RadazLogo } from '@/components/radaz-logo';
 import { AppHelpMenu, useViewerLicense } from '@/components/app-product';
-import { registerViewer } from '@/lib/viewer-session';
+import { registerViewer, requestedStudies } from '@/lib/viewer-session';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -16,9 +16,9 @@ import { ViewerOutputControls } from '@/components/viewer-output-controls';
 import { MeasurementOverlay, type LocalMark } from '@/components/measurement-overlay';
 import { LocalizerOverlay } from '@/components/localizer-overlay';
 import { VolumePreview, type VolumeRenderSettings } from '@/components/volume-preview';
-import type { VolumeStyle } from '@/lib/volume-renderer';
+import { volumeStyles, type VolumePreset, type VolumeQuality } from '@/lib/volume-presets';
 import { ArrowUpRight, Pencil, MoveVertical, Eye, EyeOff, Download, PanelLeftClose, Activity, Box, ChevronDown, CircleDot, Crosshair, Database, Disc3, Eraser, FileArchive, FileText, Focus, Grid2X2, Hand, Layers3, MoveDiagonal2, RotateCcw, Ruler, ScanLine, ScanSearch, ServerCog, Settings2, SlidersHorizontal, Trash2, FolderOpen, Triangle, Waypoints } from 'lucide-react';
-import { addLocalDicom, createMprStacks, createObliqueMprStacks, getDefaultWindow, getLocalizerGeometry, getMprOrientations, getViewer, releaseLocalDicoms, rotateMprOrientation, thumbnailLocalDicom, type MprOrientations, type MprMode, type MprSettings } from '@/lib/cornerstone';
+import { addLocalDicom, registerLocalDicom, getSeriesVolume, createMprStacks, createObliqueMprStacks, getDefaultWindow, getLocalizerGeometry, getMprOrientations, getViewer, releaseLocalDicoms, rotateMprOrientation, thumbnailLocalDicom, type MprOrientations, type MprMode, type MprSettings } from '@/lib/cornerstone';
 import { closestSlice, sameCoordinateSpace, normalOf, planeLabel, intersectPlanes, type Point3 } from '@/lib/localizer';
 import { expandSources, filesFromDrop } from '@/lib/import-sources';
 import { parseDicomFile } from '@/lib/dicom-file';
@@ -32,6 +32,7 @@ type Preset = { ww: number; wl: number; token: number; panel: string; seriesId: 
 type ImportSource = { id: number; label: string; files: File[] };
 type MprData = { sourceId: string; stacks: Record<'SAG' | 'COR' | 'AX', string[]>; planes: Series[]; owned: string[]; orientations: MprOrientations | null };
 type DetachedMode = 'mpr' | '3d';
+const formatDate = (s: string) => s?.length === 8 ? `${s.slice(6, 8)}.${s.slice(4, 6)}.${s.slice(0, 4)}` : '—';
 const newMprSettings = (): MprSettings => ({ SAG: { mode: 'MPR', thickness: 1 }, COR: { mode: 'MPR', thickness: 1 }, AX: { mode: 'MPR', thickness: 1 } });
 const panePlane = { MS: 'SAG', MC: 'COR', MA: 'AX' } as const;
 const toolItems: { id: Tool; label: string; icon: typeof Ruler; hint: string }[] = [
@@ -57,15 +58,7 @@ const presets = [
   { label: 'Abdomen', ww: 400, wl: 50 }, { label: 'Ağciyər', ww: 1500, wl: -600 },
   { label: 'Sümük', ww: 1800, wl: 400 }, { label: 'Beyin', ww: 80, wl: 40 },
 ];
-const volumeStyles = [
-  { key: 'bone', title: 'Sümük HD', subtitle: 'Kortikal və trabekulyar sümük', tone: '#ead1a5', threshold: 260, opacity: 1, lighting: { ambient: .20, diffuse: .84, specular: .30, specularPower: 34, quality: .45 } },
-  { key: 'boneVessel', title: 'Sümük + damar', subtitle: 'Kontrastlı angioqrafiya', tone: '#df704f', threshold: 140, opacity: 1.15, lighting: { ambient: .22, diffuse: .82, specular: .38, specularPower: 38, quality: .45 } },
-  { key: 'vascular', title: 'Damar', subtitle: 'CTA damar izolyasiyası', tone: '#e94332', threshold: 120, opacity: 1.25, lighting: { ambient: .18, diffuse: .86, specular: .46, specularPower: 42, quality: .42 } },
-  { key: 'skin', title: 'Dəri səthi', subtitle: 'Xarici anatomik səth', tone: '#d99b7c', threshold: -280, opacity: 1.15, lighting: { ambient: .30, diffuse: .76, specular: .20, specularPower: 22, quality: .52 } },
-  { key: 'soft', title: 'Yumşaq toxuma', subtitle: 'Orqan və parenxima', tone: '#c47068', threshold: -20, opacity: .9, lighting: { ambient: .26, diffuse: .80, specular: .24, specularPower: 28, quality: .50 } },
-  { key: 'lung', title: 'Ağciyər', subtitle: 'Aşağı sıxlıqlı ağciyər', tone: '#9fc8d7', threshold: -760, opacity: 1.05, lighting: { ambient: .24, diffuse: .82, specular: .18, specularPower: 24, quality: .55 } },
-] as const;
-const formatDate = (s: string) => s?.length === 8 ? `${s.slice(6, 8)}.${s.slice(4, 6)}.${s.slice(0, 4)}` : '—';
+
 const modalityLabel = (code: string) => ({ CT: 'KT', MR: 'MRT', DX: 'Rentgen', CR: 'Rentgen', DR: 'Rentgen', RG: 'Rentgen', XA: 'Rentgen', US: 'USM' }[code.toUpperCase()] || code.toUpperCase());
 type ModalityGroup = { code: string; series: { item: Series; index: number }[] };
 type StudyGroup = { id: string; date: string; modalities: ModalityGroup[] };
@@ -355,10 +348,10 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
   const mprDataRef = useRef<MprData | null>(null);
   const gestureRef = useRef<{ sourcePanel: string; targetPanel: string; base: MprOrientations; axis: Point3; pivot: Point3; source: Series; last: number } | null>(null);
   const [mprActive, setMprActive] = useState('MA');
-  const [volumePreset, setVolumePreset] = useState<VolumeStyle['preset']>('bone');
-  const [volumeThreshold, setVolumeThreshold] = useState(260);
-  const [volumeOpacity, setVolumeOpacity] = useState(1);
-  const [volumeSettings, setVolumeSettings] = useState<VolumeRenderSettings>({ ambient: .20, diffuse: .84, specular: .30, specularPower: 34, quality: .45 });
+  const [volumePreset, setVolumePreset] = useState<VolumePreset>('bone');
+  const [volumeThreshold, setVolumeThreshold] = useState(volumeStyles[0].threshold);
+  const [volumeOpacity, setVolumeOpacity] = useState(volumeStyles[0].opacity);
+  const [volumeSettings, setVolumeSettings] = useState<VolumeRenderSettings>(volumeStyles[0].lighting);
   const [volumeResetToken, setVolumeResetToken] = useState(0);
   const [mprError, setMprError] = useState('');
   const [importOpen, setImportOpen] = useState(false);
@@ -375,6 +368,7 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
   const mediaFiles = useRef(new Map<string, File[]>());
   const mediaOrder = useRef(new Map<string, { id: string; n: number }[]>());
   const preferredMediaSeries = useRef<string | undefined>(undefined);
+  // Disc watching belongs to this Viewer; archive/PACS tabs must start with it off.
   const [mediaEnabled, setMediaEnabled] = useState(false);
   const [mediaFilter, setMediaFilter] = useState<string[] | undefined>();
   const [mediaProgress, setMediaProgress] = useState<MediaProgress | null>(null);
@@ -417,10 +411,6 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
       input?.setAttribute('directory', '');
     }
   }, []);
-
-  useEffect(() => {
-    if (!detachedMode && localStorage.getItem('radaz-cd-auto') === '1') setMediaEnabled(true);
-  }, [detachedMode]);
 
   useEffect(() => {
     if (!ready || !mediaEnabled) return;
@@ -498,6 +488,9 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
     const found = new Map<string, Series & { ordered: { id: string; n: number }[]; sopUIDs: Set<string> }>();
     const createdIds: string[] = [];
     const acceptedFiles: File[] = [];
+    const filesById = new Map<string,File>();
+    const invalidIds = new Set<string>();
+    let decoded = 0;
     let rejected = 0;
     let ignored = 0;
     let firstError = '';
@@ -529,7 +522,7 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
         published = true;
       }
       listRef.current = imported; setSeriesList(imported); openedFiles.current = [...acceptedFiles];
-      setLoadProgress({label: 'DICOM yüklənir', done: acceptedFiles.length, total: files.length});
+      setLoadProgress({label: 'DICOM yüklənir', done: decoded, total: acceptedFiles.length || files.length});
       if (!detachedMode) document.title = `${imported[0].patient} · RADAZ Viewer`;
       setStatus(`${imported.length} seriya · ${acceptedFiles.length} / ${files.length} görüntü oxunur…`);
     };
@@ -545,8 +538,9 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
         const uid = `${studyId}/${get('x0020000e') || file.name}`;
         const sopUID = get('x00080018');
         if (sopUID && found.get(uid)?.sopUIDs.has(sopUID)) { ignored++; continue; }
-        const imageId = await addLocalDicom(bytes, ds);
+        const imageId = registerLocalDicom(bytes, ds);
         createdIds.push(imageId);
+        filesById.set(imageId,file);
         if (request !== importEpoch.current) { discardUnpublished(); return false; }
         acceptedFiles.push(file);
         const record = found.get(uid) || {
@@ -560,9 +554,33 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
         if (sopUID) record.sopUIDs.add(sopUID);
         found.set(uid, record);
         if (acceptedFiles.length === 1 || acceptedFiles.length % 8 === 0 || record.ordered.length === 1) {
-          publish(); await new Promise(resolve => setTimeout(resolve, 0));
+          await yieldToBrowser();
         }
       } catch (err) { rejected++; firstError ||= err instanceof Error ? err.message : String(err); }
+    }
+    if (request !== importEpoch.current) { discardUnpublished(); return false; }
+    const rejectImage=(imageId:string,error:unknown)=>{
+      rejected++; firstError ||= String(error); invalidIds.add(imageId);
+      const index=acceptedFiles.indexOf(filesById.get(imageId)!);if(index>=0)acceptedFiles.splice(index,1);
+      for(const [key,record] of found){record.ordered=record.ordered.filter(item=>item.id!==imageId);if(!record.ordered.length)found.delete(key);}
+      releaseLocalDicoms([imageId]);
+    };
+    // Keep the previous examination if none of the new files can be decoded.
+    for(const imageId of createdIds){
+      try{await viewer.core.imageLoader.loadAndCacheImage(imageId);break;}
+      catch(error){rejectImage(imageId,error);}
+      if(request!==importEpoch.current){discardUnpublished();return false;}
+    }
+    if(request!==importEpoch.current){discardUnpublished();return false;}
+    publish();
+    for (const imageId of createdIds) {
+      if(invalidIds.has(imageId))continue;
+      if (request !== importEpoch.current) { discardUnpublished(); return false; }
+      try { await viewer.core.imageLoader.loadAndCacheImage(imageId); decoded++; }
+      catch (err) {
+        rejectImage(imageId,err);
+      }
+      if (decoded % 8 === 0 || decoded === 1) { publish(); await yieldToBrowser(); }
     }
     if (request !== importEpoch.current) { discardUnpublished(); return false; }
     finished = true; publish(); setLoadProgress(null);
@@ -614,11 +632,17 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
         if (detachedMode && new URLSearchParams(window.location.search).has('handoff')) {
           setStatus('Açıq müayinə gözlənilir…'); return;
         }
-        const archivedStudy = !detachedMode && new URLSearchParams(window.location.hash.slice(1)).get('archive-study');
-        if (archivedStudy) {
+        const archivedStudies = detachedMode?[]:requestedStudies(window.location.hash);
+        if (archivedStudies.length) {
           setStatus('Local arxivdən müayinə açılır…');
           setLoadProgress({label: 'Local arxiv yüklənir', done: 0, total: 0});
-          const files = await getArchiveFiles(archivedStudy, (done,total) => { if(!cancelled)setLoadProgress({label:'Local arxiv yüklənir',done,total}); });
+          const files:File[]=[];
+          for(const [index,uid] of archivedStudies.entries()){
+            if(cancelled)return;
+            const studyFiles=await getArchiveFiles(uid,(done,total)=>{if(!cancelled)setLoadProgress({label:`Local arxiv ${index+1}/${archivedStudies.length}`,done,total});});
+            if(!studyFiles.length)throw Error(`Seçilmiş müayinə arxivdə tapılmadı (${index+1}/${archivedStudies.length})`);
+            files.push(...studyFiles);
+          }
           if (!cancelled && files.length) await importFiles(files, 0);
           else if (!cancelled) setStatus('Arxiv müayinəsi tapılmadı');
           return;
@@ -648,11 +672,7 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
   }, [detachedMode, ready, importFiles]);
 
   const openDetached = (mode: DetachedMode) => {
-    const handoff = Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('');
-    const channel=connectHandoff(mode,handoff);
-    sessionStorage.setItem(`radaz-${mode}-handoff`,handoff);
-    const tab = window.open(`/${mode}?handoff=${encodeURIComponent(handoff)}`, '_blank');
-    if (!tab) { channel.close(); channels.current.delete(mode); sessionStorage.removeItem(`radaz-${mode}-handoff`); setStatus('Yeni vərəqə açıla bilmədi. Brauzer pop-up icazəsini yoxlayın.'); }
+    if (mode === 'mpr') openMpr(); else setWorkspace('3d');
   };
 
   const openReport = () => {
@@ -781,9 +801,9 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
     catch (err) { setStatus(`Qovluqlar oxuna bilmədi: ${String(err)}`); }
   };
   const currentSeries = seriesList.find(s => s.id === assigned[active]);
-  const volumeSeries = !currentSeries?.loading && currentSeries?.imageIds.length && currentSeries.imageIds.length >= 3
+  const volumeSeries = currentSeries?.imageIds.length && currentSeries.imageIds.length >= 3
     ? currentSeries
-    : seriesList.filter(s => !s.loading && s.studyId === currentSeries?.studyId && s.imageIds.length >= 3)
+    : seriesList.filter(s => s.studyId === currentSeries?.studyId && s.imageIds.length >= 3)
       .sort((a, b) => b.imageIds.length - a.imageIds.length)[0];
   const grouped = groupSeries(seriesList);
   const buildMpr = async (source: Series, settings: MprSettings, orientations: MprOrientations | null, pivot: Point3 | null, center = false, onlyPlane?: 'SAG'|'COR'|'AX') => {
@@ -797,6 +817,9 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
     setMprError(''); setWorkspace('mpr');
     try {
       const { core } = await getViewer();
+      await getSeriesVolume(source.imageIds);
+      await Promise.all(source.imageIds.map(id => core.imageLoader.loadAndCacheImage(id)));
+      if (epoch !== mprBuildEpoch.current) return;
       for (const [index, plane] of requested.entries()) {
         await yieldToBrowser();
         if (epoch !== mprBuildEpoch.current) break;
@@ -827,8 +850,9 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
     }
   };
   const openMpr = () => {
-    const source = !currentSeries?.loading && currentSeries?.imageIds.length && currentSeries.imageIds.length >= 3 ? currentSeries : volumeSeries;
+    const source = currentSeries?.imageIds.length && currentSeries.imageIds.length >= 3 ? currentSeries : volumeSeries;
     if (!source) { setMprError('MPR üçün əvvəlcə seriya seçin'); setWorkspace('mpr'); return; }
+    if(source.loading){setWorkspace('mpr');return;}
     if (mprDataRef.current?.sourceId === source.id) { setWorkspace('mpr'); return; }
     try {
       const keepOrientation = mprDataRef.current?.sourceId === source.id && mprDataRef.current.orientations;
@@ -880,10 +904,10 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
   const rotateMprSource = (source: string, target: string, radians: number) => updateMprRotation(source, target, radians, true);
 
   useEffect(() => {
-    if (detachedMode === 'mpr' && ready && !mprData && !mprError && !mprProgress && volumeSeries) openMpr();
+    if (workspace === 'mpr' && ready && !mprData && !mprError && !mprProgress && volumeSeries && !volumeSeries.loading) openMpr();
   // Load the reconstructed planes once the handoff series is available.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [detachedMode, ready, mprData, mprError, !!mprProgress, volumeSeries?.id]);
+  }, [workspace, ready, mprData, mprError, !!mprProgress, volumeSeries?.id, volumeSeries?.loading]);
   const moveMprSource = (panel: string, world: Point3) => {
     const stack = mprData?.stacks[panel === 'MS' ? 'SAG' : panel === 'MC' ? 'COR' : 'AX'];
     if (!stack) return;
@@ -933,10 +957,11 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
         </DropdownMenu></div>}
         {!detachedMode && <Button variant="outline" className={`header-control cd-import-command ${mediaEnabled ? 'active' : ''}`} aria-label="CD/DVD import" aria-pressed={mediaEnabled}
           title={mediaEnabled ? 'Disk izləməsini dayandır və müvəqqəti görüntüləri bağla' : 'CD/DVD-ni avtomatik aşkar et və aç'} disabled={limited}
-          onClick={() => { const enabled = !mediaEnabled; localStorage.setItem('radaz-cd-auto', enabled ? '1' : '0'); setMediaEnabled(enabled); setRailHidden(false); }}>
+          onClick={() => { setMediaEnabled(enabled => !enabled); setRailHidden(false); }}>
           <Disc3 size={18}/><span>CD/DVD import</span>{mediaEnabled && <span className="status-led"/>}
         </Button>}
-      {!detachedMode && <div className="workspace-launch toolbar-group" role="group" aria-label="Əlavə görüntü vərəqələri">
+      {!detachedMode && <div className="workspace-launch toolbar-group" role="group" aria-label="Görüntü rejimi">
+        <button type="button" aria-label="2D Viewer" onClick={() => setWorkspace('viewer')}><b>2D</b></button>
         <button type="button" disabled={limited} title="MPR rekonstruksiya" aria-label="MPR rekonstruksiya" onClick={() => openDetached('mpr')}><b className="mode-letter-icon">MPR</b></button>
         <button type="button" disabled={limited} title="3D həcm görüntüləmə" aria-label="3D həcm görüntüləmə" onClick={() => openDetached('3d')}><b className="mode-letter-icon">3D</b></button>
         <button type="button" disabled={limited} title="Radioloji hesabat" aria-label="Radioloji hesabat" onClick={openReport}><FileText size={18}/><span>Hesabat</span></button>
@@ -945,7 +970,7 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
       </div>}
         {!limited && detachedMode !== '3d' && <ViewerOutputControls panes={Object.entries(currentImages).map(([panel, imageId]) => ({ panel, imageId, series: [...seriesList, ...(mprData?.planes || [])].find(item => item.imageIds.includes(imageId)) }))} panel={workspace === 'mpr' ? mprActive : active} imageId={currentImages[workspace === 'mpr' ? mprActive : active]} series={workspace === 'mpr' ? mprData?.planes.find(item => item.imageIds.includes(currentImages[mprActive])) : currentSeries} allSeries={seriesList} datasetVersion={datasetVersion} onStatus={setStatus}/>}
       </div>
-      {detachedMode === 'mpr' && <>
+      {workspace === 'mpr' && <>
         <div className="mode-identity"><strong><Layers3 size={17}/> MPR rekonstruksiya</strong><span title={seriesList.find(s => s.id === mprData?.sourceId)?.name || ''}>{seriesList.find(s => s.id === mprData?.sourceId)?.name || currentSeries?.name || 'Seriya seçin'}</span></div>
         <div className="mode-controls mpr-header-controls">
           <div className="mpr-modes" role="group" aria-label="Aktiv MPR panelinin rejimi">{(['MPR','MIP','MinIP','Avg'] as const).map(mode => <button key={mode} type="button" className={mprSettings[panePlane[mprActive as keyof typeof panePlane] || 'AX'].mode === mode ? 'current' : ''} onClick={() => changeMprSetting({ mode })}>{mode}</button>)}</div>
@@ -953,18 +978,18 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
           <button className="mpr-reset" type="button" onClick={resetMprLines} title="MPR xətlərini başlanğıc vəziyyətinə qaytar" aria-label="MPR xətlərini sıfırla"><RotateCcw size={15}/><span>Xətləri sıfırla</span></button>
         </div>
       </>}
-      {detachedMode === '3d' && <>
+      {workspace === '3d' && <>
         <div className="mode-identity"><strong><Box size={17}/> 3D VR</strong><span title={volumeSeries?.name || ''}>{volumeSeries ? `${volumeSeries.name} · ${volumeSeries.imageIds.length} kəsit` : 'Seriya seçin'}</span></div>
         <div className="mode-controls volume-header-controls">
-          <DropdownMenu><DropdownMenuTrigger asChild><Button variant="outline" className="header-control volume-preset-trigger" title={`3D preset: ${volumeStyles.find(style => style.key === volumePreset)?.title}`} aria-label="3D göstərmə presetləri"><SlidersHorizontal size={18}/><ChevronDown size={13}/></Button></DropdownMenuTrigger><DropdownMenuContent align="start" className="header-menu volume-preset-menu"><div className="volume-menu-heading">KLİNİK 3D PRESETLƏR</div>{volumeStyles.map(style => <DropdownMenuItem key={style.key} className={volumePreset === style.key ? 'menu-selected' : ''} onSelect={() => { setVolumePreset(style.key); setVolumeThreshold(style.threshold); setVolumeOpacity(style.opacity); setVolumeSettings(style.lighting); }}><span className="volume-preset-swatch" style={{ background: style.tone }}/><span className="volume-preset-copy"><strong>{style.title}</strong><small>{style.subtitle}</small></span></DropdownMenuItem>)}</DropdownMenuContent></DropdownMenu>
+          <DropdownMenu><DropdownMenuTrigger asChild><Button variant="outline" className="header-control volume-preset-trigger" title={`3D preset: ${volumeStyles.find(style => style.key === volumePreset)?.title}`} aria-label="3D göstərmə presetləri"><SlidersHorizontal size={18}/><ChevronDown size={13}/></Button></DropdownMenuTrigger><DropdownMenuContent align="start" className="header-menu volume-preset-menu"><div className="volume-menu-heading">KLİNİK 3D PRESETLƏR</div>{volumeStyles.map(style => <DropdownMenuItem key={style.key} className={volumePreset === style.key ? 'menu-selected' : ''} onSelect={() => { setVolumePreset(style.key); setVolumeThreshold(style.threshold); setVolumeOpacity(style.opacity); setVolumeSettings(current => ({...style.lighting,quality:current.quality})); }}><span className="volume-preset-swatch" style={{ background: style.tone }}/><span className="volume-preset-copy"><strong>{style.title}</strong><small>{style.subtitle}</small></span></DropdownMenuItem>)}</DropdownMenuContent></DropdownMenu>
           <label className="volume-parameter">HU həddi <input aria-label="3D HU həddi" type="range" min="-1000" max="1400" step="10" value={volumeThreshold} onChange={event => setVolumeThreshold(+event.currentTarget.value)}/><output>{volumeThreshold}</output></label>
           <label className="volume-parameter">Şəffaflıq <input aria-label="3D şəffaflıq" type="range" min="0.2" max="2" step="0.1" value={volumeOpacity} onChange={event => setVolumeOpacity(+event.currentTarget.value)}/><output>{Math.round(volumeOpacity * 100)}%</output></label>
           <DropdownMenu><DropdownMenuTrigger asChild><Button variant="outline" className="header-control volume-preset-trigger" title="Professional işıq və keyfiyyət ayarları" aria-label="Professional 3D ayarları"><Settings2 size={18}/></Button></DropdownMenuTrigger><DropdownMenuContent align="end" className="header-menu volume-settings-menu"><div className="volume-menu-heading">İŞIQ VƏ RENDER</div><div className="volume-settings-panel" onPointerDown={event => event.stopPropagation()} onClick={event => event.stopPropagation()}>
-            <label><span>Ətraf işıq <output>{Math.round(volumeSettings.ambient*100)}%</output></span><input type="range" min="0.05" max="0.6" step="0.01" value={volumeSettings.ambient} onChange={event => setVolumeSettings(current => ({ ...current, ambient: +event.currentTarget.value }))}/></label>
-            <label><span>Diffuz işıq <output>{Math.round(volumeSettings.diffuse*100)}%</output></span><input type="range" min="0.2" max="1" step="0.01" value={volumeSettings.diffuse} onChange={event => setVolumeSettings(current => ({ ...current, diffuse: +event.currentTarget.value }))}/></label>
-            <label><span>Parlaqlıq <output>{Math.round(volumeSettings.specular*100)}%</output></span><input type="range" min="0" max="0.8" step="0.01" value={volumeSettings.specular} onChange={event => setVolumeSettings(current => ({ ...current, specular: +event.currentTarget.value }))}/></label>
-            <label><span>Səth sərtliyi <output>{volumeSettings.specularPower}</output></span><input type="range" min="4" max="64" step="1" value={volumeSettings.specularPower} onChange={event => setVolumeSettings(current => ({ ...current, specularPower: +event.currentTarget.value }))}/></label>
-            <label><span>Render dəqiqliyi <output>{Math.round((1.25-volumeSettings.quality)/.9*100)}%</output></span><input type="range" min="0.35" max="1.25" step="0.05" value={volumeSettings.quality} onChange={event => setVolumeSettings(current => ({ ...current, quality: +event.currentTarget.value }))}/></label>
+            <label><span>Ətraf işıq <output>{Math.round(volumeSettings.ambient*100)}%</output></span><input type="range" min="0.05" max="0.6" step="0.01" value={volumeSettings.ambient} onChange={event => { const value = +event.currentTarget.value; setVolumeSettings(current => ({ ...current, ambient: value })); }}/></label>
+            <label><span>Diffuz işıq <output>{Math.round(volumeSettings.diffuse*100)}%</output></span><input type="range" min="0.2" max="1" step="0.01" value={volumeSettings.diffuse} onChange={event => { const value = +event.currentTarget.value; setVolumeSettings(current => ({ ...current, diffuse: value })); }}/></label>
+            <label><span>Parlaqlıq <output>{Math.round(volumeSettings.specular*100)}%</output></span><input type="range" min="0" max="0.8" step="0.01" value={volumeSettings.specular} onChange={event => { const value = +event.currentTarget.value; setVolumeSettings(current => ({ ...current, specular: value })); }}/></label>
+            <label><span>Səth sərtliyi <output>{volumeSettings.specularPower}</output></span><input type="range" min="4" max="64" step="1" value={volumeSettings.specularPower} onChange={event => { const value = +event.currentTarget.value; setVolumeSettings(current => ({ ...current, specularPower: value })); }}/></label>
+            <label><span>3D keyfiyyəti</span><select aria-label="3D keyfiyyəti" value={volumeSettings.quality} onChange={event => { const value = event.currentTarget.value as VolumeQuality; setVolumeSettings(current => ({ ...current, quality: value })); }}>{["performance","balanced","high","ultra","auto"].map(value => <option key={value} value={value}>{value[0].toUpperCase()+value.slice(1)}</option>)}</select></label>
           </div></DropdownMenuContent></DropdownMenu>
           <button className="mpr-reset volume-reset" type="button" onClick={() => setVolumeResetToken(value => value+1)} title="3D görünüşün bucaq, zoom və mövqeyini sıfırla" aria-label="3D görünüşü sıfırla"><RotateCcw size={15}/><span>Görünüşü sıfırla</span></button>
         </div>

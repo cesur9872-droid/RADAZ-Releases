@@ -1,235 +1,139 @@
 'use client';
-
-import { useEffect, useRef, useState } from 'react';
-import { Box } from 'lucide-react';
-import { getViewer, getVolumeTexture } from '@/lib/cornerstone';
-import type { VolumeStyle } from '@/lib/volume-renderer';
-import { WorkProgress } from './work-progress';
-import { type WorkProgress as LoadingProgress, yieldToBrowser } from '@/lib/work-progress';
-
-type Props = {
-  sourceProgress?: LoadingProgress | null;
-  series?: { id: string; imageIds: string[]; name: string; modality: string };
-  preset: VolumeStyle['preset']; threshold: number; opacity: number;
-  settings: VolumeRenderSettings;
-  resetToken: number;
-  onThresholdChange: (value: number) => void;
-  onOpacityChange: (value: number) => void;
-};
-
-export type VolumeRenderSettings = { ambient: number; diffuse: number; specular: number; specularPower: number; quality: number };
-
-type NativeViewport = {
-  render: () => void;
-  resetCamera: (options?: unknown) => boolean;
-  getCamera: () => { parallelScale?: number };
-  setCamera: (camera: { parallelScale?: number }) => void;
-  setPreset: (preset: unknown, volumeId?: string, suppressEvents?: boolean) => void;
-  setSampleDistanceMultiplier?: (value: number) => void;
-  getDefaultActor?: () => { actor?: { getProperty?: () => {
-    setShade?: (component: number, enabled: boolean) => void;
-    setAmbient?: (component: number, value: number) => void;
-    setDiffuse?: (component: number, value: number) => void;
-    setSpecular?: (component: number, value: number) => void;
-    setSpecularPower?: (component: number, value: number) => void;
-  } } };
-};
-
-type Drag = { x: number; y: number; threshold: number; opacity: number };
-type VtkPreset = { name: string; scalarOpacity: string; colorTransfer: string; gradientOpacity: string;
-  shade: string; ambient: string; diffuse: string; specular: string; specularPower: string; interpolation: string };
-
-const viewportId = 'RADAZ-PROFESSIONAL-3D';
-const toolGroupId = 'RADAZ-PROFESSIONAL-3D-TOOLS';
-const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
-
-const presetMap: Record<VolumeStyle['preset'], { vtk: string; baseThreshold: number }> = {
-  bone: { vtk: 'CT-Bone', baseThreshold: 260 },
-  boneVessel: { vtk: 'CT-AAA', baseThreshold: 140 },
-  vascular: { vtk: 'CT-Coronary-Arteries-3', baseThreshold: 120 },
-  skin: { vtk: 'CT-Muscle', baseThreshold: -280 },
-  soft: { vtk: 'CT-Soft-Tissue', baseThreshold: -20 },
-  lung: { vtk: 'CT-Lung', baseThreshold: -760 },
-};
-
-function mapTransfer(serialized: string, stride: number, range: [number, number], shift: number, opacity = 1) {
-  const values = serialized.trim().split(/\s+/).map(Number);
-  const mapped = [values[0]];
-  for (let i = 1; i < values.length; i += stride) {
-    mapped.push(clamp((values[i] + shift - range[0]) / (range[1] - range[0]) * 255, 0, 255));
-    for (let j = 1; j < stride; j++) mapped.push(stride === 2 && j === 1 ? clamp(values[i + j] * opacity, 0, 1) : values[i + j]);
-  }
-  return mapped.map(value => Number.isInteger(value) ? String(value) : value.toFixed(5)).join(' ');
-}
-
-function professionalPreset(core: Awaited<ReturnType<typeof getViewer>>['core'], preset: VolumeStyle['preset'], threshold: number, opacity: number, range: [number, number], settings: VolumeRenderSettings) {
-  const definition = presetMap[preset];
-  const source = (core.CONSTANTS.VIEWPORT_PRESETS as VtkPreset[]).find(item => item.name === definition.vtk);
-  if (!source) throw new Error(`${definition.vtk} 3D preseti tapılmadı`);
-  const shift = threshold - definition.baseThreshold;
-  return {
-    ...source,
-    name: `RADAZ-${preset}`,
-    scalarOpacity: mapTransfer(source.scalarOpacity, 2, range, shift, opacity),
-    colorTransfer: mapTransfer(source.colorTransfer, 4, range, shift),
-    gradientOpacity: '8 0 0.08 2 0.38 8 0.88 32 1',
-    shade: '1', ambient: String(settings.ambient), diffuse: String(settings.diffuse),
-    specular: String(settings.specular), specularPower: String(settings.specularPower), interpolation: '1',
+import {useEffect,useRef,useState} from 'react';
+import {Box} from 'lucide-react';
+import {getViewer,getSeriesVolume} from '@/lib/cornerstone';
+import {gpuCapabilities} from '@/lib/gpu-capabilities';
+import {qualityProfiles,volumePresetConfig,type VolumePreset,type VolumeRenderSettings} from '@/lib/volume-presets';
+import {viewerPerformance,performanceSnapshot,instrumentVolumeUpload} from '@/lib/viewer-performance';
+import {WorkProgress} from './work-progress';
+import type {WorkProgress as LoadingProgress} from '@/lib/work-progress';
+export type {VolumeRenderSettings} from '@/lib/volume-presets';
+type Props={series?:{id:string;imageIds:string[];name:string;modality:string;loading?:boolean};sourceProgress?:LoadingProgress|null;
+ preset:VolumePreset;threshold:number;opacity:number;settings:VolumeRenderSettings;resetToken:number;
+ onThresholdChange:(v:number)=>void;onOpacityChange:(v:number)=>void};
+type Profile=keyof typeof qualityProfiles;
+const clamp=(v:number,a:number,b:number)=>Math.max(a,Math.min(b,v));
+const serialize=(values:number[][])=>{const flat=values.flat();return [flat.length,...flat].join(' ');};
+export function VolumePreview(props:Props){
+ const {series:inputSeries,sourceProgress,preset,threshold,opacity,settings,resetToken,onThresholdChange,onOpacityChange}=props;
+ const [series,setSeries]=useState(inputSeries);
+ const hostRef=useRef<HTMLDivElement>(null),viewportRef=useRef<any>(null);
+ const volumeRef=useRef<Awaited<ReturnType<typeof getSeriesVolume>>|null>(null);
+ const propsRef=useRef(props);propsRef.current=props;
+ useEffect(()=>{
+  setSeries(propsRef.current.series);
+  if(!inputSeries?.loading)return;
+  const timer=setInterval(()=>setSeries(propsRef.current.series),750);
+  return()=>clearInterval(timer);
+ },[inputSeries?.id,inputSeries?.loading]);
+ const interacting=useRef(false),lastFrame=useRef(0),finishTimer=useRef<ReturnType<typeof setTimeout>|undefined>(undefined);
+ const adjust=useRef<{x:number;y:number;threshold:number;opacity:number}|null>(null);
+ const autoProfile=useRef<Profile>('balanced'),applyRef=useRef<()=>void>(()=>{});
+ const [ready,setReady]=useState(false),[error,setError]=useState(''),[note,setNote]=useState('');
+ const [effectiveQuality,setEffectiveQuality]=useState<Profile>('balanced');
+ const [progress,setProgress]=useState<LoadingProgress|null>(null),[diagnostics,setDiagnostics]=useState<ReturnType<typeof performanceSnapshot>|null>(null);
+ const ids=useRef({viewport:`RADAZ-3D-${crypto.randomUUID()}`,tools:`RADAZ-3D-TOOLS-${crypto.randomUUID()}`});
+ const applyQuality=()=>{
+  const viewport=viewportRef.current;if(!viewport)return;
+  const caps=gpuCapabilities(),requested=propsRef.current.settings.quality;
+  let selected:Profile=requested==='auto'?autoProfile.current:requested;
+  if(caps.tier==='low'&&selected!=='performance')selected='performance';
+  if(caps.tier==='medium'&&selected==='ultra')selected='high';
+  const config=qualityProfiles[selected],actor=viewport.getDefaultActor()?.actor,mapper=actor?.getMapper();
+  const spacing=volumeRef.current?.volume.spacing||[1,1,1];
+  const preview=interacting.current||!(volumeRef.current?.volume as any)?.loadStatus?.loaded;
+  mapper?.setSampleDistance((spacing[0]+spacing[1]+spacing[2])/6*(preview?config.interaction:config.sample));
+  mapper?.setImageSampleDistance(preview?Math.max(3,config.imageSample):config.imageSample);
+  const definition=volumePresetConfig[propsRef.current.preset];
+  actor?.getProperty().setShade(definition.shade&&!preview);
+  actor?.getProperty().setUseGradientOpacity(0,definition.shade&&!preview);
+  mapper?.setInteractionSampleDistanceFactor(2);mapper?.setInitialInteractionScale(2);
+  mapper?.setAutoAdjustSampleDistances(true);mapper?.setMaximumSamplesPerRay(caps.tier==='low'?768:2048);
+  hostRef.current?.setAttribute('data-quality',selected);hostRef.current?.setAttribute('data-interacting',String(interacting.current));
+  setEffectiveQuality(selected);
+ };
+ applyRef.current=()=>{
+  const viewport=viewportRef.current,current=volumeRef.current;if(!viewport||!current)return;
+  const {preset,threshold,opacity,settings,series}=propsRef.current,definition=volumePresetConfig[preset];
+  const shift=threshold-definition.threshold,range=current.range,ct=series?.modality==='CT';
+  const coordinate=(value:number)=>ct?value+shift:range[0]+(value+1024)/4095*Math.max(1,range[1]-range[0]);
+  viewport.setPreset({name:`RADAZ-${preset}`,scalarOpacity:serialize(definition.scalar.map(([x,y])=>[coordinate(x),clamp(y*opacity,0,1)])),
+   colorTransfer:serialize(definition.color.map(([x,...rgb])=>[coordinate(x),...rgb])),gradientOpacity:serialize([definition.gradient[0],definition.gradient.at(-1)!]),
+   shade:definition.shade?'1':'0',ambient:String(settings.ambient),diffuse:String(settings.diffuse),specular:String(settings.specular),
+   specularPower:String(settings.specularPower),interpolation:String(definition.interpolation)},current.volumeId,true);
+  const mapper=viewport.getDefaultActor()?.actor?.getMapper();
+  if(definition.blend==='maximum')mapper?.setBlendModeToMaximumIntensity();
+  else if(definition.blend==='minimum')mapper?.setBlendModeToMinimumIntensity();else mapper?.setBlendModeToComposite();
+  applyQuality();viewport.render();
+ };
+ useEffect(()=>{
+  const element=hostRef.current;if(!element||!series)return;
+  const controller=new AbortController();let disposed=false,viewer:Awaited<ReturnType<typeof getViewer>>|undefined,resize:ResizeObserver|undefined;
+  const opened=performance.now();setReady(false);setError('');setNote('');setProgress({label:'3D hazırlanır',done:0,total:0,phase:'Ortaq volume hazırlanır'});
+  (async()=>{
+   const caps=gpuCapabilities();viewer=await getViewer();if(disposed)return;
+   element.style.maxWidth=`${Math.floor(caps.maxTextureSize/Math.max(1,devicePixelRatio))}px`;
+   element.style.maxHeight=`${Math.floor(caps.maxTextureSize/Math.max(1,devicePixelRatio))}px`;
+   const {core,tools,engine}=viewer;
+   const current=await getSeriesVolume(series.imageIds,{maxDimension:Math.min(caps.max3DTextureSize,caps.tier==='low'?256:1024),budgetBytes:caps.budgetBytes});
+   if(disposed)return;
+   volumeRef.current=current;viewerPerformance.estimatedGpuBytes=current.bytes;
+   if(current.reduced)setNote('GPU yaddaşına uyğun azaldılmış həcm göstərilir. 2D/MPR orijinal ölçüdədir.');
+   const {viewport:viewportId,tools:toolGroupId}=ids.current;
+   engine.enableElement({viewportId,element,type:core.Enums.ViewportType.VOLUME_3D,defaultOptions:{background:[0,0,0]}});
+   const gl=(engine.getOffscreenMultiRenderWindow(viewportId).getOpenGLRenderWindow() as any).get3DContext() as WebGL2RenderingContext;
+   if(gl)instrumentVolumeUpload(gl);
+   const uploadStart=performance.now();await core.setVolumesForViewports(engine,[{volumeId:current.volumeId}],[viewportId],false);
+   if(disposed)return;
+   const viewport=engine.getViewport(viewportId) as any;viewportRef.current=viewport;
+   element.setAttribute('data-volume-id',current.volumeId);element.setAttribute('data-volume-dimensions',current.volume.dimensions.join(','));
+   const modified=(event:Event)=>{const detail=(event as CustomEvent).detail;if(detail.volumeId!==current.volumeId)return;
+    const done=detail.framesProcessed??0,total=current.imageIds.length;setProgress(done<total?{label:'3D kəsitləri yüklənir',done,total}:null);};
+   core.eventTarget.addEventListener(core.Enums.Events.IMAGE_VOLUME_MODIFIED,modified);
+   controller.signal.addEventListener('abort',()=>core.eventTarget.removeEventListener(core.Enums.Events.IMAGE_VOLUME_MODIFIED,modified),{once:true});
+   const completed=(event:Event)=>{if((event as CustomEvent).detail.volumeId===current.volumeId){setProgress(null);applyRef.current();}};
+   core.eventTarget.addEventListener(core.Enums.Events.IMAGE_VOLUME_LOADING_COMPLETED,completed);
+   controller.signal.addEventListener('abort',()=>core.eventTarget.removeEventListener(core.Enums.Events.IMAGE_VOLUME_LOADING_COMPLETED,completed),{once:true});
+   let first=true;
+   element.addEventListener(core.Enums.Events.IMAGE_RENDERED,()=>{
+    const now=performance.now();
+    if(first){first=false;viewerPerformance.gpuUploadAndFirstRenderMs=now-uploadStart;viewerPerformance.first3DFrameMs=now-opened;setReady(true);if((current.volume as any).loadStatus.loaded)setProgress(null);}
+    if(interacting.current&&lastFrame.current){
+     viewerPerformance.frameTimes.push(now-lastFrame.current);if(viewerPerformance.frameTimes.length>240)viewerPerformance.frameTimes.shift();
+     if(propsRef.current.settings.quality==='auto'&&viewerPerformance.frameTimes.length%12===0){
+      const recent=viewerPerformance.frameTimes.slice(-12),ms=recent.reduce((a,b)=>a+b,0)/recent.length;
+      const next:Profile=ms>55?'performance':ms>30?'balanced':caps.tier==='high'?'high':'balanced';
+      if(next!==autoProfile.current){autoProfile.current=next;applyQuality();}
+     }
+    }
+    lastFrame.current=interacting.current?now:0;
+   },{signal:controller.signal});
+   gl?.canvas.addEventListener('webglcontextlost',()=>{setError('GPU yaddaşı əlçatan deyil. Daha kiçik seriya açın və ya Performance seçin.');setReady(false);},{signal:controller.signal});
+   applyRef.current();viewport.resetCamera({resetPan:true,resetZoom:true});viewport.render();
+   const group=tools.ToolGroupManager.createToolGroup(toolGroupId);group?.addTool(tools.TrackballRotateTool.toolName);group?.addTool(tools.PanTool.toolName);
+   group?.setToolActive(tools.TrackballRotateTool.toolName,{bindings:[{mouseButton:tools.Enums.MouseBindings.Primary}]});
+   group?.setToolActive(tools.PanTool.toolName,{bindings:[{mouseButton:tools.Enums.MouseBindings.Auxiliary}]});group?.addViewport(viewportId,engine.id);
+   resize=new ResizeObserver(()=>{if(!disposed){engine.resize(true,true);viewport.render();}});resize.observe(element);
+  })().catch(cause=>{if(!disposed){setError(cause instanceof Error?cause.message:String(cause));setProgress(null);}});
+  return()=>{disposed=true;controller.abort();resize?.disconnect();clearTimeout(finishTimer.current);interacting.current=false;viewportRef.current=null;volumeRef.current=null;adjust.current=null;
+   if(viewer){viewer.tools.ToolGroupManager.destroyToolGroup(ids.current.tools);if(viewer.engine.getViewport(ids.current.viewport))viewer.engine.disableElement(ids.current.viewport);}
+   // Shared volume remains cached until its source study closes.
   };
-}
-
-export function VolumePreview({ series, sourceProgress, preset, threshold, opacity, settings, resetToken, onThresholdChange, onOpacityChange }: Props) {
-  const hostRef = useRef<HTMLDivElement>(null);
-  const viewportRef = useRef<NativeViewport | null>(null);
-  const volumeIdRef = useRef('');
-  const volumeRangeRef = useRef<[number, number]>([-1024, 2048]);
-  const dragRef = useRef<Drag | null>(null);
-  const [ready, setReady] = useState(false);
-  const [error, setError] = useState('');
-  const [progress, setProgress] = useState<LoadingProgress | null>(null);
-
-  useEffect(() => {
-    const element = hostRef.current;
-    if (!element || !series) { setReady(false); setError(''); return; }
-    let disposed = false;
-    const controller = new AbortController();
-    let resizeObserver: ResizeObserver | undefined;
-    let viewer: Awaited<ReturnType<typeof getViewer>> | undefined;
-    let volumeId = '';
-    setReady(false); setError('');
-    setProgress({label:'3D görüntü hazırlanır',done:0,total:0,phase:'Volume məlumatı hazırlanır'});
-
-    (async () => {
-      viewer = await getViewer();
-      const { core, tools, engine } = viewer;
-      if (disposed) return;
-      if (engine.getViewport(viewportId)) engine.disableElement(viewportId);
-
-      const gl = document.createElement('canvas').getContext('webgl2');
-      const textureLimit = gl?.getParameter(gl.MAX_3D_TEXTURE_SIZE) || 256;
-      gl?.getExtension('WEBGL_lose_context')?.loseContext();
-      const sample = await getVolumeTexture(series.imageIds, textureLimit >= 512 ? 448 : 320, textureLimit >= 512 ? 384 : 280,
-        (done,total)=>{if(!disposed)setProgress({label:'3D görüntü hazırlanır',done,total:total+2,unit:'iş vahidi',phase:'Volume kəsitləri hazırlanır'});},controller.signal);
-      if(disposed)return;
-      if (!sample) throw new Error('Professional 3D üçün eyni ölçülü, düzgün məkan koordinatlı ən azı 3 DICOM kəsiti lazımdır');
-      volumeRangeRef.current = sample.range;
-      volumeId = `radaz-volume:${series.id}:${series.imageIds.length}`;
-      volumeIdRef.current = volumeId;
-      setProgress({label:'3D görüntü hazırlanır',done:sample.slices,total:sample.slices+2,unit:'iş vahidi',phase:'GPU teksturası hazırlanır'});
-      await yieldToBrowser(); if(disposed)return;
-      if (core.cache.getVolume(volumeId)) core.cache.removeVolumeLoadObject(volumeId);
-      core.volumeLoader.createLocalVolume(volumeId, {
-        metadata: {
-          FrameOfReferenceUID: `RADAZ-${series.id}`, Modality: sample.modality,
-          BitsAllocated: 8, BitsStored: 8, HighBit: 7, PixelRepresentation: 0,
-          SamplesPerPixel: 1, PhotometricInterpretation: 'MONOCHROME2',
-          Rows: sample.height, Columns: sample.width, ImageOrientationPatient: [1, 0, 0, 0, 1, 0],
-          PixelSpacing: [sample.size[1] / sample.height, sample.size[0] / sample.width],
-          voiLut: [{ windowWidth: 255, windowCenter: 127.5 }], VOILUTFunction: 'LINEAR',
-        },
-        dimensions: [sample.width, sample.height, sample.slices],
-        spacing: [sample.size[0] / sample.width, sample.size[1] / sample.height, sample.size[2] / sample.slices],
-        origin: [0, 0, 0], direction: [1, 0, 0, 0, 1, 0, 0, 0, 1], scalarData: sample.data,
-      });
-      engine.enableElement({ viewportId, element, type: core.Enums.ViewportType.VOLUME_3D,
-        defaultOptions: { background: [0, 0, 0] } });
-      await core.setVolumesForViewports(engine, [{ volumeId }], [viewportId], true);
-      if (disposed) return;
-      setProgress({label:'3D görüntü hazırlanır',done:sample.slices+1,total:sample.slices+2,unit:'iş vahidi',phase:'İlk render gözlənilir'});
-      const viewport = engine.getViewport(viewportId) as unknown as NativeViewport;
-      viewportRef.current = viewport;
-      viewport.setSampleDistanceMultiplier?.(settings.quality);
-      viewport.setPreset(professionalPreset(core, preset, threshold, opacity, sample.range, settings), volumeId, true);
-      const property = viewport.getDefaultActor?.()?.actor?.getProperty?.();
-      property?.setShade?.(0, true);
-      property?.setAmbient?.(0, settings.ambient);
-      property?.setDiffuse?.(0, settings.diffuse);
-      property?.setSpecular?.(0, settings.specular);
-      property?.setSpecularPower?.(0, settings.specularPower);
-      viewport.resetCamera({ resetPan: true, resetZoom: true });
-      await new Promise<void>((resolve,reject)=>{
-        const rendered=()=>{cleanup();resolve();};
-        const cancelled=()=>{cleanup();reject(controller.signal.reason);};
-        const cleanup=()=>{element.removeEventListener(core.Enums.Events.IMAGE_RENDERED,rendered);controller.signal.removeEventListener('abort',cancelled);};
-        element.addEventListener(core.Enums.Events.IMAGE_RENDERED,rendered,{once:true});
-        controller.signal.addEventListener('abort',cancelled,{once:true});
-        viewport.render();
-      });
-      if(disposed)return;
-
-      tools.ToolGroupManager.destroyToolGroup(toolGroupId);
-      const group = tools.ToolGroupManager.createToolGroup(toolGroupId);
-      group?.addTool(tools.TrackballRotateTool.toolName);
-      group?.addTool(tools.PanTool.toolName);
-      group?.setToolActive(tools.TrackballRotateTool.toolName, { bindings: [{ mouseButton: tools.Enums.MouseBindings.Primary }] });
-      group?.setToolActive(tools.PanTool.toolName, { bindings: [{ mouseButton: tools.Enums.MouseBindings.Auxiliary }] });
-      group?.addViewport(viewportId, engine.id);
-      resizeObserver = new ResizeObserver(() => { engine.resize(true, true); viewport.render(); });
-      resizeObserver.observe(element);
-      setReady(true); setProgress(null);
-    })().catch(cause => { if (!disposed) setError(cause instanceof Error ? cause.message : String(cause)); });
-
-    return () => {
-      disposed = true; controller.abort(); resizeObserver?.disconnect(); viewportRef.current = null; volumeIdRef.current = ''; dragRef.current = null; setReady(false); setProgress(null);
-      if (viewer) {
-        viewer.tools.ToolGroupManager.destroyToolGroup(toolGroupId);
-        if (viewer.engine.getViewport(viewportId)) viewer.engine.disableElement(viewportId);
-        if (volumeId && viewer.core.cache.getVolume(volumeId)) viewer.core.cache.removeVolumeLoadObject(volumeId);
-      }
-    };
-  }, [series?.id]);
-
-  useEffect(() => {
-    const viewport = viewportRef.current;
-    if (!viewport || !ready) return;
-    void getViewer().then(({ core }) => {
-      viewport.setSampleDistanceMultiplier?.(settings.quality);
-      viewport.setPreset(professionalPreset(core, preset, threshold, opacity, volumeRangeRef.current, settings), volumeIdRef.current, true);
-      const property = viewport.getDefaultActor?.()?.actor?.getProperty?.();
-      property?.setShade?.(0, true);
-      property?.setAmbient?.(0, settings.ambient);
-      property?.setDiffuse?.(0, settings.diffuse);
-      property?.setSpecular?.(0, settings.specular);
-      property?.setSpecularPower?.(0, settings.specularPower);
-      viewport.render();
-    }).catch(cause => setError(cause instanceof Error ? cause.message : String(cause)));
-  }, [preset, threshold, opacity, settings, ready]);
-
-  useEffect(() => {
-    if (!viewportRef.current || !ready) return;
-    viewportRef.current.resetCamera({ resetPan: true, resetZoom: true });
-    viewportRef.current.render();
-  }, [resetToken, ready]);
-
-  const finishAdjust = () => { dragRef.current = null; };
-
-  return <section className="volume-workspace" aria-label="3D həcm görünüşü">
-    <div className="volume-stage cornerstone-volume-stage" data-ready={ready}
-      onContextMenu={event => event.preventDefault()}
-      onDoubleClick={() => { viewportRef.current?.resetCamera({ resetPan: true, resetZoom: true }); viewportRef.current?.render(); }}
-      onPointerDownCapture={event => {
-        if (event.button !== 2) return;
-        event.preventDefault(); event.stopPropagation();
-        dragRef.current = { x: event.clientX, y: event.clientY, threshold, opacity };
-        event.currentTarget.setPointerCapture(event.pointerId);
-      }}
-      onPointerMoveCapture={event => {
-        const drag = dragRef.current;
-        if (!drag) return;
-        event.preventDefault(); event.stopPropagation();
-        onThresholdChange(Math.round(clamp(drag.threshold + (event.clientX - drag.x) * 4, -1000, 1400) / 10) * 10);
-        onOpacityChange(Math.round(clamp(drag.opacity - (event.clientY - drag.y) * .012, .2, 2) * 10) / 10);
-      }}
-      onPointerUpCapture={finishAdjust} onPointerCancelCapture={finishAdjust}
-      onWheel={event => {
-        event.preventDefault();
-        const viewport = viewportRef.current, camera = viewport?.getCamera();
-        if (!viewport || !camera?.parallelScale) return;
-        viewport.setCamera({ parallelScale: camera.parallelScale * (event.deltaY > 0 ? 1.1 : .9) }); viewport.render();
-      }}>
-      {series && <div key={series.id} ref={hostRef} className="cornerstone-volume-host" aria-label="İşıqlandırılmış professional 3D DICOM renderi"/>}
-      {ready && !error && <div className="volume-help"><span><b>Sol mouse</b> fırlat</span><span><b>Sağ mouse</b> HU / şəffaflıq</span><span><b>Orta mouse</b> sürüşdür</span><span><b>Təkər</b> zoom</span><span><b>İki klik</b> sıfırla</span></div>}
-      {(!ready || error) && <div className="volume-cover"><Box size={34}/>{error ? <><strong>3D həcm açıla bilmədi</strong><span>{error}</span></> : progress || sourceProgress ? <WorkProgress progress={progress || {...sourceProgress!,label:'3D görüntü hazırlanır'}}/> : <strong>3D üçün ardıcıl DICOM seriyası seçin</strong>}</div>}
-    </div>
-  </section>;
+ },[series?.id,series?.imageIds.length]);
+ useEffect(()=>{if(ready)applyRef.current();},[preset,threshold,opacity,settings,ready]);
+ useEffect(()=>{if(ready){viewportRef.current?.resetCamera({resetPan:true,resetZoom:true});viewportRef.current?.render();}},[resetToken,ready]);
+ const startInteraction=()=>{clearTimeout(finishTimer.current);if(!interacting.current){interacting.current=true;lastFrame.current=performance.now();applyQuality();}};
+ const finishInteraction=()=>{adjust.current=null;clearTimeout(finishTimer.current);finishTimer.current=setTimeout(()=>{interacting.current=false;lastFrame.current=0;applyQuality();viewportRef.current?.render();},120);};
+ return <section className="volume-workspace" aria-label="3D həcm görünüşü"><div className="volume-stage cornerstone-volume-stage" data-ready={ready} onContextMenu={e=>e.preventDefault()}
+   onDoubleClick={()=>{viewportRef.current?.resetCamera({resetPan:true,resetZoom:true});viewportRef.current?.render();}}
+   onPointerDownCapture={e=>{startInteraction();if(e.button===2){e.preventDefault();e.stopPropagation();adjust.current={x:e.clientX,y:e.clientY,threshold,opacity};e.currentTarget.setPointerCapture(e.pointerId);}}}
+   onPointerMoveCapture={e=>{const drag=adjust.current;if(!drag)return;e.preventDefault();e.stopPropagation();onThresholdChange(Math.round(clamp(drag.threshold+(e.clientX-drag.x)*4,-1000,2000)));onOpacityChange(clamp(drag.opacity-(e.clientY-drag.y)*.012,.1,2));}}
+   onPointerUpCapture={finishInteraction} onPointerCancelCapture={finishInteraction} onPointerLeave={e=>{if(!e.buttons)finishInteraction();}}
+   onWheel={e=>{e.preventDefault();startInteraction();const viewport=viewportRef.current,camera=viewport?.getCamera();if(camera?.parallelScale)viewport.setCamera({parallelScale:camera.parallelScale*(e.deltaY>0?1.1:.9)});viewport?.render();finishInteraction();}}>
+   {series&&<div key={series.id} ref={hostRef} className="cornerstone-volume-host" aria-label="3D DICOM renderi"/>}
+   {ready&&!error&&<div className="volume-help"><span><b>Sol mouse</b> fırlat</span><span><b>Sağ mouse</b> {series?.modality==='CT'?'HU':'intensivlik'} / şəffaflıq</span><span><b>Təkər</b> zoom</span><span>{settings.quality==='auto'?'Auto · ':''}{effectiveQuality[0].toUpperCase()+effectiveQuality.slice(1)}</span><button onClick={()=>setDiagnostics(performanceSnapshot())}>Performans</button>{note&&<span>{note}</span>}</div>}
+   {ready&&(progress||sourceProgress)&&<WorkProgress className="volume-stream-progress" progress={progress||sourceProgress||null}/>}
+   {diagnostics&&<div className="volume-diagnostics" role="status"><button onClick={()=>setDiagnostics(null)}>Bağla</button><span>Decode: {diagnostics.decodeMs.toFixed(0)} ms · {diagnostics.decodeCount} kəsit</span><span>Volume: {diagnostics.volumeBuildMs.toFixed(0)} ms · {diagnostics.volumeBuildCount} qurulma · {diagnostics.volumeCacheHits} reuse</span><span>İlk 3D: {diagnostics.first3DFrameMs.toFixed(0)} ms</span><span>GPU ötürmə: CPU {diagnostics.gpuUploadCpuMs.toFixed(0)} ms · GPU {diagnostics.gpuTimerMs===null?'ölçülmür':diagnostics.gpuTimerMs.toFixed(1)+' ms'}</span><span>GPU ötürmə + ilk render: {diagnostics.gpuUploadAndFirstRenderMs.toFixed(0)} ms</span><span>Fırlatma: {diagnostics.interactionFps?.toFixed(1)||'—'} FPS · JS: {diagnostics.jsHeapBytes?Math.round(diagnostics.jsHeapBytes/1048576)+' MB':'ölçülmür'}</span><span>GPU həcm yaddaşı (təxmini): {Math.round(diagnostics.estimatedGpuBytes/1048576)} MB</span></div>}
+   {(!ready||error)&&<div className="volume-cover"><Box size={34}/>{error?<><strong>3D həcm açıla bilmədi</strong><span>{error}</span></>:progress||sourceProgress?<WorkProgress progress={progress||sourceProgress||null}/>:<strong>3D üçün DICOM seriyası seçin</strong>}</div>}
+  </div></section>;
 }

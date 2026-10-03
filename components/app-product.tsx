@@ -9,8 +9,9 @@ import { createPortal } from 'react-dom';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { RadazLogo } from './radaz-logo';
+import { DesktopUpdatePanel } from './desktop-update-panel';
 
-type Product = { name:string;version:string;channel:string;owner:string;email:string;telegram:string;repository:string;salesUrl:string;licenseRequired:boolean;currency:string;monthly:number|null;billingUrl?:string };
+type Product = { name:string;version:string;channel:string;owner:string;email:string;telegram:string;repository:string;updateRepository?:string;salesUrl:string;licenseRequired:boolean;currency:string;monthly:number|null;billingUrl?:string };
 type License = { valid:boolean;required:boolean;deviceId:string;message:string;kind?:'owner'|'paid'|'trial'|'expired';trial?:{valid:boolean;startedAt?:number;expiresAt?:number;daysRemaining:number};claims?:{customer:string;plan:string;seats:number;expiresAt:number;licenseId:string;entitlement?:'owner'} };
 type Update = { state:'available'|'current'|'unpublished'|'error';message:string;version?:string;url?:string;automatic?:boolean };
 type Panel = ''|'help'|'keys'|'license'|'plans'|'about'|'support'|'updates'|'agreement';
@@ -29,7 +30,13 @@ async function releaseUpdate(force = false): Promise<Update> {
     const response = await fetch('/radaz-installation.json', {cache:'no-store'});
     if(response.ok) {
       const desktop = await response.json() as {managed?:boolean;state:string;message:string;version?:string};
-      if(desktop.managed) return {automatic:true,state:desktop.state==='ready'||desktop.state==='deferred'?'available':desktop.state==='error'?'error':'current',message:desktop.message,version:desktop.version};
+      if(desktop.managed) {
+        if(force && !['checking','downloading','verifying','installing','ready','deferred'].includes(desktop.state)) {
+          const started = await fetch('/radaz-update',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+          return {automatic:true,state:started.ok?'current':'error',message:started.ok?'Yeniləmələr yoxlanılır…':'Yeniləmə xidməti başladılmadı. Yenidən cəhd edin.'};
+        }
+        return {automatic:true,state:desktop.state==='ready'||desktop.state==='deferred'?'available':desktop.state==='error'?'error':'current',message:desktop.message,version:desktop.version};
+      }
     }
   } catch { /* Source and older portable servers use the existing release check. */ }
   const [update, product] = await Promise.all([api<Update>(`updates${force ? '?force=1' : ''}`), productInfo()]);
@@ -75,8 +82,8 @@ export function AppHelpMenu({initial=''}:{initial?:Panel}) {
       <label>Lisenziya açarı<textarea value={key} onChange={e=>setKey(e.target.value)} rows={4} placeholder="RADAZ-ACT-… və ya RADAZ1.…" spellCheck={false}/></label><div className="product-actions"><button disabled={busy||!key.trim()||!license} onClick={()=>void activate()}><KeyRound size={16}/>{busy?'Yoxlanılır…':'Aktivləşdir'}</button></div><LicensePayment onKey={setKey}/></>}
     {panel==='plans'&&<LicensePayment onKey={value=>{setKey(value);open('license');}}/>}
     {panel==='support'&&<><p>Problemi, təkrarlama addımlarını və gözlənilən nəticəni yazın.</p><label>Problem haqqında<textarea value={issue} onChange={e=>setIssue(e.target.value)} rows={6} placeholder="Məsələn: İxrac et düyməsini basanda…"/></label><p className="product-note">Mesaja pasiyent məlumatı avtomatik əlavə edilmir.</p><div className="product-actions"><a href={`mailto:${product?.email||'drnaghiyev@gmail.com'}?subject=RADAZ%20dəstək&body=${encodeURIComponent(`RADAZ ${product?.version||''}\n\n${issue}`)}`}><Mail size={16}/>E-poçt yaz</a><a href={`https://t.me/${product?.telegram||'TNNZsfjfHuP'}`} target="_blank" rel="noreferrer"><MessageCircle size={16}/>Telegram</a></div><p>{product?.email} · @{product?.telegram}</p></>}
-    {panel==='updates'&&<><p>Quraşdırılmış versiya: <b>{product?.version}</b> ({product?.channel})</p><div className="license-state"><RefreshCw size={22}/><p>{busy?'GitHub buraxılışları yoxlanılır…':update?.message||'Yoxlamanı başladın.'}</p></div>{update?.url&&<a className="product-primary-link" href={update.url} target="_blank" rel="noreferrer"><Download size={16}/>Versiya {update.version} — yüklə və yenilə</a>}<p className="product-note">Mövcud arxiv ayrıca RADAZ-Archive qovluğunda saxlanılır. Setup ilə quraşdırılmış proqram yeniləmələri özü yükləyir və növbəti açılışda tətbiq edir.</p><button disabled={busy} onClick={()=>void check()}>{update?.automatic?'Vəziyyəti yenilə':'Yenidən yoxla'}</button></>}
-    {panel==='about'&&<div className="product-about"><RadazLogo size={92}/><h3>RADAZ <small>{product?.version}</small></h3><p>Radiologiya üçün DICOM iş sahəsi</p><p>{product?.owner}</p><p>Local arxiv · PACS · MPR · 3D · Hesabat</p><a href={`https://github.com/${product?.repository||'drnaghiyev/RADAZ-D-COM'}`} target="_blank" rel="noreferrer">GitHub və buraxılışlar <ExternalLink size={14}/></a><p className="product-note">Hazırkı buraxılış: ilkin sınaq versiyası. ChatGPT mətni radioloqun yoxlaması üçün hesabat layihəsidir.</p></div>}
+    {panel==='updates'&&<><p>Quraşdırılmış versiya: <b>{product?.version}</b> ({product?.channel})</p><DesktopUpdatePanel busy={busy} onCheck={()=>void check()} fallback={<><div className="license-state"><RefreshCw size={22}/><p>{busy?'Buraxılışlar yoxlanılır…':update?.message||'Yoxlamanı başladın.'}</p></div>{update?.url&&<a className="product-primary-link" href={update.url} target="_blank" rel="noreferrer"><Download size={16}/>Versiya {update.version} — Setup yüklə</a>}</>}/></>}
+    {panel==='about'&&<div className="product-about"><RadazLogo size={92}/><h3>RADAZ <small>{product?.version}</small></h3><p>Radiologiya üçün DICOM iş sahəsi</p><p>{product?.owner}</p><p>Local arxiv · PACS · MPR · 3D · Hesabat</p><a href={`https://github.com/${product?.updateRepository||product?.repository||'cesur9872-droid/RADAZ-Releases'}/releases/latest`} target="_blank" rel="noreferrer">GitHub və buraxılışlar <ExternalLink size={14}/></a><p className="product-note">Hazırkı buraxılış: ilkin sınaq versiyası. ChatGPT mətni radioloqun yoxlaması üçün hesabat layihəsidir.</p></div>}
     {panel==='agreement'&&<><p>İlk istifadədən 7 gün bütün funksiyalar pulsuz açılır. Demo üçün kart və açar tələb olunmur. Yenidən quraşdırma demo müddətini uzatmır.</p><p>Qiymət 10 AZN / aydır. Alınmış müddət ilk aktivləşdirmədən hesablanır və açar bir RADAZ server kompüterinə bağlanır.</p><p>Müddət bitdikdə PACS, Local arxiv və cihazlardan DICOM qəbulu işləyir. Viewer-də yalnız görüntülər listələnir; ölçmə, pəncərələmə, MPR/3D, hesabat, çap və ixrac üçün aktiv lisenziya tələb olunur. Arxiv faylları silinmir.</p><p>Ödəniş və ilk aktivləşdirmə internetlə təsdiqlənir. İmzalı aktivləşdirmə sonradan lokal yoxlanır.</p><button onClick={()=>open('support')}>Əlaqə saxla</button></>}
     {message&&<p role="status" className="product-message">{message}</p>}
     </div><footer><span>{product?.email}</span><button onClick={()=>setPanel('')}>Bağla</button></footer>
