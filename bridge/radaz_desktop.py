@@ -14,6 +14,7 @@ import time
 from pathlib import Path, PurePosixPath
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 from zipfile import ZipFile
 
 REPOSITORY = 'drnaghiyev/RADAZ-D-COM'
@@ -122,6 +123,27 @@ def get_json(url, timeout=15):
     with urlopen(Request(url, headers={'User-Agent': 'RADAZ-desktop-updater', 'Accept': 'application/vnd.github+json'}), timeout=timeout) as response:
         return json.load(response)
 
+
+def open_release_download(url):
+    """Retry transient GitHub/CDN failures without reusing a cached error URL."""
+    for attempt in range(3):
+        download_url = url
+        if attempt:
+            parts = urlsplit(url)
+            query = parse_qsl(parts.query, keep_blank_values=True)
+            query.append(('radaz_retry', str(time.time_ns())))
+            download_url = urlunsplit(parts._replace(query=urlencode(query)))
+        request = Request(download_url, headers={'User-Agent': 'RADAZ-desktop-updater', 'Cache-Control': 'no-cache'})
+        try:
+            return urlopen(request, timeout=30)
+        except HTTPError as error:
+            if error.code not in (500, 502, 503, 504) or attempt == 2:
+                raise
+        except (URLError, TimeoutError):
+            if attempt == 2:
+                raise
+        time.sleep(.5 * (attempt + 1))
+
 def select_asset(release, current):
     if release.get('draft') or release.get('prerelease'):
         raise ValueError('Only published stable-channel releases can update RADAZ')
@@ -188,8 +210,7 @@ def check_update(root):
     downloads = root / 'downloads'; downloads.mkdir(exist_ok=True)
     temporary = downloads / (target + '.zip.part')
     try:
-        request = Request(asset['browser_download_url'], headers={'User-Agent': 'RADAZ-desktop-updater'})
-        with urlopen(request, timeout=30) as response, temporary.open('wb') as stream:
+        with open_release_download(asset['browser_download_url']) as response, temporary.open('wb') as stream:
             total = 0; last_progress = 0
             while block := response.read(1024 * 1024):
                 total += len(block)

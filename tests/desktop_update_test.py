@@ -15,6 +15,21 @@ spec = importlib.util.spec_from_file_location('desktop', Path(__file__).resolve(
 desktop = importlib.util.module_from_spec(spec); spec.loader.exec_module(desktop)
 
 class DesktopUpdates(unittest.TestCase):
+    def test_transient_release_error_retries_same_asset_with_fresh_query(self):
+        url='https://github.com/cesur9872-droid/RADAZ-Releases/releases/download/v0.2.14/RADAZ-0.2.14-Windows-x64.zip'
+        response=object()
+        with patch.object(desktop,'urlopen',side_effect=[HTTPError(url,503,'temporary',{},None),response]) as opened,patch.object(desktop.time,'sleep'):
+            self.assertIs(desktop.open_release_download(url),response)
+        original,retry=[call.args[0].full_url for call in opened.call_args_list]
+        self.assertEqual(original,url)
+        self.assertTrue(retry.startswith(url+'?radaz_retry='))
+
+    def test_release_retry_is_bounded_and_does_not_retry_denied_requests(self):
+        for code,attempts in [(503,3),(403,1),(404,1)]:
+            with patch.object(desktop,'urlopen',side_effect=HTTPError('https://github.com',code,'failure',{},None)) as opened,patch.object(desktop.time,'sleep'):
+                with self.assertRaises(HTTPError):desktop.open_release_download('https://github.com/asset.zip')
+                self.assertEqual(opened.call_count,attempts)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(); self.root = Path(self.temp.name)
         desktop.atomic_json(self.root / 'active.json', {'version':'0.2.8'})
