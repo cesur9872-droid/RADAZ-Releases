@@ -10,11 +10,20 @@ const build=JSON.parse(readFileSync(path.join(root,'dist/server/radaz-build.json
 const product=JSON.parse(readFileSync(path.join(root,'public/product.json'),'utf8'));
 if(build.product.version!==product.version)throw new Error('RADAZ files belong to different versions. Extract the complete release ZIP into a new folder.');
 const runtime={name:'RADAZ',version:build.product.version,buildId:build.buildId,startedAt:new Date().toISOString()};
+const installRoot=process.env.RADAZ_INSTALL_ROOT;
 const port=Number(process.env.RADAZ_PORT||5173),workerPort=Number(process.env.RADAZ_WORKER_PORT||5175),archivePort=Number(process.env.RADAZ_ARCHIVE_PORT||8766);
 if(![port,workerPort,archivePort].every(p=>Number.isInteger(p)&&p>0&&p<=65535)||new Set([port,workerPort,archivePort]).size!==3)throw new Error('Invalid server ports');
-const worker=spawn(process.execPath,['node_modules/vinext/dist/cli.js','start','--port',String(workerPort),'--hostname','127.0.0.1'],{cwd:root,windowsHide:true,stdio:'inherit',env:{...process.env,NODE_ENV:'production'}});
+const workerArgs=existsSync(path.join(root,'dist/runtime/web-server.mjs'))?['dist/runtime/web-server.mjs']:['node_modules/vinext/dist/cli.js','start','--port',String(workerPort),'--hostname','127.0.0.1'];
+const worker=spawn(process.execPath,workerArgs,{cwd:root,windowsHide:true,stdio:'inherit',env:{...process.env,NODE_ENV:'production',RADAZ_WORKER_PORT:String(workerPort)}});
 const server=http.createServer((req,res)=>{
  const pathname=new URL(req.url,'http://localhost').pathname;
+ if(pathname==='/radaz-installation.json'){
+  let state={managed:!!installRoot,state:'current',message:installRoot?'Yeniləmələr avtomatik yüklənir və RADAZ növbəti dəfə açılarkən tətbiq olunur.':''};
+  if(installRoot)try{const saved=JSON.parse(readFileSync(path.join(installRoot,'update-state.json'),'utf8'));state={...state,state:saved.state,version:saved.version,message:saved.message};}catch{}
+  res.writeHead(200,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(state));return;
+ }
+ // Desktop lifecycle control is never forwarded from browsers or LAN clients.
+ if(pathname.startsWith('/local-archive-api/_desktop/')){res.writeHead(404);res.end();return;}
  if(pathname==='/radaz-runtime.json'||pathname==='/product.json'){
   res.writeHead(200,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});
   res.end(JSON.stringify(pathname==='/product.json'?build.product:runtime));return;

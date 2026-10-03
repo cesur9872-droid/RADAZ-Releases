@@ -1,24 +1,18 @@
 # RADAZ — alıcı üçün yükləmə və quraşdırma
 
-Azərbaycan dilində radiologiya iş sahəsi: DICOM viewer, lokal arxiv, PACS, MPR/3D, hesabat, çap və CD/DVD çıxışı. Cari buraxılış 0.2.5, qiymət 10 AZN/aydır. Satıcı üçün [geniş ödəniş və paylaşma təlimatı](DISTRIBUTION.md) ayrıca yazılıb.
+Azərbaycan dilində radiologiya iş sahəsi: DICOM viewer, lokal arxiv, PACS, MPR/3D, hesabat, çap və CD/DVD. Bu mənbə 0.2.8 paketini hazırlayır; qiymət 10 AZN/aydır. Satıcı üçün [geniş ödəniş və paylaşma təlimatı](DISTRIBUTION.md) ayrıca yazılıb.
 
 ## Alıcı hansı faylı endirməlidir?
 
-Satıcının verdiyi GitHub Release keçidində **Assets → RADAZ-0.2.5-Windows-preview.zip** endirilir. **Source code (zip)** və **Code → Download ZIP** hazır quraşdırma paketi deyil.
+Satıcının verdiyi GitHub Release keçidində **Assets → RADAZ-0.2.8-Setup.exe** endirilir. **Source code (zip)** və **Code → Download ZIP** hazır quraşdırma paketi deyil.
 
-[Mənbə deposu](https://github.com/drnaghiyev/RADAZ-D-COM) və [Releases səhifəsi](https://github.com/drnaghiyev/RADAZ-D-COM/releases/latest) açıqdır. Yeni versiyalar GitHub yoxlamaları və paket yığımı uğurla tamamlandıqdan sonra avtomatik yayımlanır.
+[Mənbə deposu](https://github.com/drnaghiyev/RADAZ-D-COM) və [Releases səhifəsi](https://github.com/drnaghiyev/RADAZ-D-COM/releases/latest). Yeni versiyalar main qoluna göndərildikdən, GitHub yoxlamaları və paket yığımı uğurla tamamlandıqdan sonra yayımlanır. Alıcıya giriş tələb etməyən buraxılış keçidi verilməlidir; şəxsi depodakı buraxılışı RADAZ-ın anonim yeniləmə xidməti endirə bilməz.
 
 ## Windows-da başlatma
 
-Node.js 22.13+ və Python 3.10+ tələb olunur. İlk dəfə `SETUP-RADAZ.cmd`, sonra yalnız **`START-RADAZ.cmd`** başladın. Brauzer ünvanı: `http://localhost:5173`.
+Windows 10/11 64-bit üçün **Setup.exe** açın, sonra iş masasındakı **RADAZ** qısayolundan istifadə edin. Node.js, Python, DICOM paketləri, Pillow və FFmpeg quraşdırıcıya daxildir; ilkin quraşdırmada internet və ayrıca paket quraşdırmaq lazım deyil. Brauzer ünvanı: `http://localhost:5173`.
 
-1. Windows 10/11 64-bit kompüterdə [Node.js](https://nodejs.org/en/download) və [Python](https://www.python.org/downloads/windows/) quraşdırın. Python quraşdırıcısında **Add Python to PATH** seçin. Chrome və ya Edge istifadə edin.
-2. Endirilmiş ZIP-ə sağ klik → **Extract All / Hamısını çıxar**. Məsələn, `C:\RADAZ` qovluğu seçin. ZIP-in içindən işə salmayın.
-3. `SETUP-RADAZ.cmd` faylını iki dəfə klikləyin. İlk quraşdırma internetdən asılılıq yükləyir; **Setup complete** görünməlidir.
-4. `START-RADAZ.cmd` açın. Server pəncərəsini işlədiyiniz müddətdə açıq saxlayın. Sonrakı açılışlarda setup təkrar lazım deyil.
-5. `node`, `python` və ya `corepack` tapılmırsa quraşdırma/PATH problemi var; xətanın mətnini satıcıya göndərin. Corepack olmayan Node buraxılışında Corepack ayrıca quraşdırılmalıdır.
-
-Bu ZIP müstəqil EXE installer deyil; Node/Python ayrıca tələb olunur. Böyük müayinələr üçün RAM və boş disk ehtiyacı artır. Video ixracında FFmpeg ayrıca lazımdır.
+Alternativ **Windows-x64.zip** də tam oflayndır: ayrıca qovluğa çıxarın və `SETUP-RADAZ.cmd` açın. **Windows-preview.zip** yüngül texniki paketdir; yalnız bu variant sistemdə Node.js 22.13+, Python 3.10+ və video üçün FFmpeg tələb edir. Böyük müayinələr üçün RAM ehtiyacı artır.
 
 Mənbə qovluğunda launcher ən son mənbəni yığıb hazır Node.js serverini açır; bu mərhələdə yığımın bitməsini gözləyin. Paylama ZIP-ində fayllar artıq yığılıb. Normal açılış Cloudflare/Miniflare və Vite inkişaf serverindən istifadə etmir. Brauzer yalnız uyğun versiya hazır olduqdan sonra açılır. Lokal DICOM arxivi proqram qovluğundan ayrıca saxlanılır. Eyni kompüterdə köhnə və yeni RADAZ serverlərini paralel açmayın.
 
@@ -53,7 +47,9 @@ Müddət bitdikdə **PACS və Local arxiv işləyir**. Viewer-də seriya seçimi
 - Local arxiv və PACS “Bu gün” seçimi ilə açılır. Başqa tarixlər üçün checkbox-u söndürün; PACS sorğusunu “Axtar” ilə yeniləyin.
 - Cədvəldə “Hamısını seç” yalnız görünən müayinələri seçir. Filtri dəyişəndə gizlənən müayinələr seçimdən çıxır. “Sil” təsdiqdən sonra diskdəki və brauzerdəki lokal nüsxələri silir; PACS-də serverin orijinalları saxlanılır.
 - Görüntünün solundakı kiçik checkbox cari görünüşü çap siyahısına əlavə edir.
-- CD/DVD yalnız lokal arxiv və PACS-dan açılır.
+- Viewer-də ayrıca **CD/DVD import** düyməsini aktiv edin. Kompüterə taxılmış və sonradan taxılan optik disk avtomatik açılır; fayl/qovluq seçimi və təsdiq yoxdur. DICOMDIR oxunur, alt qovluqlardakı uzantısız və raw DICOM faylları da aşkar edilir.
+- Seriyalar və ilk thumbnail dərhal görünür, qalan kəsitlər arxa planda yüklənir. MPR/3D tam seriya hazır olduqda açılır.
+- CD/DVD görüntüləri Local Archive-a yazılmır. Disk çıxarılanda həmin sessiyanın görüntüləri, thumbnail, MPR/3D və hesabatın müvəqqəti mənbələri açıq pəncərələrdən təmizlənir. Əl ilə fayl/qovluq importu əvvəlki arxiv davranışını saxlayır.
 - Hesabat viewer-də uğurla açılmış DICOM dəstini qəbul edir; digər arxiv müayinələri avtomatik daxil edilmir.
 - Hesabatdakı seçilmiş seriyaların bütün görüntüləri bir ZIP-ə yığılır. 10 görüntü məhdudiyyəti yoxdur; yerli ZIP həddi 480 MB-dır.
 - `public/radaz-chatgpt-extension.zip` əlavəsinin **0.3.3** versiyasını quraşdırın/yeniləyin. Yalnız **RADAZ-ChatGPT.zip** ChatGPT mesaj sahəsinə əlavə edilir; ayrıca JPEG ötürülmür. Tapşırıq: **Dərindən, tək-tək analiz et və rapor yaz.** Arxivdəki bütün görüntülərə manifest sırası ilə baxmaq tələb olunur. Mesajı istifadəçi göndərir. Cavab hazır olduqda **RADAZ-a qaytar** analizi hesabat səhifəsində göstərir. Yoxlanmış mətn ayrıca hesabata əlavə olunur.
@@ -65,7 +61,7 @@ Müddət bitdikdə **PACS və Local arxiv işləyir**. Viewer-də seriya seçimi
 
 Disk arxivi standart olaraq `Documents\RADAZ-Archive` içindədir. SQLite bazası və DICOM `instances` qovluğunu birlikdə ehtiyat nüsxələyin. Brauzer arxivi həmin brauzer profilindədir və brauzer məlumatlarını təmizləyəndə itə bilər; önəmli müayinələri disk arxivinə saxlayın.
 
-Yeniləmə üçün yeni ZIP-i ayrıca proqram qovluğuna çıxarıb oradakı START-RADAZ.cmd faylını başladın. Arxiv ayrıca saxlanılır; arxiv qovluğunu silməyin. Dəstək: [drnaghiyev@gmail.com](mailto:drnaghiyev@gmail.com).
+Setup ilə quraşdırılan versiya əlçatan GitHub buraxılışını arxa planda endirir, SHA-256 yoxlayır və növbəti açılışda tətbiq edir. Müayinə zamanı proqram bağlanmır; açılış alınmasa əvvəlki versiya bərpa edilir. Arxiv ayrıca saxlanılır; arxiv qovluğunu silməyin. Dəstək: [drnaghiyev@gmail.com](mailto:drnaghiyev@gmail.com).
 
 0.2.7-dən başlayaraq yeni qovluğun START-RADAZ.cmd faylı köhnə RADAZ veb-serverini avtomatik əvəz edir və lazım olan paketlər yoxdursa ilkin quraşdırmanı başladır. İşləyən versiyanı Yardım → RADAZ haqqında bölməsində yoxlayın. Brauzer başqa kompüterin IP ünvanını açırsa, həmin server kompüter də yenilənməlidir.
 
@@ -85,3 +81,12 @@ python -m unittest discover -s tests -p '*_test.py'
 Python testləri üçün `pydicom`, `pynetdicom` və Pillow lazımdır. PACS kitabxanaları `bridge/wheels` qovluğunda var. Video ixracı üçün FFmpeg ayrıca tələb olunur.
 
 Texniki quraşdırma: [LOKAL-ISTIFADE.md](LOKAL-ISTIFADE.md). Paylama və aylıq lisenziya: [DISTRIBUTION.md](DISTRIBUTION.md). Təmizləmə və yoxlama nəticələri: [CLEANUP-AUDIT.md](CLEANUP-AUDIT.md).
+# Windows-da quraşdırma və avtomatik yeniləmə
+
+[Son GitHub buraxılışından](https://github.com/drnaghiyev/RADAZ-D-COM/releases/latest) **RADAZ-…-Setup.exe** endirin və açın. Windows 10/11 64 bit üçün per-user quraşdırıcıdır. Node.js, Python, Pillow, DICOM paketləri və FFmpeg daxildir; ayrıca paket quraşdırılması tələb olunmur. İş masası və Başlat menyusunda RADAZ qısayolu yaradılır. Qısayol serveri və arxiv xidmətini arxa planda başladıb brauzerdə RADAZ-ı açır.
+
+Yeniləmələr GitHub-dan avtomatik endirilir və SHA-256/file manifest ilə yoxlanılır. Hazır yeniləmə RADAZ qısayolundan növbəti açılışda tətbiq olunur. Aktiv müayinə qəfil yenidən yüklənmir. Server açıla bilməsə əvvəlki versiyaya qayıdılır. DICOM qəbulu və çıxış işi davam edirsə arxiv yeniləməsi təxirə salınır. İnternet olmayanda quraşdırılmış versiya işləyir. Yoxlama açılışda başlayır, açıq qaldıqda hər 6 saat təkrarlanır.
+
+Proqram `%LOCALAPPDATA%\Programs\RADAZ` altında, klinik arxiv isə ayrıca `Documents\RADAZ-Archive` altında qalır. Köhnə ZIP-dən ilk keçiddə köhnə qəbuledici işləyirsə Windows-u bir dəfə yenidən başladın. `Windows-x64.zip` tam oflayn alternativdir: çıxarıb `SETUP-RADAZ.cmd` açın. `Windows-preview.zip` yüngül köhnə paylama formatıdır və sistemdə Node/Python tələb edir.
+
+Quraşdırıcı [Inno Setup](https://jrsoftware.org/) ilə yaradılır. [Node.js](https://nodejs.org/), [Python embedded distribution](https://docs.python.org/3/using/windows.html#the-embeddable-package), [Pillow](https://pillow.readthedocs.io/) və [imageio-ffmpeg](https://github.com/imageio/imageio-ffmpeg) mənbələri və SHA-256 identifikatorları paketdə `runtime/sources.json`, onların lisenziyaları isə müvafiq runtime qovluqlarındadır.

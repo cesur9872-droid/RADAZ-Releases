@@ -20,9 +20,11 @@ AI analizi üçün **Hesabat → Ayarlar** bölməsində şəxsi OpenAI API aça
 
 Daimi DICOM arxivi `Documents\RADAZ-Archive` qovluğundadır: `archive.sqlite3` indeks bazası, `instances` orijinal DICOM faylları, `config.json` isə qəbul ayarlarıdır. Bu qovluğu birlikdə ehtiyat nüsxələyin. Brauzer məlumatlarını təmizləmək disk arxivini silmir.
 
-Köhnə brauzer arxivi saxlanılır və siyahıda “Brauzer” kimi göstərilir. Onu daimi arxivə köçürmək üçün müayinəni seçib **Diskə saxla** basın. Yeni idxallar arxiv xidməti işləyirsə həm brauzerə, həm diskə yazılır. Xidmət işləmirsə brauzer arxivi qalır. Hesabat qaralamaları, klinika ayarları və açarlar hələ də həmin brauzerin yerli yaddaşındadır.
+Köhnə brauzer arxivi saxlanılır və siyahıda “Brauzer” kimi göstərilir. Onu daimi arxivə köçürmək üçün müayinəni seçib **Diskə saxla** basın. Əl ilə fayl/qovluq idxalı arxiv xidməti işləyirsə həm brauzerə, həm diskə yazılır. Xidmət işləmirsə brauzer arxivi qalır. **CD/DVD import bu arxivə yazmır**, yalnız müvəqqəti yaddaşdan istifadə edir. Hesabat qaralamaları, klinika ayarları və açarlar həmin brauzerin yerli yaddaşındadır.
 
 ## Cihazdan görüntü göndərmək
+
+3 oktyabr 2026: istifadəçi iş yerində real CR kompüterindən RADAZ-a faktiki görüntü göndərişinin uğurlu işlədiyini təsdiqləyib. Bu, lokal protokol sınaqlarından ayrıca istifadəçi təsdiqidir; başqa şəbəkədə IP/AE/port yenidən uyğunlaşdırılmalıdır.
 
 **CR-də Port ilə RADAZ-dakı DICOM port eyni olmalıdır.** RADAZ 11113-də işləyirsə, CR-nin göndərmə ayarında 104 əvəzinə 11113 yazın. `Called AE Title` RADAZ-dakı `RADAZ_ARCHIVE`, `IP Address` isə RADAZ kompüterinin cari IPv4 ünvanıdır. `Calling AE Title` CR cihazının öz AE adıdır. Brauzerin 5173 portu DICOM göndərmək üçün deyil.
 
@@ -84,8 +86,23 @@ Fırlat menyusu: 90° sola/sağa, 180°, üfüqi/şaquli çevir və sıfırla. Q
 
 ## CD / DVD
 
+**Oxumaq:** Viewer başlığında ayrıca **CD/DVD import** düyməsini aktiv edin. Seçim yadda saxlanır; RADAZ açıq olduqda Windows optik qurğuları yoxlanır. Taxılmış disk üçün DICOMDIR əvvəl oxunur, sonra bütün alt qovluqlardakı əlavə DICOM görüntüləri tapılır. DICOMDIR yoxdursa və ya xarabdırsa avtomatik skan davam edir. `.dcm` uzantısı və `DICM` başlığı məcburi deyil; faylın DICOM teqləri və piksel məlumatı yoxlanır. Upload, qovluq seçimi və təsdiq göstərilmir.
+
+Seriya aşkarlanan kimi siyahıya çıxır, ilk görüntü oxunanda thumbnail və Viewer açılır. Qalan kəsitlər arxa planda gəlir və seçilmiş görüntü yerində qalır. MPR/3D tam seriyanı gözləyir. Oxunmayan görüntülərin sayı ayrıca göstərilir. Müvəqqəti RAM büdcəsi 1.5 GiB-dır; hədd dolarsa yükləmə bildirişlə dayanır.
+
+Optik görüntülər disk və brauzer Local Archive-a yazılmır, backend fayl nüsxəsi yaratmır. Disk çıxarılanda oxuma ləğv olunur; onun seriya, piksel, thumbnail, ölçmə, MPR/3D volume və hesabat mənbələri təmizlənir. Yenidən taxma yeni sessiya yaradır. Açıq vərəqələr disk çıxarılmasını ayrıca yoxlayır. Oxunan qurğu RADAZ serverinin işlədiyi Windows kompüterdəki CD/DVD qurğusudur.
+
+**Yazmaq:**
+
 Viewer-də **Çap → Cari seriyanı CD/DVD-yə yaz**, arxivdə isə **CD / Lite viewer** açın. DICOMDIR, DICOM faylları və offline START.html hazırlanır. **ISO yarat** və **ZIP paketi hazırla** yazıcı olmadan da işləyir. Mənbədə Study ID boşdursa yalnız DICOMDIR-də texniki kataloq ID-si yaranır, görüntünün özündəki ID və piksellər dəyişmir. Paketlər `Documents\RADAZ-Archive\MediaJobs` daxilində saxlanır.
 
 Birbaşa yazma Windows IMAPI2 ilə yalnız yazma qabiliyyətli qurğu və uyğun boş disk olduqda açılır. Mövcud disk silinmir, yazılmış disk bağlanır. Hazırkı TEAC DV-28S-W yalnız oxuyur; birbaşa yazmaq üçün CD/DVD writer qoşulmalıdır.
 
 `python tests\output_service_test.py` sınaq printeri ilə real N-GET/N-CREATE/N-SET/N-ACTION, DICOMDIR, ISO, MP4/WMV və disk qoruma yoxlamalarını icra edir. Bu test fiziki printer çapını və fiziki diskin yazılmasını əvəz etmir.
+# Avtomatik quraşdırma (0.2.8 və daha yeni)
+
+Ən rahat seçim GitHub Releases səhifəsindəki **RADAZ-…-Setup.exe** faylıdır. Bir dəfə quraşdırın, sonra iş masasındakı **RADAZ** qısayolundan istifadə edin. Node.js/Python əl ilə quraşdırılmır və konsol pəncərəsi açıq saxlanmır.
+
+Yeni versiya arxa planda yüklənir. Hazır bildirişi çıxanda işinizi bitirib iş masasındakı RADAZ qısayolunu yenidən açın. Yeniləmə bu zaman tətbiq olunur; görüntü qəbulu/çap davam edirsə növbəti açılışa saxlanır. Proqramın öz qovluğu versiyalara bölünür, `Documents\RADAZ-Archive` və oradakı lisenziya/ayarlar yerində qalır.
+
+Əvvəlki ZIP versiyasının qəbuledicisi işləyirsə ilk quraşdırmadan sonra Windows-u bir dəfə yenidən başladın. Sonrakı avtomatik yeniləmələr bunu tələb etmir. Açılış xətaları üçün `%LOCALAPPDATA%\Programs\RADAZ\logs` qovluğuna baxın.

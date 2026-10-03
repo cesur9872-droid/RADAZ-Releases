@@ -43,6 +43,7 @@ next-env.d.ts
 /.agents/
 /.codex/
 /outputs/
+/public/dicom-codecs/
 /work/
 /bridge/.radaz-deps-*/
 /bridge/__pycache__/

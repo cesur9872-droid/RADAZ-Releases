@@ -9,6 +9,7 @@ import { exportReportWord, listSavedReports, loadSavedReport, reportPlainText, s
 import { ChatGPTTransfer } from '@/components/chatgpt-transfer';
 import { AppHelpMenu } from '@/components/app-product';
 import { RadazLogo } from '@/components/radaz-logo';
+import { watchMediaRemoval } from '@/lib/removable-media';
 import { ReportRichEditor } from '@/components/report-rich-editor';
 import { escapeReportHtml, plainReportHtml, reportHtmlText, safeReportLogo, sanitizeReportHtml } from '@/lib/report-rich';
 
@@ -26,6 +27,7 @@ export default function ReportPage() {
   const [archive, setArchive] = useState<ArchiveStudy[]>([]);
   const [viewerOnly, setViewerOnly] = useState(false);
   const loadEpoch = useRef(0);
+  const mediaCleanup = useRef<(() => void) | null>(null);
   const [series, setSeries] = useState<string[]>([]);
   const [windowMode, setWindowMode] = useState<WindowMode>('metadata');
   const [status, setStatus] = useState('Müayinə gözlənilir');
@@ -38,10 +40,12 @@ export default function ReportPage() {
   }, []);
 
   const openStudy = useCallback(async (next: ReportStudy) => {
+    const epoch = loadEpoch.current;
     setStudy(next);
     const ids = [...new Set(next.images.map(image => image.seriesUID))];
     setSeries(ids);
     const existing = await loadSavedReport(next.uid).catch(() => undefined);
+    if (epoch !== loadEpoch.current) return;
     const header = localStorage.getItem('radaz-report-clinic-header') || '';
     const logo = safeReportLogo(localStorage.getItem('radaz-report-clinic-logo') || '');
     setReport(existing ? { ...existing, bodyHtml: sanitizeReportHtml(existing.bodyHtml?.trim() || plainReportHtml(existing.body)),
@@ -77,11 +81,18 @@ export default function ReportPage() {
     const channel = new BroadcastChannel(`radaz-${token}`);
     channel.onmessage = event => {
       if (event.data?.kind === 'LOAD' && Array.isArray(event.data.files)) {
+        mediaCleanup.current?.(); mediaCleanup.current = null;
+        if (Array.isArray(event.data.mediaSessions) && event.data.mediaSessions.length) {
+          mediaCleanup.current = watchMediaRemoval(event.data.mediaSessions, () => {
+            loadEpoch.current++; setStudies([]); setStudy(null); setReport(null); setSeries([]); setParseProgress('');
+            setStatus('CD/DVD çıxarıldı. Müvəqqəti görüntülər təmizləndi.');
+          });
+        }
         void loadFiles(event.data.files as File[], event.data.preferredSeriesId).catch(() => setStatus('Viewer görüntüləri ötürə bilmədi'));
       }
     };
     channel.postMessage({ kind: 'READY' });
-    return () => { loadEpoch.current++; channel.close(); };
+    return () => { loadEpoch.current++; mediaCleanup.current?.(); channel.close(); };
   }, [loadFiles, refresh]);
 
   const update = (patch: Partial<SavedReport>) => setReport(current => current ? { ...current, ...patch } : current);

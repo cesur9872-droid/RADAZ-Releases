@@ -26,7 +26,7 @@ export function writeBuildIdentity(root, expectedSource) {
   const current = sourceHash(root);
   if (current !== expectedSource) throw new Error('Source changed during build. Build RADAZ again.');
   const product = JSON.parse(readFileSync(path.join(root, 'public/product.json'), 'utf8'));
-  const result = { product, sourceHash: current, buildId: createHash('sha256').update(current).update(digestFiles(root, ['dist/client/','dist/server/'])).digest('hex') };
+  const result = { product, sourceHash: current, buildId: createHash('sha256').update(current).update(digestFiles(root, ['dist/client/','dist/server/','dist/runtime/','dist/node_modules/'])).digest('hex') };
   writeFileSync(path.join(root, 'dist/server/radaz-build.json'), JSON.stringify(result, null, 2));
   return result;
 }

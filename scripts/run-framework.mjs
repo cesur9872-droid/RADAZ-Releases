@@ -5,6 +5,7 @@ import { sourceHash, writeBuildIdentity } from './build-identity.mjs';
 
 const [command, ...args] = process.argv.slice(2);
 if (!["dev", "build"].includes(command)) throw new Error("Expected dev or build.");
+await import('./prepare-dicom-codecs.mjs');
 const managedLinux = readExecutionProfile() === "managed-linux";
 
 if (managedLinux && command === "build") {
@@ -30,6 +31,8 @@ if (command === 'build' && !managedLinux) {
   const result = spawnSync(process.execPath, [fileURLToPath(cli), command, ...args], { stdio: 'inherit', windowsHide: true });
   if (result.error) throw result.error;
   if (result.status !== 0) process.exit(result.status ?? 1);
+  const bundle = spawnSync(process.execPath, [fileURLToPath(new URL('./bundle-runtime.mjs', import.meta.url))], {stdio:'inherit',windowsHide:true});
+  if (bundle.status !== 0) process.exit(bundle.status ?? 1);
   const build = writeBuildIdentity(root, expectedSource);
   console.log(`RADAZ ${build.product.version} build ${build.buildId.slice(0,12)}`);
   process.exit(0);

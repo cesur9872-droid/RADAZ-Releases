@@ -10,13 +10,17 @@ $expected = Get-Content -Raw -LiteralPath (Join-Path $projectRoot 'public\produc
 $buildPath = Join-Path $projectRoot 'dist\server\radaz-build.json'
 $expectedBuild = if (Test-Path -LiteralPath $buildPath) { Get-Content -Raw -LiteralPath $buildPath | ConvertFrom-Json } else { $null }
 Set-Location -LiteralPath $projectRoot
+$privateNode = Join-Path $projectRoot 'runtime\node\node.exe'
+if (Test-Path -LiteralPath $privateNode) {
+  $env:PATH = "$(Split-Path $privateNode);$(Join-Path $projectRoot 'runtime\python');$(Join-Path $projectRoot 'runtime\ffmpeg');$env:PATH"
+}
 
 if (-not (Get-Command node.exe -ErrorAction SilentlyContinue)) {
   Write-Host 'RADAZ-i acmaq ucun Node.js 22.13 ve ya daha yeni versiya lazimdir.' -ForegroundColor Red
   Write-Host 'Node.js: https://nodejs.org'
   exit 1
 }
-if (-not (Test-Path -LiteralPath (Join-Path $projectRoot 'node_modules\vinext\dist\cli.js'))) {
+if (-not (Test-Path -LiteralPath (Join-Path $projectRoot 'dist\runtime\web-server.mjs')) -and -not (Test-Path -LiteralPath (Join-Path $projectRoot 'node_modules\vinext\dist\cli.js'))) {
   Write-Host 'Yeni RADAZ qovlugu ucun paketler qurasdirilir...'
   & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'setup-release.ps1')
   if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -42,7 +46,11 @@ if ($hasSource) {
 }
 
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'start-archive.ps1')
-if ($LASTEXITCODE -ne 0) { Write-Warning 'Daimi arxiv xidmeti baslamadi; viewer brauzer arxivi ile davam edir.' }
+if ($LASTEXITCODE -ne 0) {
+  if ($LASTEXITCODE -eq 17) { exit 17 }
+  if ($env:RADAZ_INSTALL_ROOT) { throw 'Arxiv xidmeti hazir deyil. Yenileme sonraki acilisa saxlanilir.' }
+  Write-Warning 'Daimi arxiv xidmeti baslamadi; viewer brauzer arxivi ile davam edir.'
+}
 
 if (Test-RadazServer) {
   Write-Host 'RADAZ serveri artiq isleyir. Movcud sehife acilir.' -ForegroundColor Green

@@ -1,6 +1,12 @@
 $ErrorActionPreference='Stop'
 $radazRoot=Split-Path -Parent $PSScriptRoot
 Set-Location -LiteralPath $radazRoot
+if (Test-Path -LiteralPath (Join-Path $radazRoot 'runtime\python\python.exe')) {
+  & (Join-Path $radazRoot 'runtime\python\python.exe') (Join-Path $radazRoot 'bridge\radaz_desktop.py') install
+  if ($LASTEXITCODE -ne 0) { throw 'RADAZ installation failed.' }
+  Write-Host 'RADAZ qurasdirildi. Is masasindaki RADAZ qisayolunu acin.'
+  exit 0
+}
 if (-not (Get-Command node.exe -ErrorAction SilentlyContinue)) { throw 'Install Node.js 22.13+ from nodejs.org first.' }
 if (-not (Get-Command python.exe -ErrorAction SilentlyContinue)) { throw 'Install Python 3.10+ from python.org first.' }
 $nodeVersion = & node -p 'process.versions.node'

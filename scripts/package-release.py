@@ -18,9 +18,10 @@ config['trialDays']=7
 out=ROOT/'outputs/releases';out.mkdir(parents=True,exist_ok=True)
 target=out/f'RADAZ-{version}-Windows-preview.zip'
 explicit=['package.json','pnpm-lock.yaml','pnpm-workspace.yaml','README.md','DISTRIBUTION.md','LOKAL-ISTIFADE.md','SETUP-RADAZ.cmd','START-RADAZ.cmd',
- 'scripts/start-radaz.ps1','scripts/stop-web-server.ps1','scripts/start-release.mjs','scripts/setup-release.ps1','scripts/start-archive.ps1','scripts/wait-release-browser.ps1','bridge/radaz_archive.py','bridge/radaz_pacs_bridge.py','bridge/radaz_output.py','bridge/radaz_product.py','bridge/radaz_trial.py','bridge/radaz_disc.ps1','bridge/README.md','public/license-public.json']
+ 'scripts/start-radaz.ps1','scripts/stop-web-server.ps1','scripts/start-release.mjs','scripts/setup-release.ps1','scripts/start-archive.ps1','scripts/wait-release-browser.ps1','scripts/desktop-shortcuts.ps1','installer/launcher.ps1','bridge/radaz_desktop.py','bridge/radaz_archive.py','bridge/radaz_pacs_bridge.py','bridge/radaz_output.py','bridge/radaz_product.py','bridge/radaz_trial.py','bridge/radaz_disc.ps1','bridge/README.md','public/license-public.json']
+explicit.append('bridge/radaz_removable.py')
 files={p:ROOT/p for p in explicit}
-for folder in ['dist/client','dist/server','bridge/wheels']:
+for folder in ['dist/client','dist/server','dist/runtime','dist/node_modules','bridge/wheels']:
  for p in (ROOT/folder).rglob('*'):
   if p.is_file() and not p.is_symlink() and p.suffix not in ['.map','.pyc']:
    relative=p.relative_to(ROOT).as_posix()

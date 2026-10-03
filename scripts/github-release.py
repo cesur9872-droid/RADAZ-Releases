@@ -62,7 +62,11 @@ def release_plan(api, version):
     if release and not release['draft']:
         names = {asset['name'] for asset in release['assets'] if asset['state'] == 'uploaded'}
         expected = f'RADAZ-{version}-Windows-preview.zip'
-        if release['prerelease'] or not {expected, expected + '.sha256'} <= names:
+        required = {expected, expected + '.sha256'}
+        if version_parts(version) >= (0,2,8):
+            for name in (f'RADAZ-{version}-Windows-x64.zip', f'RADAZ-{version}-Setup.exe'):
+                required.update((name,name+'.sha256'))
+        if release['prerelease'] or not required <= names:
             raise ValueError('Existing published version is incomplete; inspect it before publishing another version')
         return False
     latest = api.request('/releases/latest', missing=True)
@@ -90,7 +94,23 @@ def validate_package(root, version):
             raise ValueError('Package version/license configuration mismatch')
         if json.loads(package.read('package.json'))['version'] != version:
             raise ValueError('Package runtime version mismatch')
-    return archive, checksum
+    files = [archive,checksum]
+    if version_parts(version) >= (0,2,8):
+        for name in (f'RADAZ-{version}-Windows-x64.zip',f'RADAZ-{version}-Setup.exe'):
+            file=root/'outputs/releases'/name
+            sums=file.with_suffix(file.suffix+'.sha256')
+            if sums.read_text().split() != [hashlib.sha256(file.read_bytes()).hexdigest(),file.name]:
+                raise ValueError('Desktop artifact SHA-256 mismatch')
+            files.extend((file,sums))
+            if file.suffix == '.zip':
+                import sys
+                sys.path.insert(0,str(root/'bridge'))
+                from radaz_desktop import validate_files
+                with ZipFile(file) as package:
+                    validate_files(package.namelist(),json.loads(package.read('SHA256SUMS.json')),package.read,version)
+            elif file.read_bytes()[:2] != b'MZ':
+                raise ValueError('Setup executable missing')
+    return tuple(files)
 
 
 def publish(api, root, version, commit):
@@ -108,7 +128,7 @@ def publish(api, root, version, commit):
             'tag_name': f'v{version}', 'target_commitish': commit, 'name': f'RADAZ {version} — Windows preview',
             'body': notes, 'draft': True, 'prerelease': False,
         })
-    # Publish only when BOTH files have been uploaded and their remote digests match.
+    # Publish only after every portable, offline and installer asset is verified.
     for file in files:
         digest = 'sha256:' + hashlib.sha256(file.read_bytes()).hexdigest()
         existing = next((a for a in release['assets'] if a['name'] == file.name), None)

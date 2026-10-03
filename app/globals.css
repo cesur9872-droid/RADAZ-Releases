@@ -507,6 +507,10 @@
 .receiver-destination dt{color:#a9c5d5}.receiver-destination dd{margin:0;color:#e5faff;overflow-wrap:anywhere}
 .receiver-destination dd strong{font-size:16px}
 .receiver-destination .receiver-port-note{margin-bottom:0;color:#ffdaa2}
+.media-import-progress{flex:none;border-top:1px solid #263841;padding:12px;display:flex;flex-direction:column;gap:7px;font-size:12px;color:#b9d4df;background:#101b23}
+.media-import-progress strong{font-size:12px;color:#e0f3fa}.media-import-progress small{color:#9ab5c1;line-height:1.4}
+.media-import-progress progress{width:100%;height:7px;accent-color:#27b9c6}
+.cd-import-command.active{border-color:#27b9c6;color:#b7f4ee;background:#173039}
 .receiver-fields label{min-width:0}.receiver-fields input{max-width:100%}
 .receiver-dialog .receiver-fields{gap:8px 12px}
 .receiver-dialog .receiver-fields label{margin:8px 0}

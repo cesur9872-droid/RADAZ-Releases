@@ -64,6 +64,23 @@ class ReceiverTests(unittest.TestCase):
         ae.add_requested_context(Verification)
         return ae.associate('127.0.0.1', self.port, ae_title=called)
 
+    def test_desktop_shutdown_rejects_browser_and_defers_active_association(self):
+        with patch.dict('os.environ', {'RADAZ_DESKTOP_TOKEN':'synthetic-secret'}):
+            for headers in ({},{'X-RADAZ-Desktop':'wrong'},{'X-RADAZ-Desktop':'synthetic-secret','Origin':'http://localhost:5173'}):
+                with self.assertRaises(HTTPError) as caught: urlopen(Request(self.url+'/_desktop/stop', data=b'{}', headers=headers))
+                self.assertEqual(caught.exception.code,403)
+            assoc=self.association()
+            with self.assertRaises(HTTPError) as caught:
+                urlopen(Request(self.url+'/_desktop/stop',data=b'{}',headers={'X-RADAZ-Desktop':'synthetic-secret'}))
+            self.assertEqual(caught.exception.code,409)
+            self.assertEqual(assoc.send_c_store(self.ds).Status,0)
+            assoc.release()
+            with urlopen(Request(self.url+'/_desktop/stop',data=b'{}',headers={'X-RADAZ-Desktop':'synthetic-secret'})) as response:
+                self.assertTrue(json.load(response)['stopping'])
+            self.thread.join(timeout=5)
+            self.assertFalse(self.thread.is_alive())
+            self.assertEqual(self.archive.status()['instanceCount'],1)
+
     def test_echo_store_duplicate_restart_pixels_and_http(self):
         assoc = self.association(); self.assertTrue(assoc.is_established)
         self.assertEqual(assoc.send_c_echo().Status, 0)

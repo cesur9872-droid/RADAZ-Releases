@@ -86,7 +86,7 @@ export function VolumePreview({ series, preset, threshold, opacity, settings, re
 
   useEffect(() => {
     const element = hostRef.current;
-    if (!element || !series) { setReady(false); return; }
+    if (!element || !series) { setReady(false); setError(''); return; }
     let disposed = false;
     let resizeObserver: ResizeObserver | undefined;
     let viewer: Awaited<ReturnType<typeof getViewer>> | undefined;
@@ -150,7 +150,7 @@ export function VolumePreview({ series, preset, threshold, opacity, settings, re
     })().catch(cause => { if (!disposed) setError(cause instanceof Error ? cause.message : String(cause)); });
 
     return () => {
-      disposed = true; resizeObserver?.disconnect(); viewportRef.current = null; setReady(false);
+      disposed = true; resizeObserver?.disconnect(); viewportRef.current = null; volumeIdRef.current = ''; dragRef.current = null; setReady(false);
       if (viewer) {
         viewer.tools.ToolGroupManager.destroyToolGroup(toolGroupId);
         if (viewer.engine.getViewport(viewportId)) viewer.engine.disableElement(viewportId);
@@ -207,7 +207,7 @@ export function VolumePreview({ series, preset, threshold, opacity, settings, re
         if (!viewport || !camera?.parallelScale) return;
         viewport.setCamera({ parallelScale: camera.parallelScale * (event.deltaY > 0 ? 1.1 : .9) }); viewport.render();
       }}>
-      <div ref={hostRef} className="cornerstone-volume-host" aria-label="İşıqlandırılmış professional 3D DICOM renderi"/>
+      {series && <div key={series.id} ref={hostRef} className="cornerstone-volume-host" aria-label="İşıqlandırılmış professional 3D DICOM renderi"/>}
       {ready && !error && <div className="volume-help"><span><b>Sol mouse</b> fırlat</span><span><b>Sağ mouse</b> HU / şəffaflıq</span><span><b>Orta mouse</b> sürüşdür</span><span><b>Təkər</b> zoom</span><span><b>İki klik</b> sıfırla</span></div>}
       {(!ready || error) && <div className="volume-cover"><Box size={34}/><strong>{error ? 'Professional 3D həcm açıla bilmədi' : series ? 'İşıqlandırılmış 3D həcm hazırlanır…' : '3D üçün ardıcıl DICOM seriyası seçin'}</strong>{error && <span>{error}</span>}</div>}
     </div>

@@ -20,10 +20,11 @@ import { closestSlice, sameCoordinateSpace, normalOf, planeLabel, type Point3 } 
 import { expandSources, filesFromDrop } from '@/lib/import-sources';
 import { parseDicomFile } from '@/lib/dicom-file';
 import { getArchiveFiles, saveArchiveFiles } from '@/lib/local-archive';
+import { watchRemovableMedia, type MediaImage, type MediaProgress } from '@/lib/removable-media';
 import type * as Core from '@cornerstonejs/core';
 
 type Tool = 'scroll' | 'arrow' | 'pencil' | 'cursor3d' | 'wl' | 'pan' | 'zoom' | 'length' | 'angle' | 'arch' | 'cobb' | 'ellipse' | 'hu' | 'deviation' | 'erase';
-type Series = { id: string; studyId: string; name: string; modality: string; patient: string; patientId: string; birth: string; date: string; number: string; imageIds: string[]; sample: boolean; thumb?: string };
+type Series = { id: string; studyId: string; name: string; modality: string; patient: string; patientId: string; birth: string; date: string; number: string; imageIds: string[]; sample: boolean; thumb?: string; mediaSession?: string; discovered?: number; loading?: boolean };
 type Preset = { ww: number; wl: number; token: number; panel: string; seriesId: string } | null;
 type ImportSource = { id: number; label: string; files: File[] };
 type MprData = { sourceId: string; stacks: Record<'SAG' | 'COR' | 'AX', string[]>; planes: Series[]; owned: string[]; orientations: MprOrientations | null };
@@ -118,6 +119,8 @@ function ViewportPane({ cursor, onCursor, hideText, id, series, initialImageId, 
   const elementRef = useRef<HTMLDivElement>(null);
   const groupRef = useRef<any>(null);
   const requestRef = useRef(0);
+  const stackQueue = useRef<Promise<void>>(Promise.resolve());
+  const stackSeries = useRef('');
   const [enabled, setEnabled] = useState(false);
   const [viewport, setViewport] = useState<Core.Types.IStackViewport | null>(null);
   const [imageId, setImageId] = useState('');
@@ -220,22 +223,30 @@ function ViewportPane({ cursor, onCursor, hideText, id, series, initialImageId, 
   }, [ready, id, viewportId, onImageChange]);
 
   useEffect(() => {
-    if (!enabled || !series) return;
+    if (!enabled || !series?.imageIds.length) return;
     const token = ++requestRef.current;
-    (async () => {
+    stackQueue.current = stackQueue.current.catch(() => {}).then(async () => {
+      if (token !== requestRef.current) return;
       const { engine } = await getViewer();
       const vp = engine.getViewport(viewportId) as Core.Types.IStackViewport;
-      const initialIndex = series.imageIds.indexOf(initialImageId || '');
-      await vp.setStack(series.imageIds, initialIndex >= 0 ? initialIndex : Math.floor(series.imageIds.length / 2));
+      if (!vp || token !== requestRef.current) return;
+      const extending = stackSeries.current === series.id;
+      const initialIndex = series.imageIds.indexOf((extending ? vp.getCurrentImageId() : initialImageId) || '');
+      const camera = extending ? vp.getCamera() : null;
+      const properties = extending ? vp.getProperties() : null;
+      await vp.setStack(series.imageIds, initialIndex >= 0 ? initialIndex : 0);
       if (token !== requestRef.current) return;
+      stackSeries.current = series.id;
       const { wl, ww } = getDefaultWindow(vp.getCurrentImageId() || series.imageIds[0]);
-      vp.setProperties({ voiRange: { lower: wl - ww / 2, upper: wl + ww / 2 } });
+      vp.setProperties(properties || { voiRange: { lower: wl - ww / 2, upper: wl + ww / 2 } });
+      if (camera) vp.setCamera(camera);
       vp.render(); setSlice(vp.getCurrentImageIdIndex());
       const currentImageId = vp.getCurrentImageId() || '';
       setImageId(currentImageId); onImageChange(id, currentImageId); setError('');
       const range = vp.getProperties().voiRange;
       if (range) { setWW(Math.round(range.upper - range.lower)); setWL(Math.round((range.upper + range.lower) / 2)); }
-    })().catch(e => setError(`Seriya açıla bilmədi: ${String(e)}`));
+    }).catch(e => { if (token === requestRef.current) setError(`Seriya açıla bilmədi: ${String(e)}`); });
+    return () => { requestRef.current++; };
   // The starting image is read once when the stack changes; scrolling should not reset it.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, series, viewportId, id, onImageChange]);
@@ -357,12 +368,18 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
   const [status, setStatus] = useState('Nümunə yüklənir…');
   const fileRef = useRef<HTMLInputElement>(null);
   const folderRef = useRef<HTMLInputElement>(null);
-  const cdRef = useRef<HTMLInputElement>(null);
   const zipRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<Series[]>([]);
   const importEpoch = useRef(0);
   const sourceSerial = useRef(0);
   const openedFiles = useRef<File[]>([]);
+  const mediaFiles = useRef(new Map<string, File[]>());
+  const mediaOrder = useRef(new Map<string, { id: string; n: number }[]>());
+  const preferredMediaSeries = useRef<string | undefined>(undefined);
+  const [mediaEnabled, setMediaEnabled] = useState(false);
+  const [mediaFilter, setMediaFilter] = useState<string[] | undefined>();
+  const [mediaProgress, setMediaProgress] = useState<MediaProgress | null>(null);
+  const mediaId = (session: string, item: MediaImage) => `media:${session}:${item.studyId}/${item.seriesUID}`;
   const channels = useRef<Map<DetachedMode | 'report', BroadcastChannel>>(new Map());
   const selectedIdRef = useRef<string | undefined>(undefined);
   selectedIdRef.current=assigned[active];
@@ -371,8 +388,12 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
     const channel = new BroadcastChannel(`radaz-${token}`);
     const reportSnapshot = mode === 'report' && openedFiles.current.length ? [...openedFiles.current] : null;
     channel.onmessage = event => {
-      if (event.data?.kind === 'READY' && (reportSnapshot || openedFiles.current).length) {
-        try { channel.postMessage({ kind: 'LOAD', files: reportSnapshot || openedFiles.current, preferredSeriesId: selectedIdRef.current }); }
+      if (event.data?.kind === 'READY') {
+        const selectedMedia = listRef.current.find(s => s.id === selectedIdRef.current)?.mediaSession;
+        const mediaSessions = selectedMedia ? [selectedMedia] : [];
+        const files = selectedMedia ? mediaFiles.current.get(selectedMedia) || [] : reportSnapshot || openedFiles.current;
+        try { if (mode !== 'report' && selectedMedia) channel.postMessage({ kind: 'MEDIA_LOAD', mediaSessions, preferredSeriesId: selectedIdRef.current });
+          else if (files.length) channel.postMessage({ kind: 'LOAD', files, mediaSessions, preferredSeriesId: selectedIdRef.current?.replace(/^media:[^:]+:/, '') }); }
         catch { setStatus('Yeni vərəqəyə görüntülər ötürülə bilmədi'); }
       }
     };
@@ -389,11 +410,85 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
 
   useEffect(() => {
     // The directory picker returns every file under the chosen folder, including nested folders.
-    for (const input of [folderRef.current, cdRef.current]) {
+    for (const input of [folderRef.current]) {
       input?.setAttribute('webkitdirectory', '');
       input?.setAttribute('directory', '');
     }
   }, []);
+
+  useEffect(() => {
+    if (!detachedMode && localStorage.getItem('radaz-cd-auto') === '1') setMediaEnabled(true);
+  }, [detachedMode]);
+
+  useEffect(() => {
+    if (!ready || !mediaEnabled) return;
+    return watchRemovableMedia({
+      discovered(session, images) {
+        if (!mediaFiles.current.has(session)) {
+          mediaFiles.current.set(session, []);
+          importEpoch.current++; setImportBusy(false);
+        }
+        const samples = listRef.current.filter(s => s.sample);
+        let next = listRef.current.filter(s => !s.sample);
+        if (samples.length) { releaseLocalDicoms(samples.flatMap(s => s.imageIds)); openedFiles.current = []; }
+        for (const item of images) {
+          const id = mediaId(session, item), existing = next.find(s => s.id === id);
+          if (existing) next = next.map(s => s.id === id ? { ...s, discovered: (s.discovered || 0) + 1 } : s);
+          else next.push({ ...item, id, imageIds: [], sample: false, mediaSession: session, discovered: 1, loading: true });
+        }
+        listRef.current = next; setSeriesList(next);
+        setAssigned(current => {
+          const preferred = next.find(s => s.id === preferredMediaSeries.current);
+          if (preferred) { preferredMediaSeries.current = undefined; return { A: preferred.id }; }
+          return next.some(s => s.id === current.A) ? current : next[0] ? { A: next[0].id } : {};
+        });
+        if (samples.length) setDatasetVersion(v => v + 1);
+      },
+      async image(session, item, file, signal) {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        if (signal.aborted) return;
+        const imageId = await addLocalDicom(bytes, parseDicomFile(bytes));
+        if (signal.aborted) { releaseLocalDicoms([imageId]); return; }
+        const id = mediaId(session, item);
+        if (!listRef.current.some(s => s.id === id)) { releaseLocalDicoms([imageId]); return; }
+        const ordered = mediaOrder.current.get(id) || [];
+        ordered.push({ id: imageId, n: item.instance }); ordered.sort((a, b) => a.n - b.n);
+        mediaOrder.current.set(id, ordered);
+        const next = listRef.current.map(s => s.id === id ? { ...s, imageIds: ordered.map(i => i.id), thumb: s.thumb || thumbnailLocalDicom(imageId) } : s);
+        listRef.current = next; setSeriesList(next);
+        mediaFiles.current.get(session)?.push(file);
+      },
+      removed(session) {
+        const removed = listRef.current.filter(s => s.mediaSession === session);
+        const ids = new Set(removed.flatMap(s => s.imageIds));
+        const next = listRef.current.filter(s => s.mediaSession !== session);
+        removed.forEach(s => mediaOrder.current.delete(s.id)); mediaFiles.current.delete(session);
+        listRef.current = next; setSeriesList(next);
+        setAssigned(current => Object.fromEntries(Object.entries(current).filter(([, id]) => next.some(s => s.id === id))));
+        setCurrentImages(current => Object.fromEntries(Object.entries(current).filter(([, id]) => !ids.has(id))));
+        setMarks(current => current.filter(mark => !ids.has(mark.imageId))); setSelectedMarkId(null);
+        const mpr = mprDataRef.current;
+        if (mpr && removed.some(s => s.id === mpr.sourceId)) {
+          mpr.owned.forEach(id => ids.add(id)); mprDataRef.current = null; setMprData(null); gestureRef.current = null;
+        }
+        setDatasetVersion(v => v + 1); setStatus('CD/DVD çıxarıldı. Müvəqqəti görüntülər təmizləndi.');
+        void getViewer().then(({ tools }) => {
+          tools.annotation.state.getAllAnnotations().filter(a => ids.has(a.metadata?.referencedImageId || ''))
+            .forEach(a => tools.annotation.state.removeAnnotation(a.annotationUID!));
+        });
+        // React first detaches viewports/volumes; then release only this session's records.
+        window.setTimeout(() => releaseLocalDicoms([...ids]), 100);
+      },
+      progress(progress) {
+        setMediaProgress(progress);
+        if (progress.sessions) setStatus(`CD/DVD · ${progress.loaded} / ${progress.discovered} görüntü${progress.scanning ? ' · disk skan edilir…' : progress.loaded + progress.skipped < progress.discovered ? ' · yüklənir…' : ' · müvəqqəti yaddaş'}${progress.skipped ? ` · ${progress.skipped} oxunmadı` : ''}`);
+        if (!progress.scanning && progress.loaded + progress.skipped >= progress.discovered) {
+          const next = listRef.current.map(s => s.mediaSession && s.loading && s.discovered === s.imageIds.length ? { ...s, loading: false } : s);
+          if (next.some((s, i) => s !== listRef.current[i])) { listRef.current = next; setSeriesList(next); }
+        }
+      },
+    }, mediaFilter);
+  }, [ready, mediaEnabled, mediaFilter]);
 
   const importFiles = useCallback(async (files: File[], sample = false, request = ++importEpoch.current, preferredSeriesId?: string): Promise<boolean> => {
     const viewer = await getViewer();
@@ -404,19 +499,50 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
     let rejected = 0;
     let ignored = 0;
     let firstError = '';
+    let published = false;
+    let finished = false;
+    const discardUnpublished = () => {
+      const visible = new Set(listRef.current.flatMap(s => s.imageIds));
+      releaseLocalDicoms(createdIds.filter(id => !visible.has(id)));
+    };
+    const publish = () => {
+      const imported = [...found.values()].map(({ ordered, sopUIDs, ...s }) => {
+        const imageIds = ordered.sort((a, b) => a.n - b.n).map(o => o.id);
+        return { ...s, imageIds, loading: !finished, thumb: s.thumb || thumbnailLocalDicom(imageIds[0]) };
+      });
+      if (!imported.length) return;
+      if (!published) {
+        const previousIds = listRef.current.flatMap(s => s.imageIds);
+        viewer.tools.annotation.state.removeAllAnnotations();
+        setMarks([]); setSelectedMarkId(null); setMaximizedPane(null); setMaximizedMprPane(null);
+        const preferred = imported.find(item => item.id === preferredSeriesId) || imported[0];
+        setAssigned({ A: preferred.id }); setCurrentImages({}); setActive('A'); setPreset(null);
+        const oldMpr = mprDataRef.current;
+        if (oldMpr?.owned.length) window.setTimeout(() => releaseLocalDicoms(oldMpr.owned), 100);
+        mprDataRef.current = null; setMprData(null);
+        setWorkspace(detachedMode || 'viewer'); setMprError('');
+        setDatasetVersion(version => version + 1);
+        if (previousIds.length) window.setTimeout(() => releaseLocalDicoms(previousIds), 100);
+        published = true;
+      }
+      listRef.current = imported; setSeriesList(imported); openedFiles.current = [...acceptedFiles];
+      setStatus(`${imported.length} seriya · ${acceptedFiles.length} / ${files.length} görüntü oxunur…`);
+    };
     for (const file of files) {
-      if (request !== importEpoch.current) { releaseLocalDicoms(createdIds); return false; }
+      if (request !== importEpoch.current) { discardUnpublished(); return false; }
       if (file.name.split('/').pop()?.toUpperCase() === 'DICOMDIR') { ignored++; continue; }
       try {
         const bytes = new Uint8Array(await file.arrayBuffer());
+        if (request !== importEpoch.current) { discardUnpublished(); return false; }
         const ds = parseDicomFile(bytes);
         const get = (tag: string) => ds.string(tag)?.trim() || '';
         const studyId = get('x0020000d');
         const uid = `${studyId}/${get('x0020000e') || file.name}`;
         const sopUID = get('x00080018');
         if (sopUID && found.get(uid)?.sopUIDs.has(sopUID)) { ignored++; continue; }
-        const imageId = addLocalDicom(bytes, ds);
+        const imageId = await addLocalDicom(bytes, ds);
         createdIds.push(imageId);
+        if (request !== importEpoch.current) { discardUnpublished(); return false; }
         acceptedFiles.push(file);
         const record = found.get(uid) || {
           id: uid, studyId, name: get('x0008103e') || 'Adsız seriya', modality: get('x00080060') || 'DICOM',
@@ -428,29 +554,16 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
         record.ordered.push({ id: imageId, n: Number(get('x00200013')) || 0 });
         if (sopUID) record.sopUIDs.add(sopUID);
         found.set(uid, record);
+        if (acceptedFiles.length === 1 || acceptedFiles.length % 8 === 0 || record.ordered.length === 1) {
+          publish(); await new Promise(resolve => setTimeout(resolve, 0));
+        }
       } catch (err) { rejected++; firstError ||= err instanceof Error ? err.message : String(err); }
     }
-    if (request !== importEpoch.current) { releaseLocalDicoms(createdIds); return false; }
-    const imported = [...found.values()].map(({ ordered, sopUIDs, ...s }) => {
-      const imageIds = ordered.sort((a, b) => a.n - b.n).map(o => o.id);
-      return { ...s, imageIds, thumb: thumbnailLocalDicom(imageIds[Math.floor(imageIds.length / 2)]) };
-    });
-    if (imported.length) {
-      const previousIds = listRef.current.flatMap(s => s.imageIds);
-      viewer.tools.annotation.state.removeAllAnnotations();
-      setMarks([]); setSelectedMarkId(null); setMaximizedPane(null); setMaximizedMprPane(null);
-      listRef.current = imported; setSeriesList(imported);
-      const preferred = imported.find(item => item.id === preferredSeriesId) || imported.find(item => item.imageIds.length >= 3) || imported[0];
-      setAssigned({ A: preferred.id }); setCurrentImages({}); setActive('A'); setPreset(null);
-      const oldMpr = mprDataRef.current;
-      if (oldMpr?.owned.length) window.setTimeout(() => releaseLocalDicoms(oldMpr.owned), 1300);
-      mprDataRef.current = null; setMprData(null);
-      setWorkspace(detachedMode || 'viewer'); setMprError('');
-      openedFiles.current = acceptedFiles;
-      if (!detachedMode) channels.current.forEach((channel, mode) => { if (mode === 'report') return; try { channel.postMessage({ kind: 'LOAD', files: acceptedFiles, preferredSeriesId: preferred.id }); } catch { /* A closed tab will reconnect on demand. */ } });
-      setDatasetVersion(version => version + 1);
-      setStatus(`${imported.length} seriya · ${files.length - rejected - ignored} DICOM görüntüsü yükləndi${rejected ? ` · ${rejected} fayl keçildi` : ''}`);
-      if (previousIds.length) window.setTimeout(() => releaseLocalDicoms(previousIds), 1200);
+    if (request !== importEpoch.current) { discardUnpublished(); return false; }
+    finished = true; publish();
+    if (published) {
+      if (!detachedMode) channels.current.forEach((channel, mode) => { if (mode === 'report') return; try { channel.postMessage({ kind: 'LOAD', files: acceptedFiles, preferredSeriesId: preferredSeriesId || listRef.current[0]?.id }); } catch { /* Closed tabs reconnect on demand. */ } });
+      setStatus(`${found.size} seriya · ${files.length - rejected - ignored} DICOM görüntüsü yükləndi${rejected ? ` · ${rejected} fayl keçildi` : ''}`);
       return true;
     }
     releaseLocalDicoms(createdIds);
@@ -464,7 +577,12 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
     if (!handoff) return;
     const channel = new BroadcastChannel(`radaz-${handoff}`);
     channel.onmessage = event => {
+      if (event.data?.kind === 'MEDIA_LOAD' && Array.isArray(event.data.mediaSessions)) {
+        preferredMediaSeries.current = event.data.preferredSeriesId;
+        setMediaFilter(event.data.mediaSessions); setMediaEnabled(true); return;
+      }
       if (event.data?.kind === 'LOAD' && Array.isArray(event.data.files)) {
+        setMediaEnabled(false);
         void importFiles(event.data.files as File[], false, ++importEpoch.current, event.data.preferredSeriesId);
       }
     };
@@ -513,6 +631,7 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
   useEffect(() => {
     if (detachedMode || !ready || typeof BroadcastChannel === 'undefined') return;
     const load = async (uid: string) => {
+      setMediaEnabled(false);
       const request = ++importEpoch.current;
       setStatus('Local arxivdən müayinə açılır…');
       try {
@@ -620,7 +739,7 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
       if (viewport && viewport.getCurrentImageIdIndex() !== index) void viewport.setImageIdIndex(index);
     });
   }, [assigned, seriesList]);
-  const queueFiles = (files: File[], kind: 'Qovluq' | 'CD' | 'ZIP') => {
+  const queueFiles = (files: File[], kind: 'Qovluq' | 'ZIP') => {
     if (!files.length) return;
     if (kind === 'ZIP') {
       setImportQueue(current => [...current, ...files.map(file => ({ id: ++sourceSerial.current, label: file.name, files: [file] }))]);
@@ -631,6 +750,7 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
   };
   const openSources = async (sources: File[]) => {
     if (!sources.length) return;
+    setMediaEnabled(false);
     const request = ++importEpoch.current;
     setImportBusy(true);
     try {
@@ -658,9 +778,9 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
     catch (err) { setStatus(`Qovluqlar oxuna bilmədi: ${String(err)}`); }
   };
   const currentSeries = seriesList.find(s => s.id === assigned[active]);
-  const volumeSeries = currentSeries?.imageIds.length && currentSeries.imageIds.length >= 3
+  const volumeSeries = !currentSeries?.loading && currentSeries?.imageIds.length && currentSeries.imageIds.length >= 3
     ? currentSeries
-    : seriesList.filter(s => s.studyId === currentSeries?.studyId && s.imageIds.length >= 3)
+    : seriesList.filter(s => !s.loading && s.studyId === currentSeries?.studyId && s.imageIds.length >= 3)
       .sort((a, b) => b.imageIds.length - a.imageIds.length)[0];
   const grouped = groupSeries(seriesList);
   const buildMpr = (source: Series, settings: MprSettings, orientations: MprOrientations | null, pivot: Point3 | null, center = false) => {
@@ -684,7 +804,7 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
     setMprError(''); setWorkspace('mpr');
   };
   const openMpr = () => {
-    const source = currentSeries?.imageIds.length && currentSeries.imageIds.length >= 3 ? currentSeries : volumeSeries;
+    const source = !currentSeries?.loading && currentSeries?.imageIds.length && currentSeries.imageIds.length >= 3 ? currentSeries : volumeSeries;
     if (!source) { setMprError('MPR üçün əvvəlcə seriya seçin'); setWorkspace('mpr'); return; }
     if (mprDataRef.current?.sourceId === source.id) { setWorkspace('mpr'); return; }
     try {
@@ -780,11 +900,15 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
           <DropdownMenuContent align="start" className="header-menu">
             <DropdownMenuItem onSelect={() => { setImportOpen(true); folderRef.current?.click(); }}><FolderOpen size={16}/> Qovluq aç</DropdownMenuItem>
             <DropdownMenuItem onSelect={() => { setImportOpen(true); zipRef.current?.click(); }}><FileArchive size={16}/> ZIP aç</DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => { setImportOpen(true); cdRef.current?.click(); }}><Disc3 size={16}/> CD import</DropdownMenuItem>
             <DropdownMenuItem onSelect={() => fileRef.current?.click()}><ScanSearch size={16}/> DICOM faylları</DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setImportOpen(true)}><Grid2X2 size={16}/> Bir neçə mənbə seç</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu></div>}
+        {!detachedMode && <Button variant="outline" className={`header-control cd-import-command ${mediaEnabled ? 'active' : ''}`} aria-label="CD/DVD import" aria-pressed={mediaEnabled}
+          title={mediaEnabled ? 'Disk izləməsini dayandır və müvəqqəti görüntüləri bağla' : 'CD/DVD-ni avtomatik aşkar et və aç'} disabled={limited}
+          onClick={() => { const enabled = !mediaEnabled; localStorage.setItem('radaz-cd-auto', enabled ? '1' : '0'); setMediaEnabled(enabled); setRailHidden(false); }}>
+          <Disc3 size={18}/><span>CD/DVD import</span>{mediaEnabled && <span className="status-led"/>}
+        </Button>}
       {!detachedMode && <div className="workspace-launch toolbar-group" role="group" aria-label="Əlavə görüntü vərəqələri">
         <button type="button" disabled={limited} title="MPR rekonstruksiya" aria-label="MPR rekonstruksiya" onClick={() => openDetached('mpr')}><b className="mode-letter-icon">MPR</b></button>
         <button type="button" disabled={limited} title="3D həcm görüntüləmə" aria-label="3D həcm görüntüləmə" onClick={() => openDetached('3d')}><b className="mode-letter-icon">3D</b></button>
@@ -846,18 +970,16 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
         {limited&&<div className="toolbar-group limited-viewer-tools" title="Lisenziyanı aktivləşdirin"><span>Yalnız listələmə</span>{['Pəncərə','Yaxınlaşdır','Ölçmə','Çap','İxrac'].map(label=><Button key={label} disabled className="header-control">{label}</Button>)}</div>}
         <input hidden ref={fileRef} type="file" multiple onChange={e => { const files = Array.from(e.currentTarget.files || []); e.currentTarget.value = ''; void openSources(files); }}/>
         <input hidden ref={folderRef} type="file" multiple onChange={e => { const files = Array.from(e.currentTarget.files || []); e.currentTarget.value = ''; queueFiles(files, 'Qovluq'); }}/>
-        <input hidden ref={cdRef} type="file" multiple onChange={e => { const files = Array.from(e.currentTarget.files || []); e.currentTarget.value = ''; queueFiles(files, 'CD'); }}/>
         <input hidden ref={zipRef} type="file" multiple accept=".zip,application/zip,application/x-zip-compressed" onChange={e => { const files = Array.from(e.currentTarget.files || []); e.currentTarget.value = ''; queueFiles(files, 'ZIP'); }}/>
       </div>
       <div className="toolbar-group help-command"><AppHelpMenu/></div>
     </header>
     <Dialog open={importOpen} onOpenChange={open => { if (!importBusy) setImportOpen(open); }}>
       <DialogContent className="import-dialog" showCloseButton={false}>
-        <DialogHeader><DialogTitle>Qovluq, ZIP və CD import</DialogTitle><DialogDescription>Bir neçə mənbə seçin və hamısını birlikdə açın. Uğurlu idxal əvvəlki seriyaları və ölçmələri əvəz edir.</DialogDescription></DialogHeader>
+        <DialogHeader><DialogTitle>Qovluq və ZIP import</DialogTitle><DialogDescription>Bir neçə mənbə seçin və hamısını birlikdə açın. Uğurlu idxal əvvəlki seriyaları və ölçmələri əvəz edir.</DialogDescription></DialogHeader>
         <div className="source-buttons">
           <Button variant="outline" disabled={importBusy} onClick={() => folderRef.current?.click()}><FolderOpen size={16}/> Qovluq seç</Button>
           <Button variant="outline" disabled={importBusy} onClick={() => zipRef.current?.click()}><FileArchive size={16}/> ZIP seç</Button>
-          <Button variant="outline" disabled={importBusy} onClick={() => cdRef.current?.click()}><Disc3 size={16}/> CD kökü seç</Button>
         </div>
         <div className="source-list" aria-live="polite" onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }} onDrop={e => { e.preventDefault(); void (async () => { const files = await filesFromDrop(e.dataTransfer.items, e.dataTransfer.files); if (files.length) setImportQueue(current => [...current, { id: ++sourceSerial.current, label: `${files.length} əlavə fayl`, files }]); })().catch(err => setStatus(`Mənbə oxuna bilmədi: ${String(err)}`)); }}>
           {importQueue.length ? importQueue.map(source => <div className="source-row" key={source.id}><span><strong>{source.label}</strong><small>{source.files.length} fayl</small></span><button aria-label={`${source.label} siyahıdan sil`} disabled={importBusy} onClick={() => setImportQueue(current => current.filter(item => item.id !== source.id))}><Trash2 size={15}/></button></div>)
@@ -881,17 +1003,22 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
                 {modality.series.map(({ item: s, index }) => <button key={s.id} draggable onDragStart={e => e.dataTransfer.setData('application/x-series-id', s.id)}
                   className={`series-card ${assigned[active] === s.id ? 'chosen' : ''}`} onClick={() => place(s.id, active)} title={`${s.name} — panel ${active}`}>
                   <div className="series-thumb">{s.thumb ? <img src={s.thumb} alt=""/> : <ScanSearch size={30} strokeWidth={1}/>}<span>{String(index + 1).padStart(2, '0')}</span></div>
-                  <div className="series-info"><strong>{s.name}</strong><span>{s.imageIds.length} görüntü</span><span>Seriya {s.number}</span></div><span className="drag-handle" aria-hidden="true">⋮⋮</span>
+                  <div className="series-info"><strong>{s.name}</strong><span>{s.imageIds.length}{s.discovered && s.discovered > s.imageIds.length ? ` / ${s.discovered}` : ''} görüntü</span><span>{s.mediaSession ? 'CD/DVD · müvəqqəti' : `Seriya ${s.number}`}</span></div><span className="drag-handle" aria-hidden="true">⋮⋮</span>
                 </button>)}
               </div>)}
             </div>)}
           </section>)}
           {!seriesList.length && <div className="rail-empty">{status}</div>}
         </div>
+        {mediaEnabled && <div className="media-import-progress" role="status" aria-live="polite">
+          <strong>{mediaProgress?.error ? 'CD/DVD import' : !mediaProgress?.sessions ? 'CD/DVD gözlənilir…' : mediaProgress.scanning ? 'CD/DVD skan edilir…' : (mediaProgress.loaded + mediaProgress.skipped < mediaProgress.discovered) ? 'CD/DVD yüklənir…' : 'CD/DVD hazırdır'}</strong>
+          {!!mediaProgress?.discovered && <><progress aria-label="CD/DVD yüklənməsi" max={mediaProgress.discovered} value={mediaProgress.scanning ? undefined : mediaProgress.loaded + mediaProgress.skipped}/><span>{mediaProgress.loaded} / {mediaProgress.discovered} görüntü{mediaProgress.skipped ? ` · ${mediaProgress.skipped} oxunmadı` : ''}</span></>}
+          <small>{mediaProgress?.error || 'Disk çıxarılanda görüntülər avtomatik təmizlənir.'}</small>
+        </div>}
       </aside>}
       <section className="main-area">
         {workspace === 'viewer' && <div className="viewport-grid" style={{ gridTemplateColumns: `repeat(${maximizedPane ? 1 : layout.columns}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${maximizedPane ? 1 : layout.rows}, minmax(0, 1fr))` }}>
-          {Array.from({ length: layout.rows * layout.columns }, (_, index) => String.fromCharCode(65 + index)).filter(id => !maximizedPane || id === maximizedPane).map(id => { const otherImages = id !== active && assigned[active] && currentImages[active] ? [{ panel: active, imageId: currentImages[active] }] : []; return <ViewportPane key={`${id}-${datasetVersion}`} id={id} initialImageId={currentImages[id]} series={seriesList.find(s => s.id === assigned[id])} selected={active === id} tool={limited ? 'scroll' : tool} cursor={cursor} onCursor={onCursor} hideText={hideText} preset={preset} resetToken={resetToken} clearToken={clearToken} ready={ready} marks={marks} selectedMarkId={selectedMarkId} localizers={localizers && id !== active} otherImages={otherImages} onImageChange={onImageChange} onMoveSource={onMoveSource} onAddMark={onAddMark} onUpdateMark={onUpdateMark} onRemoveMark={onRemoveMark} onSelectMark={markId => { setActive(id); setSelectedMarkId(markId); }} onClearImage={onClearImage} onSelect={() => { setActive(id); setSelectedMarkId(null); }} onToggleMaximize={() => { setActive(id); setMaximizedPane(current => current === id ? null : id); }} onDropSeries={sid => place(sid, id)}/>; })}
+          {Array.from({ length: layout.rows * layout.columns }, (_, index) => String.fromCharCode(65 + index)).filter(id => !maximizedPane || id === maximizedPane).map(id => { const otherImages = id !== active && assigned[active] && currentImages[active] ? [{ panel: active, imageId: currentImages[active] }] : []; return <ViewportPane key={`${id}-${datasetVersion}-${assigned[id] || "empty"}`} id={id} initialImageId={currentImages[id]} series={seriesList.find(s => s.id === assigned[id])} selected={active === id} tool={limited ? 'scroll' : tool} cursor={cursor} onCursor={onCursor} hideText={hideText} preset={preset} resetToken={resetToken} clearToken={clearToken} ready={ready} marks={marks} selectedMarkId={selectedMarkId} localizers={localizers && id !== active} otherImages={otherImages} onImageChange={onImageChange} onMoveSource={onMoveSource} onAddMark={onAddMark} onUpdateMark={onUpdateMark} onRemoveMark={onRemoveMark} onSelectMark={markId => { setActive(id); setSelectedMarkId(markId); }} onClearImage={onClearImage} onSelect={() => { setActive(id); setSelectedMarkId(null); }} onToggleMaximize={() => { setActive(id); setMaximizedPane(current => current === id ? null : id); }} onDropSeries={sid => place(sid, id)}/>; })}
         </div>}
         {workspace === 'mpr' && <>
         {mprError ? <div className="mpr-empty" role="alert"><Layers3 size={38}/><strong>MPR açıla bilmədi</strong><span>{mprError}</span></div> : mprData && <div className={`mpr-grid ${maximizedMprPane ? 'maximized' : ''}`}>{(['SAG','COR','AX'] as const).map((plane, index) => ({ plane, index, id: ['MS','MC','MA'][index] })).filter(({ id }) => !maximizedMprPane || id === maximizedMprPane).map(({ plane, index, id }) => <ViewportPane key={`${id}-${mprData.sourceId}`} id={id} initialImageId={currentImages[id]} series={mprData.planes[index]} reconstruction={mprSettings[plane]} selected={mprActive === id} tool={limited ? 'scroll' : tool} cursor={cursor} onCursor={onCursor} hideText={hideText} preset={preset} resetToken={resetToken} clearToken={clearToken} ready={ready} marks={marks} selectedMarkId={selectedMarkId} localizers={localizers} otherImages={(['SAG','COR','AX'] as const).filter(other => other !== plane).map(other => ({ panel: { SAG:'MS',COR:'MC',AX:'MA' }[other], imageId: currentImages[{ SAG:'MS',COR:'MC',AX:'MA' }[other]] || '' })).filter(s => s.imageId)} onImageChange={onImageChange} onMoveSource={moveMprSource} onRotateSource={rotateMprSource} onRotateStart={beginMprRotation} onPreviewRotateSource={(source,target,radians) => updateMprRotation(source,target,radians)} onAddMark={onAddMark} onUpdateMark={onUpdateMark} onRemoveMark={onRemoveMark} onSelectMark={markId => { setMprActive(id); setSelectedMarkId(markId); }} onClearImage={onClearImage} onSelect={() => { setMprActive(id); setSelectedMarkId(null); }} onToggleMaximize={() => { setMprActive(id); setMaximizedMprPane(current => current === id ? null : id); }} onDropSeries={sid => place(sid,'A')}/>)}</div>}</>}

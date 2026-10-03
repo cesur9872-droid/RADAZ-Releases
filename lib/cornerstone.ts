@@ -17,6 +17,7 @@ type Derived = { sourceIds: string[]; plane: MprPlane; index: number; mode: MprM
   superiorFirst: boolean; reverseHorizontal: boolean; oblique?: { volume: ObliqueVolume; normal: Point3; step: number } };
 const derived = new Map<string, Derived>();
 let serial = 0;
+let dicomDecoder: Promise<typeof import('@cornerstonejs/dicom-image-loader')> | undefined;
 let initialized: Promise<void> | undefined;
 let engine: core.RenderingEngine | undefined;
 
@@ -169,36 +170,71 @@ function loadCachedVolumeSlice(imageId: string): core.Types.IImageLoadObject {
   return image ? { promise: Promise.resolve(image) } : { promise: Promise.reject(new Error(`3D həcm kəsiti cache-də tapılmadı: ${imageId}`)) };
 }
 
-export function addLocalDicom(bytes: Uint8Array, ds: DataSet): string {
+export async function addLocalDicom(bytes: Uint8Array, ds: DataSet): Promise<string> {
   const syntax = ds.string('x00020010') || '1.2.840.10008.1.2.1';
-  if (!['1.2.840.10008.1.2', '1.2.840.10008.1.2.1'].includes(syntax))
-    throw new Error('Bu prototip sıxılmamış Little Endian DICOM qəbul edir');
   const rows = ds.uint16('x00280010') || 0;
   const columns = ds.uint16('x00280011') || 0;
   const bits = ds.uint16('x00280100') || 0;
-  const signed = !!ds.uint16('x00280103');
+  const storedBits = ds.uint16('x00280101') || bits;
+  const highBit = ds.uint16('x00280102') ?? (storedBits - 1);
+  const signed = ds.uint16('x00280103') === 1;
   const pixelElement = ds.elements.x7fe00010;
-  if (!rows || !columns || ![8, 16].includes(bits) || ds.uint16('x00280002') !== 1 || !pixelElement || pixelElement.encapsulatedPixelData)
-    throw new Error('Yalnız sıxılmamış monoxrom 8/16-bit DICOM dəstəklənir');
+  const photometric = ds.string('x00280004') || 'MONOCHROME2';
+  if (!rows || !columns || ![8, 16].includes(bits) || storedBits < 1 || storedBits > bits || highBit >= bits || highBit < storedBits - 1 ||
+      ds.uint16('x00280002') !== 1 || !['MONOCHROME1', 'MONOCHROME2'].includes(photometric) || !pixelElement)
+    throw new Error('Bu görüntünün piksel formatı dəstəklənmir (monoxrom 8/16-bit tələb olunur)');
+  const uncompressed = ['1.2.840.10008.1.2', '1.2.840.10008.1.2.1', '1.2.840.10008.1.2.2'].includes(syntax);
+  const imageId = `localdicom:${serial++}`;
   const byteLength = rows * columns * (bits / 8);
-  if (pixelElement.length < byteLength) throw new Error('Piksel məlumatı natamamdır');
-  const raw = bytes.slice(pixelElement.dataOffset, pixelElement.dataOffset + byteLength);
-  const stored = bits === 8 ? raw : signed ? new Int16Array(raw.buffer) : new Uint16Array(raw.buffer);
+  let stored: Uint8Array | Uint16Array | Int16Array | Float32Array;
+  if (uncompressed && !pixelElement.encapsulatedPixelData) {
+    if (pixelElement.length < byteLength || pixelElement.dataOffset + byteLength > bytes.length) throw new Error('Piksel məlumatı natamamdır');
+    const view = new DataView(bytes.buffer, bytes.byteOffset + pixelElement.dataOffset, byteLength);
+    stored = bits === 8 ? bytes.subarray(pixelElement.dataOffset, pixelElement.dataOffset + byteLength) :
+      Uint16Array.from({ length: rows * columns }, (_, index) => view.getUint16(index * 2, syntax !== '1.2.840.10008.1.2.2'));
+  } else {
+    // The DICOM loader supplies JPEG, JPEG-LS, JPEG 2000 and RLE codecs.
+    // Decode directly because a second worker registry can stall when this
+    // viewer's rendering engine is already running in a different tab.
+    dicomDecoder ??= import('@cornerstonejs/dicom-image-loader');
+    const decoder = await dicomDecoder;
+    try {
+      const frame = decoder.wadouri.getPixelData(ds, 0);
+      if (!frame) throw new Error('Piksel kadrı tapılmadı');
+      const image = await decoder.decodeImageFrame({ rows, columns, bitsAllocated: bits, bitsStored: storedBits,
+        pixelRepresentation: signed ? 1 : 0, samplesPerPixel: 1, photometricInterpretation: photometric,
+        planarConfiguration: 0, pixelData: undefined, imageId }, syntax, frame,
+        { wasmBasePath: '/dicom-codecs' }, { preScale: { enabled: false } }, undefined);
+      const decoded = image.pixelData;
+      if (!decoded) throw new Error('Dekodlanmış piksellər tapılmadı');
+      if (decoded.length !== rows * columns) throw new Error('Dekodlanmış piksel sayı uyğun deyil');
+      stored = decoded as typeof stored;
+    } catch (error) {
+      throw new Error(`Sıxılmış rentgen açıla bilmədi: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
   const slope = asNumber(ds, 'x00281053', 1), intercept = asNumber(ds, 'x00281052', 0);
   let rawMin = Infinity, rawMax = -Infinity;
-  for (const value of stored) { if (value < rawMin) rawMin = value; if (value > rawMax) rawMax = value; }
+  const shift = highBit + 1 - storedBits, mask = 2 ** storedBits - 1, signBit = 2 ** (storedBits - 1);
+  const pixelValue = (value: number) => {
+    // Decoders return signed pixels already expanded; native pixels need
+    // high-bit masking and sign extension (common in 12-bit CR/DX files).
+    if (!uncompressed || pixelElement.encapsulatedPixelData) return value;
+    const encoded = (value >>> shift) & mask;
+    return signed && encoded >= signBit ? encoded - (mask + 1) : encoded;
+  };
+  for (const value of stored) { const raw = pixelValue(value); if (raw < rawMin) rawMin = raw; if (raw > rawMax) rawMax = raw; }
   const scaledMin = Math.min(rawMin * slope + intercept, rawMax * slope + intercept);
   const scaledMax = Math.max(rawMin * slope + intercept, rawMax * slope + intercept);
   const useInt16 = Number.isInteger(slope) && Number.isInteger(intercept) && scaledMin >= -32768 && scaledMax <= 32767;
   const pixels = useInt16 ? new Int16Array(stored.length) : new Float32Array(stored.length);
   let min = Infinity, max = -Infinity;
   for (let i = 0; i < stored.length; i++) {
-    const hu = stored[i] * slope + intercept;
-    pixels[i] = hu;
-    if (hu < min) min = hu;
-    if (hu > max) max = hu;
+    const value = pixelValue(stored[i]) * slope + intercept;
+    pixels[i] = value;
+    if (value < min) min = value;
+    if (value > max) max = value;
   }
-  const imageId = `localdicom:${serial++}`;
   records.set(imageId, { dataSet: ds, pixels, rows, columns, bits: useInt16 ? 16 : 32, min, max });
   return imageId;
 }

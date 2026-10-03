@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import hmac
 import io
 import json
 import os
@@ -16,7 +17,7 @@ import sqlite3
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from threading import RLock
+from threading import RLock, Thread
 from urllib.parse import urlsplit, parse_qs
 from uuid import uuid4
 from contextlib import contextmanager
@@ -25,10 +26,11 @@ import radaz_pacs_bridge  # Bootstraps the bundled, pinned DICOM wheels offline.
 import pydicom
 from pynetdicom import AE, AllStoragePresentationContexts, ALL_TRANSFER_SYNTAXES, evt
 from pynetdicom.sop_class import Verification
-from radaz_output import OutputService, print_film, test_printer
+from radaz_output import OutputService, print_film, test_printer, PRINT_LOCK, BURN_LOCK
 from radaz_product import ProductService
 
 MAX_FILE = 512 * 1024 * 1024
+APP_VERSION = json.loads((Path(__file__).resolve().parent.parent / 'public/product.json').read_text(encoding='utf-8-sig'))['version']
 
 
 def addresses():
@@ -268,12 +270,17 @@ class Archive:
         return {**self.config, 'running': self.server is not None, 'error': self.error,
                 'addresses': addresses(), 'databasePath': str(self.root / 'archive.sqlite3'),
                 'storagePath': str(self.root / 'instances'), 'instanceCount': total[0], 'size': total[1], 'version': 1,
-                'capabilities': ['delete-studies']}
+                'capabilities': ['delete-studies'], 'appVersion': APP_VERSION,
+                'desktopManaged': bool(os.environ.get('RADAZ_DESKTOP_TOKEN'))}
 
 
-def handler_for(archive):
+def handler_for(archive, removable=None):
+    from radaz_removable import RemovableMedia
+    removable = removable or RemovableMedia()
     output = OutputService(archive.root)
     product = ProductService(archive.root)
+    lifecycle = {'posts': 0, 'stopping': False}
+    lifecycle_lock = RLock()
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *_):
             pass  # Do not put patient identifiers or UIDs into HTTP logs.
@@ -302,6 +309,23 @@ def handler_for(archive):
                 self.respond({'error': 'Origin icazəli deyil'}, 403); return
             parsed = urlsplit(self.path)
             try:
+                if parsed.path == '/removable/status':
+                    self.respond(removable.snapshot()); return
+                if parsed.path == '/removable/entries':
+                    query = parse_qs(parsed.query)
+                    self.respond(removable.entries(query.get('session', [''])[0], query.get('after', ['0'])[0])); return
+                if parsed.path.startswith('/removable/file/'):
+                    parts = parsed.path.split('/')
+                    if len(parts) != 5:
+                        raise ValueError('Invalid media file')
+                    stream, size = removable.open_file(parts[3], parts[4])
+                    with stream:
+                        self.send_response(200); self.send_header('Content-Type', 'application/dicom')
+                        self.send_header('Content-Length', str(size)); self.send_header('Cache-Control', 'no-store')
+                        self.send_header('X-Content-Type-Options', 'nosniff'); self.end_headers()
+                        while chunk := stream.read(1024 * 1024):
+                            self.wfile.write(chunk)
+                    return
                 if parsed.path == '/license':
                     self.respond(product.status()); return
                 if parsed.path == '/billing/catalog':
@@ -345,6 +369,8 @@ def handler_for(archive):
                             self.wfile.write(chunk)
                 else:
                     self.respond({'error':'Ünvan tapılmadı'},404)
+            except FileNotFoundError:
+                self.respond({'error': 'CD/DVD çıxarılıb və ya sessiya bitib'}, 410)
             except ValueError as error:
                 self.respond({'error':str(error)},400)
             except (OSError, sqlite3.Error):
@@ -353,6 +379,38 @@ def handler_for(archive):
                 self.respond({'error':str(error)},500)
 
         def do_POST(self):
+            if self.path == '/_desktop/stop':
+                token = os.environ.get('RADAZ_DESKTOP_TOKEN', '')
+                if self.headers.get('Origin') or self.client_address[0] != '127.0.0.1' or not token or not hmac.compare_digest(self.headers.get('X-RADAZ-Desktop', ''), token):
+                    self.respond({'error': 'Desktop control unavailable'}, 403); return
+                with lifecycle_lock:
+                    if lifecycle['posts'] or PRINT_LOCK.locked() or BURN_LOCK.locked() or (archive.server and archive.server.active_associations):
+                        self.respond({'error': 'Archive is busy'}, 409); return
+                    lifecycle['stopping'] = True
+                previous = archive.server
+                archive.stop()
+                # Close the listening socket, then let any association accepted during
+                # the shutdown race finish. Never terminate an in-flight C-STORE.
+                until = time.monotonic() + 10
+                while previous and previous.active_associations and time.monotonic() < until:
+                    time.sleep(.1)
+                if previous and previous.active_associations:
+                    archive.start()
+                    with lifecycle_lock: lifecycle['stopping'] = False
+                    self.respond({'error': 'Archive is busy'}, 409); return
+                self.respond({'stopping': True})
+                Thread(target=self.server.shutdown, daemon=True).start()
+                return
+            with lifecycle_lock:
+                if lifecycle['stopping']:
+                    self.respond({'error': 'Archive is restarting'}, 503); return
+                lifecycle['posts'] += 1
+            try:
+                self.post_request()
+            finally:
+                with lifecycle_lock: lifecycle['posts'] -= 1
+
+        def post_request(self):
             if not self.permitted():
                 self.respond({'error':'Origin icazəli deyil'},403); return
             try:
@@ -361,6 +419,15 @@ def handler_for(archive):
                 if not 0 < length <= limit:
                     self.respond({'error':'Sorğu ölçüsü düzgün deyil'},413); return
                 data = self.rfile.read(length)
+                if self.path in ('/removable/watch', '/removable/close'):
+                    if self.headers.get_content_type() != 'application/json':
+                        self.respond({'error': 'JSON tələb olunur'}, 415); return
+                    client = json.loads(data).get('client')
+                    if self.path == '/removable/watch':
+                        self.respond(removable.watch(client))
+                    else:
+                        removable.unwatch(client); self.respond({'ok': True})
+                    return
                 if self.path == '/billing/checkout':
                     if self.headers.get_content_type() != 'application/json':
                         self.respond({'error':'JSON tələb olunur'},415); return
@@ -424,7 +491,9 @@ def main():
     parser.add_argument('--http-port', type=int, default=8766)
     args = parser.parse_args()
     archive = Archive(args.data_dir)
-    http = ThreadingHTTPServer(('127.0.0.1',args.http_port),handler_for(archive))
+    from radaz_removable import RemovableMedia
+    removable = RemovableMedia()
+    http = ThreadingHTTPServer(('127.0.0.1',args.http_port),handler_for(archive, removable))
     try:
         try:
             archive.start()
@@ -432,7 +501,7 @@ def main():
             archive.error = 'DICOM portu məşğuldur; arxiv ayarlarında başqa port seçin'
         http.serve_forever()
     finally:
-        archive.stop(); http.server_close()
+        removable.close(); archive.stop(); http.server_close()
 
 
 if __name__ == '__main__':

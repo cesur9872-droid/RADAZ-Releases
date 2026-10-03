@@ -1,0 +1,64 @@
+"""Disposable optical drive simulator for browser tests; never shipped in releases."""
+import argparse
+import io
+import json
+import sys
+from pathlib import Path
+from threading import Event
+from http.server import ThreadingHTTPServer
+from urllib.parse import urlsplit
+
+from removable_media_test import write_image
+from radaz_archive import Archive, handler_for
+from radaz_removable import RemovableMedia
+from pydicom import dcmread
+from pydicom.encaps import encapsulate
+from pydicom.uid import JPEGBaseline8Bit
+from PIL import Image
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--root', type=Path, required=True)
+args = parser.parse_args()
+disc = args.root/'disc'
+for i in range(1, 701): write_image(disc/f'CT/I{i:04}', i, raw=i == 1)
+ds = write_image(disc/'JPEG_NO_EXTENSION', 701)
+ds.SeriesInstanceUID = '2.25.105'; ds.SeriesDescription = 'JPEG compressed CD'
+ds.BitsAllocated = ds.BitsStored = 8; ds.HighBit = 7; ds.WindowCenter = 128; ds.WindowWidth = 256
+image = Image.frombytes('L', (32, 32), bytes(x % 256 for x in range(1024)))
+buffer = io.BytesIO(); image.save(buffer, format='JPEG', quality=95)
+ds.PixelData = encapsulate([buffer.getvalue()]); ds['PixelData'].is_undefined_length = True
+ds.file_meta.TransferSyntaxUID = JPEGBaseline8Bit; ds.save_as(disc/'JPEG_NO_EXTENSION', enforce_file_format=True)
+(disc/'README.txt').write_text('Unrelated text file' * 100)
+present = {}; released = Event()
+media = RemovableMedia(lambda: dict(present), interval=.05)
+open_file = media.open_file
+
+def gated_file(sid, fid):
+    item = next((i for i in media.entries(sid)['items'] if i['id'] == fid), None)
+    # Pause early in the transfer to test interaction before the 700 images finish.
+    if item and item['instance'] == 20:
+        released.wait(60)
+    return open_file(sid, fid)
+
+media.open_file = gated_file
+archive = Archive(args.root/'archive', bind='127.0.0.1')
+Base = handler_for(archive, media)
+
+class Handler(Base):
+    def permitted(self):
+        origin = urlsplit(self.headers.get('Origin', ''))
+        return super().permitted() or (origin.scheme == 'http' and origin.hostname == '127.0.0.1')
+
+    def do_POST(self):
+        if self.path == '/_test/insert':
+            released.clear(); present[str(disc)] = ('synthetic', 'Synthetic 700 CT'); self.respond({'ok': True}); return
+        if self.path == '/_test/eject':
+            present.clear(); media.poll(); released.set(); self.respond({'ok': True}); return
+        if self.path == '/_test/resume':
+            released.set(); self.respond({'ok': True}); return
+        return super().do_POST()
+
+http = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+print(json.dumps({'port': http.server_port}), flush=True)
+try: http.serve_forever()
+finally: released.set(); media.close(); archive.stop(); http.server_close()
