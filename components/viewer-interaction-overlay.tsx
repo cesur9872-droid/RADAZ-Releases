@@ -37,11 +37,12 @@ export function useStackNavigation(viewport: Core.Types.IStackViewport | null, i
   };
 }
 
-export function ViewerInteractionOverlay({ viewport, element, imageId, tool, slice, count, marks, cursor, onCursor, onAdd, onRemove, onSelect, navigate }: {
+export function ViewerInteractionOverlay({ viewport, element, imageId, tool, slice, count, marks, selectedMarkId, onSelectMark, cursor, onCursor, onAdd, onRemove, onSelect, navigate }: {
   viewport: Core.Types.IStackViewport | null; element: HTMLDivElement | null; imageId: string;
   tool: string; slice: number; count: number; marks: LocalMark[]; cursor: CursorPosition | null;
   onCursor: (position: CursorPosition) => void; onAdd: (mark: LocalMark) => void;
   onRemove: (id: string) => void; onSelect: () => void; navigate: (index: number, relative?: boolean) => void;
+  selectedMarkId?: string | null; onSelectMark?: (id: string) => void;
 }) {
   const [draft, setDraft] = useState<Point3[]>([]);
   const [, repaint] = useState(0);
@@ -105,7 +106,8 @@ export function ViewerInteractionOverlay({ viewport, element, imageId, tool, sli
         gesture.current = null; setDraft([]);
         event.currentTarget.releasePointerCapture(event.pointerId);
       }} onPointerCancel={() => { gesture.current = null; setDraft([]); }} onLostPointerCapture={() => { gesture.current = null; setDraft([]); }}>
-      {marks.filter(mark => mark.imageId === imageId && (mark.kind === 'arrow' || mark.kind === 'pencil')).map(mark => <g key={mark.id} data-drawing={mark.kind}>
+      {marks.filter(mark => mark.imageId === imageId && (mark.kind === 'arrow' || mark.kind === 'pencil')).map(mark => <g key={mark.id} data-drawing={mark.kind} className={selectedMarkId === mark.id ? 'selected-measurement' : undefined}
+        onPointerDown={event=>{event.preventDefault();event.stopPropagation();if(tool==='erase')onRemove(mark.id);else onSelectMark?.(mark.id);}}>
         <polyline points={points(mark.points)} />
         {mark.kind === 'arrow' && <polyline points={arrowHead(mark.points)} />}
         {tool === 'erase' && <polyline className="drawing-hit" points={points(mark.points)} onPointerDown={event => { event.stopPropagation(); onRemove(mark.id); }} />}

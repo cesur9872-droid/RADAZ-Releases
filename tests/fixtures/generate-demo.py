@@ -5,7 +5,7 @@ import struct
 import zlib
 import numpy as np
 
-OUT = Path(__file__).resolve().parents[1] / "public" / "demo"
+OUT = Path(__file__).resolve().parent / "demo"
 OUT.mkdir(parents=True, exist_ok=True)
 N = 256
 y, x = np.mgrid[-1:1:complex(N), -1:1:complex(N)]

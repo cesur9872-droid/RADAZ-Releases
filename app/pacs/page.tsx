@@ -1,7 +1,7 @@
 'use client';
 import { ResizableTable, ResizableHeader } from '@/components/resizable-table';
 import { SortHeader, useTableSort } from '@/components/table-sort';
-import { openStudyInViewer, focusViewer } from '@/lib/viewer-session';
+import { openStudyInViewer, focusViewer, notifyViewerProgress } from '@/lib/viewer-session';
 
 import { useEffect, useRef, useState } from 'react';
 import { Activity, ExternalLink, Network, Plus, Search, Settings2, Trash2, Wifi, Download, Database, RefreshCw, X, Disc3 } from 'lucide-react';
@@ -196,6 +196,8 @@ export default function PacsPage() {
     const viewer = destination === 'viewer' ? (reservedViewer === undefined ? focusViewer() : reservedViewer) : window.open('about:blank', '_blank');
     const updateTab = preparePacsTransferTab(destination === 'media' ? viewer : null);
     const report = (message: string) => { setStatus(message); updateTab(message); };
+    notifyViewerProgress(destination === 'viewer' ? viewer : null, {label:'PACS yüklənir',done:0,total:0});
+    const progress = (done:number,total:number,label='PACS yüklənir') => { report(`${label}: ${done} / ${total}`); if(destination === 'viewer')notifyViewerProgress(viewer,{label,done,total}); };
     setBusy(true);
     try {
       if (!location.dicomwebUrl) {
@@ -211,10 +213,10 @@ export default function PacsPage() {
       report(`${chosen.length} seriya endirilir… PACS cavabı gözlənilir.`);
       const files = location.dicomwebUrl
         ? await retrieveRemoteStudy(location.dicomwebUrl, token, selectedStudy.uid, chosen,
-          (done, total) => report(`PACS görüntüləri endirilir: ${done} / ${total}`))
+          (done, total) => progress(done,total))
         : await retrieveDimseStudy(location, aeTitle, listenerPort, selectedStudy.uid, chosen.map(item => item.uid),
-          (done, total) => report(`PACS görüntüləri hazırlanır: ${done} / ${total}`));
-      const imported = await saveArchiveFiles(files, (done, total) => report(`Local arxivə yazılır: ${done} / ${total}`));
+          (done, total) => progress(done,total));
+      const imported = await saveArchiveFiles(files, (done, total) => progress(done,total,'PACS arxivə yazılır'));
       if (!imported) throw new Error('PACS fayllarında oxuna bilən DICOM görüntüsü tapılmadı');
       await recordStudyOpened(selectedStudy.uid);
       const target = destination === 'media' ? `/media?study=${encodeURIComponent(selectedStudy.uid)}` : `/#archive-study=${encodeURIComponent(selectedStudy.uid)}`;
@@ -223,7 +225,7 @@ export default function PacsPage() {
       setStatus(`${files.length} görüntü local arxivə saxlanıldı${viewer || destination === 'viewer' ? ' və seçilmiş modul açıldı' : '. Arxiv vərəqəsindən açın'}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      updateTab(message, true);
+      updateTab(message, true); if(destination === 'viewer')notifyViewerProgress(viewer,null,message);
       if (message.includes('yeni versiyasını') || message.includes('yeni v3')) setBridgeVersion(0);
       setStatus(`PACS idxalı alınmadı: ${message}`);
     }

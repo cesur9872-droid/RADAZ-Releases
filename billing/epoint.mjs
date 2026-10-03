@@ -8,7 +8,7 @@ export function amountMinor(value){
  if(!Number.isSafeInteger(minor)||minor<1)throw new Error('Ödəniş məbləği düzgün deyil.');return minor;
 }
 export function createEpointProvider(settings,request=fetch){
- if(!settings.enabled)return undefined;
+ if(!settings.enabled||settings.provider==='kapital')return undefined;
  return {
   async createCheckout({orderId,amountMinor:minor,currency,months}){
    if(currency!=='AZN')throw new Error('Yalnız AZN ödənişi dəstəklənir.');

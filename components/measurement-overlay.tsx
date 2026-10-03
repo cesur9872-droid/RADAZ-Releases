@@ -190,7 +190,7 @@ export function MeasurementOverlay({ element, viewport, imageId, modality, tool,
           : mark.kind === 'arch' ? `Tağ bucağı ${arch?.angle.toFixed(1) ?? '—'}°`
           : `ΔV: ${foot?.distance.toFixed(1) ?? '—'} ${lengthUnit}, ${foot?.angle.toFixed(1) ?? '—'}°`;
         const width = Math.max(92, title.length * 7 + 18);
-        return <g key={mark.id} className={selectedMarkId === mark.id ? 'selected-measurement' : undefined} onClick={e => e.stopPropagation()}>
+        return <g key={mark.id} data-measurement={mark.id} className={selectedMarkId === mark.id ? 'themed-measurement selected-measurement' : 'themed-measurement'} onClick={e => e.stopPropagation()}>
           {mark.kind === 'deviation' && footCanvas && <g className="deviation-lines">
             <line className="deviation-base" x1={canvas[0][0]} y1={canvas[0][1]} x2={canvas[1][0]} y2={canvas[1][1]} />
             <line className="deviation-diagonal" x1={canvas[2][0]} y1={canvas[2][1]} x2={canvas[1][0]} y2={canvas[1][1]} />

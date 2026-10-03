@@ -15,7 +15,9 @@ async function request(body){
  }catch(error){if(error.name==='AbortError'||error instanceof TypeError)throw new Error('Satıcı panelinin xidməti cavab vermir. OPEN-SELLER-SETTINGS.cmd ilə açın və terminal pəncərəsini bağlamayın.');throw error;}
  finally{clearTimeout(timer);}
 }
-function populate(data){for(const [name,value]of Object.entries(data)){const input=field(name);if(!input)continue;if(input.type==='checkbox')input.checked=!!value;else input.value=value;}field('epointPrivateKey').value='';field('clearPrivateKey').checked=false;document.querySelector('#secret-state').textContent=data.privateKeyConfigured?'Gizli açar saxlanıb; burada geri göstərilmir.':'Gizli açar hələ daxil edilməyib.';urls();}
+function providerChanged(){const kapital=field('provider').value==='kapital';document.querySelector('#epoint-settings').hidden=kapital;document.querySelector('#kapital-note').hidden=!kapital;if(kapital)field('enabled').checked=false;}
+field('provider').addEventListener('change',providerChanged);
+function populate(data){for(const [name,value]of Object.entries(data)){const input=field(name);if(!input)continue;if(input.type==='checkbox')input.checked=!!value;else input.value=value;}field('epointPrivateKey').value='';field('clearPrivateKey').checked=false;document.querySelector('#secret-state').textContent=data.privateKeyConfigured?'Gizli açar saxlanıb; burada geri göstərilmir.':'Gizli açar hələ daxil edilməyib.';urls();providerChanged();}
 async function connect(){
  connected=false;save.disabled=true;fields.disabled=true;retry.hidden=true;
  if(location.protocol==='file:'||!token){document.querySelector('#storage').textContent='Bağlantı yoxdur';status.textContent='Bu HTML faylı ayarları saxlamır. billing qovluğundakı OPEN-SELLER-SETTINGS.cmd faylını açın; panel brauzerdə özü açılacaq. Köhnə vərəqəni bağlayın.';return;}

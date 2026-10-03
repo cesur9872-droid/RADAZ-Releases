@@ -1,10 +1,10 @@
 # RADAZ — alıcı üçün yükləmə və quraşdırma
 
-Azərbaycan dilində radiologiya iş sahəsi: DICOM viewer, lokal arxiv, PACS, MPR/3D, hesabat, çap və CD/DVD. Bu mənbə 0.2.8 paketini hazırlayır; qiymət 10 AZN/aydır. Satıcı üçün [geniş ödəniş və paylaşma təlimatı](DISTRIBUTION.md) ayrıca yazılıb.
+Azərbaycan dilində radiologiya iş sahəsi: DICOM viewer, lokal arxiv, PACS, MPR/3D, hesabat, çap və CD/DVD. Bu mənbə 0.2.9 paketini hazırlayır; qiymət 10 AZN/aydır. Satıcı üçün [geniş ödəniş və paylaşma təlimatı](DISTRIBUTION.md) ayrıca yazılıb.
 
 ## Alıcı hansı faylı endirməlidir?
 
-Satıcının verdiyi GitHub Release keçidində **Assets → RADAZ-0.2.8-Setup.exe** endirilir. **Source code (zip)** və **Code → Download ZIP** hazır quraşdırma paketi deyil.
+Satıcının verdiyi GitHub Release keçidində **Assets → RADAZ-0.2.9-Setup.exe** endirilir. **Source code (zip)** və **Code → Download ZIP** hazır quraşdırma paketi deyil.
 
 [Mənbə deposu](https://github.com/drnaghiyev/RADAZ-D-COM) və [Releases səhifəsi](https://github.com/drnaghiyev/RADAZ-D-COM/releases/latest). Yeni versiyalar main qoluna göndərildikdən, GitHub yoxlamaları və paket yığımı uğurla tamamlandıqdan sonra yayımlanır. Alıcıya giriş tələb etməyən buraxılış keçidi verilməlidir; şəxsi depodakı buraxılışı RADAZ-ın anonim yeniləmə xidməti endirə bilməz.
 
@@ -40,7 +40,7 @@ Müddət bitdikdə **PACS və Local arxiv işləyir**. Viewer-də seriya seçimi
 
 ## Viewer və hesabat
 
-- Arxiv/PACS sətrində iki klik mövcud Viewer-ə müayinəni ötürür; vərəqənin önə gəlməsi brauzerin davranışından asılı ola bilər.
+- Local Archive-də müayinə sətrinə klik ayrıca Viewer vərəqəsi açır. PACS-dən açılan müayinə də ayrıca Viewer-də göstərilir; digər pasiyentlərin WL/WW, ölçüləri və görüntü vəziyyəti qorunur.
 - Cədvəl başlığına klik artan, təkrar klik azalan sıralama verir. Müayinə sayı alt status sətrindədir. Local arxivdə yuxarıdakı Qəbul ayarları düyməsi modal açır.
 - Sütun başlığının sağ sərhədini sürükləməklə eni dəyişin; enlər həmin brauzerdə saxlanılır. Sərhədə iki klik standart enləri bərpa edir. Fokuslanmış sərhəddə sol/sağ ox 5 px, Shift+ox 25 px dəyişir.
 - Ctrl + siçan çarxı Viewer/MPR görüntüsünü böyüdür və kiçildir; adi çarx kəsitləri dəyişir. Yardım menyusu Viewer, Local arxiv və PACS başlıqlarında var.
@@ -90,3 +90,5 @@ Yeniləmələr GitHub-dan avtomatik endirilir və SHA-256/file manifest ilə yox
 Proqram `%LOCALAPPDATA%\Programs\RADAZ` altında, klinik arxiv isə ayrıca `Documents\RADAZ-Archive` altında qalır. Köhnə ZIP-dən ilk keçiddə köhnə qəbuledici işləyirsə Windows-u bir dəfə yenidən başladın. `Windows-x64.zip` tam oflayn alternativdir: çıxarıb `SETUP-RADAZ.cmd` açın. `Windows-preview.zip` yüngül köhnə paylama formatıdır və sistemdə Node/Python tələb edir.
 
 Quraşdırıcı [Inno Setup](https://jrsoftware.org/) ilə yaradılır. [Node.js](https://nodejs.org/), [Python embedded distribution](https://docs.python.org/3/using/windows.html#the-embeddable-package), [Pillow](https://pillow.readthedocs.io/) və [imageio-ffmpeg](https://github.com/imageio/imageio-ffmpeg) mənbələri və SHA-256 identifikatorları paketdə `runtime/sources.json`, onların lisenziyaları isə müvafiq runtime qovluqlarındadır.
+
+Quraşdırma və CD/DVD yeniləmə üçün [çap edilə bilən addım-addım təlimat](public/RADAZ-Qurasdirma.html).

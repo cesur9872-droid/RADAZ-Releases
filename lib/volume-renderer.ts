@@ -1,6 +1,6 @@
 import type { getVolumeTexture } from './cornerstone';
 
-export type VolumeData = NonNullable<ReturnType<typeof getVolumeTexture>>;
+export type VolumeData = NonNullable<Awaited<ReturnType<typeof getVolumeTexture>>>;
 export type VolumePreset = 'bone' | 'boneVessel' | 'vascular' | 'skin' | 'soft' | 'lung';
 export type VolumeStyle = { preset: VolumePreset; threshold: number; opacity: number; rotation: [number, number]; zoom: number; pan: [number, number] };
 

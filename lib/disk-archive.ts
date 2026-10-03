@@ -26,12 +26,14 @@ export const receiverStatus = async (): Promise<ArchiveReceiverStatus> => (await
 export const diskStudies = async (): Promise<ArchiveStudy[]> => (await request('/studies', {}, 4000)).json();
 export const configureReceiver = async (settings: Pick<ArchiveReceiverStatus, 'aeTitle' | 'port' | 'enabled'>): Promise<ArchiveReceiverStatus> =>
   (await request('/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(settings) })).json();
-export async function diskFiles(study: string): Promise<File[]> {
+export async function diskFiles(study: string, onProgress?: (done: number, total: number) => void): Promise<File[]> {
   const items: { uid: string }[] = await (await request(`/instances?study=${encodeURIComponent(study)}`)).json();
   const files: File[] = [];
+  onProgress?.(0, items.length);
   for (const item of items) {
     const response = await request(`/file/${encodeURIComponent(item.uid)}`, {}, 60000);
     files.push(new File([await response.blob()], `${item.uid}.dcm`, { type: 'application/dicom' }));
+    onProgress?.(files.length, items.length);
   }
   return files;
 }

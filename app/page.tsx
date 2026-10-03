@@ -1,4 +1,7 @@
 'use client';
+import { WorkProgress } from '@/components/work-progress';
+import { type WorkProgress as LoadingProgress, yieldToBrowser } from '@/lib/work-progress';
+import { measurementVariables } from '@/lib/measurement-theme';
 import { RadazLogo } from '@/components/radaz-logo';
 import { AppHelpMenu, useViewerLicense } from '@/components/app-product';
 import { registerViewer } from '@/lib/viewer-session';
@@ -16,7 +19,7 @@ import { VolumePreview, type VolumeRenderSettings } from '@/components/volume-pr
 import type { VolumeStyle } from '@/lib/volume-renderer';
 import { ArrowUpRight, Pencil, MoveVertical, Eye, EyeOff, Download, PanelLeftClose, Activity, Box, ChevronDown, CircleDot, Crosshair, Database, Disc3, Eraser, FileArchive, FileText, Focus, Grid2X2, Hand, Layers3, MoveDiagonal2, RotateCcw, Ruler, ScanLine, ScanSearch, ServerCog, Settings2, SlidersHorizontal, Trash2, FolderOpen, Triangle, Waypoints } from 'lucide-react';
 import { addLocalDicom, createMprStacks, createObliqueMprStacks, getDefaultWindow, getLocalizerGeometry, getMprOrientations, getViewer, releaseLocalDicoms, rotateMprOrientation, thumbnailLocalDicom, type MprOrientations, type MprMode, type MprSettings } from '@/lib/cornerstone';
-import { closestSlice, sameCoordinateSpace, normalOf, planeLabel, type Point3 } from '@/lib/localizer';
+import { closestSlice, sameCoordinateSpace, normalOf, planeLabel, intersectPlanes, type Point3 } from '@/lib/localizer';
 import { expandSources, filesFromDrop } from '@/lib/import-sources';
 import { parseDicomFile } from '@/lib/dicom-file';
 import { getArchiveFiles, saveArchiveFiles } from '@/lib/local-archive';
@@ -24,14 +27,13 @@ import { watchRemovableMedia, type MediaImage, type MediaProgress } from '@/lib/
 import type * as Core from '@cornerstonejs/core';
 
 type Tool = 'scroll' | 'arrow' | 'pencil' | 'cursor3d' | 'wl' | 'pan' | 'zoom' | 'length' | 'angle' | 'arch' | 'cobb' | 'ellipse' | 'hu' | 'deviation' | 'erase';
-type Series = { id: string; studyId: string; name: string; modality: string; patient: string; patientId: string; birth: string; date: string; number: string; imageIds: string[]; sample: boolean; thumb?: string; mediaSession?: string; discovered?: number; loading?: boolean };
+type Series = { id: string; studyId: string; name: string; modality: string; patient: string; patientId: string; birth: string; date: string; number: string; imageIds: string[]; thumb?: string; mediaSession?: string; discovered?: number; loading?: boolean };
 type Preset = { ww: number; wl: number; token: number; panel: string; seriesId: string } | null;
 type ImportSource = { id: number; label: string; files: File[] };
 type MprData = { sourceId: string; stacks: Record<'SAG' | 'COR' | 'AX', string[]>; planes: Series[]; owned: string[]; orientations: MprOrientations | null };
 type DetachedMode = 'mpr' | '3d';
 const newMprSettings = (): MprSettings => ({ SAG: { mode: 'MPR', thickness: 1 }, COR: { mode: 'MPR', thickness: 1 }, AX: { mode: 'MPR', thickness: 1 } });
 const panePlane = { MS: 'SAG', MC: 'COR', MA: 'AX' } as const;
-const demoFiles = ['thorax', 'abdomen'].flatMap(k => Array.from({ length: 5 }, (_, i) => `/demo/${k}-${i + 1}.dcm`));
 const toolItems: { id: Tool; label: string; icon: typeof Ruler; hint: string }[] = [
   { id: 'scroll', label: 'Listələ', icon: MoveVertical, hint: 'S' },
   { id: 'arrow', label: 'Ox (Arrow)', icon: ArrowUpRight, hint: '' },
@@ -86,25 +88,20 @@ function groupSeries(series: Series[]): PatientGroup[] {
 function mprIntersection(images: Record<string, string>): Point3 | null {
   const geometries = ['MS','MC','MA'].map(panel => getLocalizerGeometry(images[panel] || ''));
   if (geometries.some(geometry => !geometry)) return null;
-  const normals = geometries.map(geometry => normalOf(geometry!));
-  const cross = (a: Point3, b: Point3): Point3 => [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
-  const products = [cross(normals[1], normals[2]), cross(normals[2], normals[0]), cross(normals[0], normals[1])];
-  const determinant = normals[0].reduce((sum, value, i) => sum + value * products[0][i], 0);
-  if (Math.abs(determinant) < .05) return null;
-  const distances = normals.map((normal, index) => normal.reduce((sum, value, i) => sum + value * geometries[index]!.origin[i], 0));
-  return [0,1,2].map(component => products.reduce((sum, product, index) => sum + distances[index] * product[component], 0) / determinant) as Point3;
+  return intersectPlanes(geometries.map(geometry => geometry!));
 }
 function age(birth: string, study: string) {
   if (birth?.length !== 8 || study?.length !== 8) return '—';
   return `${+study.slice(0, 4) - +birth.slice(0, 4) - Number(study.slice(4) < birth.slice(4))} yaş`;
 }
 
-function ViewportPane({ cursor, onCursor, hideText, id, series, initialImageId, selected, tool, preset, resetToken, clearToken, ready, marks, selectedMarkId, localizers, otherImages, reconstruction, onImageChange, onMoveSource, onRotateSource, onRotateStart, onPreviewRotateSource, onAddMark, onUpdateMark, onRemoveMark, onSelectMark, onClearImage, onSelect, onToggleMaximize, onDropSeries }: {
+function ViewportPane({ cursor, onCursor, hideText, id, series, initialImageId, selected, tool, preset, resetToken, clearToken, ready, marks, selectedMarkId, localizers, otherImages, reconstruction, onImageChange, onMoveSource, onMoveIntersection, loadingProgress, onRotateSource, onRotateStart, onPreviewRotateSource, onAddMark, onUpdateMark, onRemoveMark, onSelectMark, onClearImage, onSelect, onToggleMaximize, onDropSeries }: {
   cursor: CursorPosition | null; onCursor: (position: CursorPosition) => void; hideText: boolean;
   id: string; series?: Series; selected: boolean; tool: Tool; preset: Preset; resetToken: number; ready: boolean;
   initialImageId?: string;
   clearToken: number; marks: LocalMark[]; selectedMarkId: string | null; localizers: boolean; otherImages: { panel: string; imageId: string }[];
   reconstruction?: { mode: MprMode; thickness: number };
+  onMoveIntersection?: (world: Point3) => void; loadingProgress?: LoadingProgress | null;
   onImageChange: (panel: string, imageId: string) => void; onMoveSource: (panel: string, world: Point3) => void;
   onRotateSource?: (sourcePanel: string, targetPanel: string, angleRadians: number) => void;
   onRotateStart?: (sourcePanel: string, targetPanel: string) => void;
@@ -231,7 +228,8 @@ function ViewportPane({ cursor, onCursor, hideText, id, series, initialImageId, 
       const vp = engine.getViewport(viewportId) as Core.Types.IStackViewport;
       if (!vp || token !== requestRef.current) return;
       const extending = stackSeries.current === series.id;
-      const initialIndex = series.imageIds.indexOf((extending ? vp.getCurrentImageId() : initialImageId) || '');
+      const current = vp.getCurrentImageId();
+      const initialIndex = series.imageIds.indexOf((extending && current && series.imageIds.includes(current) ? current : initialImageId) || '');
       const camera = extending ? vp.getCamera() : null;
       const properties = extending ? vp.getProperties() : null;
       await vp.setStack(series.imageIds, initialIndex >= 0 ? initialIndex : 0);
@@ -303,16 +301,17 @@ function ViewportPane({ cursor, onCursor, hideText, id, series, initialImageId, 
     });
   }, [enabled, selected, clearToken, viewportId, onClearImage]);
 
-  return <section data-panel={id} className={`viewport ${selected ? 'active' : ''} ${hideText ? 'hide-image-text' : ''} ${tool === 'scroll' ? 'touch-scroll-mode' : ''}`} onClick={onSelect} onDoubleClick={limited ? undefined : onToggleMaximize}
+  return <section data-has-image={!!imageId} data-panel={id} className={`viewport ${selected ? 'active' : ''} ${hideText ? 'hide-image-text' : ''} ${tool === 'scroll' ? 'touch-scroll-mode' : ''}`} onClick={onSelect} onDoubleClick={limited ? undefined : onToggleMaximize}
     onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }}
     onDrop={e => { e.preventDefault(); const uid = e.dataTransfer.getData('application/x-series-id'); if (uid) onDropSeries(uid); }}
     aria-label={`Görüntü paneli ${id}`}>
     <div className="dicom-canvas" ref={elementRef} onContextMenu={e => e.preventDefault()} />
     {!limited && <MeasurementOverlay element={elementRef.current} viewport={viewport} imageId={imageId} modality={series?.modality} tool={tool} marks={marks} selectedMarkId={selectedMarkId}
       onAdd={onAddMark} onUpdate={onUpdateMark} onRemove={onRemoveMark} onSelectMark={onSelectMark}/>}
-    {!limited && <LocalizerOverlay element={elementRef.current} viewport={viewport} imageId={imageId} otherImages={otherImages} enabled={localizers} onMoveSource={onMoveSource} targetPanel={id} onRotateSource={onRotateSource} onRotateStart={onRotateStart} onPreviewRotateSource={onPreviewRotateSource}/>}
+    {!limited && <LocalizerOverlay element={elementRef.current} viewport={viewport} imageId={imageId} otherImages={otherImages} enabled={localizers} onMoveSource={onMoveSource} onMoveIntersection={onMoveIntersection} targetPanel={id} onRotateSource={onRotateSource} onRotateStart={onRotateStart} onPreviewRotateSource={onPreviewRotateSource}/>}
     <ViewerInteractionOverlay viewport={viewport} element={elementRef.current} imageId={imageId} tool={tool} slice={slice} count={series?.imageIds.length || 0}
-      marks={marks} cursor={cursor} onCursor={onCursor} onAdd={onAddMark} onRemove={onRemoveMark} onSelect={onSelect} navigate={navigate}/>
+      marks={marks} selectedMarkId={selectedMarkId} onSelectMark={onSelectMark} cursor={cursor} onCursor={onCursor} onAdd={onAddMark} onRemove={onRemoveMark} onSelect={onSelect} navigate={navigate}/>
+    {loadingProgress && <WorkProgress className="viewport-work-progress" progress={loadingProgress}/>}
     <div className="pane-badge">{id}</div>
     {series ? <>
       <div className="overlay top-left"><strong>{series.patient}</strong><span>{age(series.birth, series.date)}</span><span>{formatDate(series.birth)} doğum</span></div>
@@ -365,7 +364,7 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
   const [importOpen, setImportOpen] = useState(false);
   const [importBusy, setImportBusy] = useState(false);
   const [importQueue, setImportQueue] = useState<ImportSource[]>([]);
-  const [status, setStatus] = useState('Nümunə yüklənir…');
+  const [status, setStatus] = useState('DICOM faylı, CD/DVD və ya arxiv müayinəsi açın');
   const fileRef = useRef<HTMLInputElement>(null);
   const folderRef = useRef<HTMLInputElement>(null);
   const zipRef = useRef<HTMLInputElement>(null);
@@ -379,6 +378,9 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
   const [mediaEnabled, setMediaEnabled] = useState(false);
   const [mediaFilter, setMediaFilter] = useState<string[] | undefined>();
   const [mediaProgress, setMediaProgress] = useState<MediaProgress | null>(null);
+  const [loadProgress, setLoadProgress] = useState<LoadingProgress | null>(null);
+  const [mprProgress, setMprProgress] = useState<LoadingProgress | null>(null);
+  const mprBuildEpoch = useRef(0);
   const mediaId = (session: string, item: MediaImage) => `media:${session}:${item.studyId}/${item.seriesUID}`;
   const channels = useRef<Map<DetachedMode | 'report', BroadcastChannel>>(new Map());
   const selectedIdRef = useRef<string | undefined>(undefined);
@@ -428,13 +430,11 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
           mediaFiles.current.set(session, []);
           importEpoch.current++; setImportBusy(false);
         }
-        const samples = listRef.current.filter(s => s.sample);
-        let next = listRef.current.filter(s => !s.sample);
-        if (samples.length) { releaseLocalDicoms(samples.flatMap(s => s.imageIds)); openedFiles.current = []; }
+        let next = [...listRef.current];
         for (const item of images) {
           const id = mediaId(session, item), existing = next.find(s => s.id === id);
           if (existing) next = next.map(s => s.id === id ? { ...s, discovered: (s.discovered || 0) + 1 } : s);
-          else next.push({ ...item, id, imageIds: [], sample: false, mediaSession: session, discovered: 1, loading: true });
+          else next.push({ ...item, id, imageIds: [], mediaSession: session, discovered: 1, loading: true });
         }
         listRef.current = next; setSeriesList(next);
         setAssigned(current => {
@@ -442,7 +442,7 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
           if (preferred) { preferredMediaSeries.current = undefined; return { A: preferred.id }; }
           return next.some(s => s.id === current.A) ? current : next[0] ? { A: next[0].id } : {};
         });
-        if (samples.length) setDatasetVersion(v => v + 1);
+
       },
       async image(session, item, file, signal) {
         const bytes = new Uint8Array(await file.arrayBuffer());
@@ -459,6 +459,7 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
         mediaFiles.current.get(session)?.push(file);
       },
       removed(session) {
+        mprBuildEpoch.current++; setMprProgress(null);
         const removed = listRef.current.filter(s => s.mediaSession === session);
         const ids = new Set(removed.flatMap(s => s.imageIds));
         const next = listRef.current.filter(s => s.mediaSession !== session);
@@ -490,7 +491,8 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
     }, mediaFilter);
   }, [ready, mediaEnabled, mediaFilter]);
 
-  const importFiles = useCallback(async (files: File[], sample = false, request = ++importEpoch.current, preferredSeriesId?: string): Promise<boolean> => {
+  const importFiles = useCallback(async (files: File[], request = ++importEpoch.current, preferredSeriesId?: string): Promise<boolean> => {
+    setLoadProgress({label: 'DICOM yüklənir', done: 0, total: files.length});
     const viewer = await getViewer();
     if (request !== importEpoch.current) return false;
     const found = new Map<string, Series & { ordered: { id: string; n: number }[]; sopUIDs: Set<string> }>();
@@ -512,6 +514,7 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
       });
       if (!imported.length) return;
       if (!published) {
+        mprBuildEpoch.current++; setMprProgress(null);
         const previousIds = listRef.current.flatMap(s => s.imageIds);
         viewer.tools.annotation.state.removeAllAnnotations();
         setMarks([]); setSelectedMarkId(null); setMaximizedPane(null); setMaximizedMprPane(null);
@@ -526,6 +529,8 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
         published = true;
       }
       listRef.current = imported; setSeriesList(imported); openedFiles.current = [...acceptedFiles];
+      setLoadProgress({label: 'DICOM yüklənir', done: acceptedFiles.length, total: files.length});
+      if (!detachedMode) document.title = `${imported[0].patient} · RADAZ Viewer`;
       setStatus(`${imported.length} seriya · ${acceptedFiles.length} / ${files.length} görüntü oxunur…`);
     };
     for (const file of files) {
@@ -548,7 +553,7 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
           id: uid, studyId, name: get('x0008103e') || 'Adsız seriya', modality: get('x00080060') || 'DICOM',
           patient: (get('x00100010') || 'Naməlum pasiyent').replaceAll('^', ' '),
           patientId: get('x00100020') || '—', birth: get('x00100030'), date: get('x00080020'),
-          number: get('x00200011') || '—', imageIds: [], ordered: [], sopUIDs: new Set<string>(), sample,
+          number: get('x00200011') || '—', imageIds: [], ordered: [], sopUIDs: new Set<string>(),
           thumb: undefined,
         };
         record.ordered.push({ id: imageId, n: Number(get('x00200013')) || 0 });
@@ -560,7 +565,7 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
       } catch (err) { rejected++; firstError ||= err instanceof Error ? err.message : String(err); }
     }
     if (request !== importEpoch.current) { discardUnpublished(); return false; }
-    finished = true; publish();
+    finished = true; publish(); setLoadProgress(null);
     if (published) {
       if (!detachedMode) channels.current.forEach((channel, mode) => { if (mode === 'report') return; try { channel.postMessage({ kind: 'LOAD', files: acceptedFiles, preferredSeriesId: preferredSeriesId || listRef.current[0]?.id }); } catch { /* Closed tabs reconnect on demand. */ } });
       setStatus(`${found.size} seriya · ${files.length - rejected - ignored} DICOM görüntüsü yükləndi${rejected ? ` · ${rejected} fayl keçildi` : ''}`);
@@ -583,7 +588,7 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
       }
       if (event.data?.kind === 'LOAD' && Array.isArray(event.data.files)) {
         setMediaEnabled(false);
-        void importFiles(event.data.files as File[], false, ++importEpoch.current, event.data.preferredSeriesId);
+        void importFiles(event.data.files as File[], ++importEpoch.current, event.data.preferredSeriesId);
       }
     };
     channel.postMessage({ kind: 'READY' });
@@ -612,19 +617,17 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
         const archivedStudy = !detachedMode && new URLSearchParams(window.location.hash.slice(1)).get('archive-study');
         if (archivedStudy) {
           setStatus('Local arxivdən müayinə açılır…');
-          const files = await getArchiveFiles(archivedStudy);
-          if (!cancelled && files.length) await importFiles(files, false, 0);
+          setLoadProgress({label: 'Local arxiv yüklənir', done: 0, total: 0});
+          const files = await getArchiveFiles(archivedStudy, (done,total) => { if(!cancelled)setLoadProgress({label:'Local arxiv yüklənir',done,total}); });
+          if (!cancelled && files.length) await importFiles(files, 0);
           else if (!cancelled) setStatus('Arxiv müayinəsi tapılmadı');
           return;
         }
-        const responses = await Promise.all(demoFiles.map(path => fetch(path)));
-        if (responses.some(r => !r.ok)) throw new Error('Nümunə faylı əlçatan deyil');
-        const files = await Promise.all(responses.map(async (r, i) => new File([await r.blob()], demoFiles[i].split('/').pop()!, { type: 'application/dicom' })));
-        if (!cancelled && importEpoch.current === 0) await importFiles(files, true, 0);
-      } catch (err) { if (!cancelled && importEpoch.current === 0) setStatus(`Nümunə açıla bilmədi: ${String(err)}`); }
+        if (new URLSearchParams(window.location.search).get('pending') === 'pacs') setLoadProgress({label:'PACS yüklənir',done:0,total:0});
+      } catch (err) { if (!cancelled && importEpoch.current === 0) { setStatus(`Müayinə açıla bilmədi: ${String(err)}`); setLoadProgress(null); }; }
     })();
     return () => { cancelled = true; };
-  // Load the bundled sample once.
+  // Start with an empty production workspace or the explicitly requested study.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detachedMode]);
 
@@ -635,13 +638,13 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
       const request = ++importEpoch.current;
       setStatus('Local arxivdən müayinə açılır…');
       try {
-        const files = await getArchiveFiles(uid);
+        const files = await getArchiveFiles(uid, (done,total) => { if(request === importEpoch.current)setLoadProgress({label:'Local arxiv yüklənir',done,total}); });
         if (request !== importEpoch.current) return;
         if (!files.length) throw new Error('Müayinə arxivdə tapılmadı');
-        if (await importFiles(files, false, request)) history.replaceState(null, '', `/#archive-study=${encodeURIComponent(uid)}`);
+        if (await importFiles(files, request)) history.replaceState(null, '', `/#archive-study=${encodeURIComponent(uid)}`);
       } catch (error) { if (request === importEpoch.current) setStatus(String(error)); }
     };
-    return registerViewer(load);
+    return registerViewer(load, (progress,error) => { setLoadProgress(progress); if(error)setStatus(error); });
   }, [detachedMode, ready, importFiles]);
 
   const openDetached = (mode: DetachedMode) => {
@@ -758,7 +761,7 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
       const expanded = await expandSources(sources, message => { if (request === importEpoch.current) setStatus(message); });
       if (request !== importEpoch.current) return;
       if (!expanded.length) { setStatus('Seçilən mənbədə fayl yoxdur. Əvvəlki müayinə saxlanıldı.'); return; }
-      if (await importFiles(expanded, false, request)) {
+      if (await importFiles(expanded, request)) {
         setImportQueue([]); setImportOpen(false);
         try {
           const count = await saveArchiveFiles(expanded);
@@ -783,25 +786,45 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
     : seriesList.filter(s => !s.loading && s.studyId === currentSeries?.studyId && s.imageIds.length >= 3)
       .sort((a, b) => b.imageIds.length - a.imageIds.length)[0];
   const grouped = groupSeries(seriesList);
-  const buildMpr = (source: Series, settings: MprSettings, orientations: MprOrientations | null, pivot: Point3 | null, center = false) => {
-    const stacks = orientations && pivot ? createObliqueMprStacks(source.imageIds, settings, orientations, pivot) : createMprStacks(source.imageIds, settings);
-    const planes = (['SAG', 'COR', 'AX'] as const).map((plane, index) => ({ ...source, id: `${source.id}/mpr/${plane}/${settings[plane].mode}/${settings[plane].thickness}`, name: { SAG: 'Sagital', COR: 'Koronal', AX: 'Aksial' }[plane], imageIds: stacks[plane], number: String(index + 1) }));
-    const owned = [...stacks.SAG, ...stacks.COR, ...stacks.AX].filter(id => !source.imageIds.includes(id));
+  const buildMpr = async (source: Series, settings: MprSettings, orientations: MprOrientations | null, pivot: Point3 | null, center = false, onlyPlane?: 'SAG'|'COR'|'AX') => {
+    const epoch = ++mprBuildEpoch.current;
     const previousData = mprDataRef.current;
-    const previous = previousData?.stacks;
-    const position = (panel: 'MS'|'MC'|'MA', plane: 'SAG'|'COR'|'AX') => {
-      if (orientations && pivot) {
-        const focus = closestSlice(stacks[plane], pivot, getLocalizerGeometry);
-        if (focus !== null) return stacks[plane][focus];
-      }
-      const oldIndex = center ? -1 : previous?.[plane].indexOf(currentImages[panel]);
-      return stacks[plane][oldIndex !== undefined && oldIndex >= 0 ? Math.min(oldIndex, stacks[plane].length - 1) : Math.floor(stacks[plane].length / 2)];
-    };
-    if (previousData?.owned.length) window.setTimeout(() => releaseLocalDicoms(previousData.owned), 2200);
-    const next = { sourceId: source.id, stacks, planes, owned, orientations };
-    mprDataRef.current = next; setMprData(next);
-    setCurrentImages(images => ({ ...images, MS: position('MS','SAG'), MC: position('MC','COR'), MA: position('MA','AX') }));
+    const previous = previousData?.sourceId === source.id ? previousData : null;
+    let stacks = previous ? { ...previous.stacks } : { SAG: [] as string[], COR: [] as string[], AX: [] as string[] };
+    const created: string[] = [];
+    const requested = onlyPlane ? [onlyPlane] : ['AX','COR','SAG'] as const;
+    if (!onlyPlane) setMprProgress({label:'MPR hazırlanır',done:0,total:requested.length,unit:'müstəvi',phase:'Aksial görüntü açılır'});
     setMprError(''); setWorkspace('mpr');
+    try {
+      const { core } = await getViewer();
+      for (const [index, plane] of requested.entries()) {
+        await yieldToBrowser();
+        if (epoch !== mprBuildEpoch.current) break;
+        const result = orientations && pivot ? createObliqueMprStacks(source.imageIds,settings,orientations,pivot,[plane]) : createMprStacks(source.imageIds,settings,[plane]);
+        created.push(...result[plane].filter(id => !source.imageIds.includes(id)));
+        stacks = { ...stacks, [plane]: result[plane] };
+        const focus = pivot ? closestSlice(stacks[plane],pivot,getLocalizerGeometry) : null;
+        const oldIndex = center ? -1 : previous?.stacks[plane].indexOf(currentImages[{SAG:'MS',COR:'MC',AX:'MA'}[plane]]);
+        const position = focus ?? (oldIndex !== undefined && oldIndex >= 0 ? Math.min(oldIndex,stacks[plane].length-1) : Math.floor(stacks[plane].length/2));
+        const firstImage = stacks[plane][position];
+        await core.imageLoader.loadAndCacheImage(firstImage);
+        if (epoch !== mprBuildEpoch.current) break;
+        const planes = (['SAG','COR','AX'] as const).map((key, number) => ({...source,id:`${source.id}/mpr/${key}`,name:{SAG:'Sagital',COR:'Koronal',AX:'Aksial'}[key],imageIds:stacks[key],number:String(number+1),loading:false}));
+        const owned = [...stacks.SAG,...stacks.COR,...stacks.AX].filter(id => !source.imageIds.includes(id));
+        const next = {sourceId:source.id,stacks,planes,owned,orientations};
+        mprDataRef.current=next;setMprData(next);
+        const panel={SAG:'MS',COR:'MC',AX:'MA'}[plane];
+        setCurrentImages(images=>({...images,[panel]:firstImage}));
+        if(!onlyPlane)setMprProgress({label:'MPR hazırlanır',done:index+1,total:requested.length,unit:'müstəvi',phase:`${planes.find(p=>p.imageIds===stacks[plane])?.name || plane} hazırdır`});
+      }
+      if(epoch===mprBuildEpoch.current)setMprProgress(null);
+    } catch(error) {
+      if(epoch===mprBuildEpoch.current){setMprError(error instanceof Error?error.message:String(error));setMprProgress(null);}
+    } finally {
+      const retained=new Set(mprDataRef.current?.owned || []);
+      const obsolete=[...(previousData?.owned || []),...created].filter(id=>!retained.has(id));
+      if(obsolete.length)window.setTimeout(()=>releaseLocalDicoms(obsolete),300);
+    }
   };
   const openMpr = () => {
     const source = !currentSeries?.loading && currentSeries?.imageIds.length && currentSeries.imageIds.length >= 3 ? currentSeries : volumeSeries;
@@ -847,22 +870,20 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
     if (!final && Math.abs(angleRadians) < .008) return;
     if (!final && performance.now() - gesture.last < 110) return;
     gesture.last = performance.now();
-    const targetPlane = panePlane[targetPanel as keyof typeof panePlane];
-    if (!targetPlane) return;
-    const orientations = { ...gesture.base };
-    for (const plane of ['SAG','COR','AX'] as const) if (plane !== targetPlane)
-      orientations[plane] = rotateMprOrientation(gesture.base[plane], gesture.axis, angleRadians);
-    try { buildMpr(gesture.source, mprSettings, orientations, gesture.pivot); }
+    const sourcePlane = panePlane[sourcePanel as keyof typeof panePlane];
+    if (!sourcePlane) return;
+    const orientations = { ...gesture.base, [sourcePlane]: rotateMprOrientation(gesture.base[sourcePlane], gesture.axis, angleRadians) };
+    try { void buildMpr(gesture.source, mprSettings, orientations, gesture.pivot, false, sourcePlane); }
     catch (err) { setMprError(err instanceof Error ? err.message : String(err)); }
     if (final) gestureRef.current = null;
   };
   const rotateMprSource = (source: string, target: string, radians: number) => updateMprRotation(source, target, radians, true);
 
   useEffect(() => {
-    if (detachedMode === 'mpr' && ready && !mprData && !mprError && volumeSeries) openMpr();
+    if (detachedMode === 'mpr' && ready && !mprData && !mprError && !mprProgress && volumeSeries) openMpr();
   // Load the reconstructed planes once the handoff series is available.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [detachedMode, ready, mprData, mprError, volumeSeries?.id]);
+  }, [detachedMode, ready, mprData, mprError, !!mprProgress, volumeSeries?.id]);
   const moveMprSource = (panel: string, world: Point3) => {
     const stack = mprData?.stacks[panel === 'MS' ? 'SAG' : panel === 'MC' ? 'COR' : 'AX'];
     if (!stack) return;
@@ -872,6 +893,10 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
       const pane = engine.getViewport(`panel-${panel}`) as Core.Types.IStackViewport | undefined;
       if (pane && pane.getCurrentImageIdIndex() !== index) void pane.setImageIdIndex(index);
     });
+  };
+
+  const moveMprIntersection = (world: Point3) => {
+    for(const panel of ['MS','MC','MA'])moveMprSource(panel,world);
   };
 
   const onCursor = (position: CursorPosition) => {
@@ -892,9 +917,11 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
     });
   };
 
-  return <main className={`workstation grouped-workstation ${railHidden ? 'rail-hidden' : ''} ${detachedMode ? 'detached' : ''}`} data-mode={detachedMode || 'viewer'}>
+  const mprPreview = currentSeries?.imageIds.length && ['CT','MR'].includes(currentSeries.modality) ? currentSeries : seriesList.find(item=>item.imageIds.length && ['CT','MR'].includes(item.modality));
+  const sourceLoading: LoadingProgress | null = loadProgress || (mediaProgress?.sessions && (mediaProgress.scanning || mediaProgress.loaded + mediaProgress.skipped < mediaProgress.discovered) ? {label:detachedMode === '3d'?'3D görüntü hazırlanır':'MPR hazırlanır',done:mediaProgress.loaded,total:mediaProgress.discovered,indeterminate:mediaProgress.scanning,phase:'DICOM görüntüləri oxunur'} : null);
+  return <main className={`workstation grouped-workstation ${railHidden ? 'rail-hidden' : ''} ${detachedMode ? 'detached' : ''}`} data-mode={detachedMode || 'viewer'} style={measurementVariables as React.CSSProperties}>
     <header className="topbar">
-      <div className="brand"><RadazLogo size={34}/><span><strong>RADAZ</strong><small>RADIOLOGY WORKSPACE</small></span></div>
+      {!detachedMode && <div className="brand"><RadazLogo size={34}/><span><strong>RADAZ</strong><small>RADIOLOGY WORKSPACE</small></span></div>}
       <div className="primary-command-row">
         {!detachedMode && <div className="toolbar-group import-command" role="group" aria-label="DICOM idxalı"><DropdownMenu><DropdownMenuTrigger asChild><Button variant="outline" className="header-control" title="DICOM import" aria-label="DICOM import" disabled={importBusy || limited}><FolderOpen size={17}/><span>DICOM import</span><ChevronDown size={14}/></Button></DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="header-menu">
@@ -1010,10 +1037,13 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
           </section>)}
           {!seriesList.length && <div className="rail-empty">{status}</div>}
         </div>
-        {mediaEnabled && <div className="media-import-progress" role="status" aria-live="polite">
-          <strong>{mediaProgress?.error ? 'CD/DVD import' : !mediaProgress?.sessions ? 'CD/DVD gözlənilir…' : mediaProgress.scanning ? 'CD/DVD skan edilir…' : (mediaProgress.loaded + mediaProgress.skipped < mediaProgress.discovered) ? 'CD/DVD yüklənir…' : 'CD/DVD hazırdır'}</strong>
-          {!!mediaProgress?.discovered && <><progress aria-label="CD/DVD yüklənməsi" max={mediaProgress.discovered} value={mediaProgress.scanning ? undefined : mediaProgress.loaded + mediaProgress.skipped}/><span>{mediaProgress.loaded} / {mediaProgress.discovered} görüntü{mediaProgress.skipped ? ` · ${mediaProgress.skipped} oxunmadı` : ''}</span></>}
-          <small>{mediaProgress?.error || 'Disk çıxarılanda görüntülər avtomatik təmizlənir.'}</small>
+        <WorkProgress className="series-work-progress" progress={loadProgress}/>
+        {mediaEnabled && <div className="media-import-progress">
+          {mediaProgress?.error ? <small role="alert">{mediaProgress.error} <a href="/RADAZ-Qurasdirma.html" target="_blank" rel="noreferrer">Quraşdırma təlimatı</a></small> : !mediaProgress?.sessions ? <small>CD/DVD gözlənilir…</small> : null}
+          <WorkProgress progress={mediaProgress && (mediaProgress.scanning || mediaProgress.loaded + mediaProgress.skipped < mediaProgress.discovered) && !mediaProgress.error ? {
+            label:'CD/DVD yüklənir',done:mediaProgress.loaded,total:mediaProgress.discovered,indeterminate:mediaProgress.scanning,
+            phase:mediaProgress.scanning?'Disk skan edilir; görüntülərə artıq baxa bilərsiniz':mediaProgress.skipped ? `${mediaProgress.skipped} görüntü oxunmadı` : undefined,
+          } : null}/>
         </div>}
       </aside>}
       <section className="main-area">
@@ -1021,8 +1051,19 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
           {Array.from({ length: layout.rows * layout.columns }, (_, index) => String.fromCharCode(65 + index)).filter(id => !maximizedPane || id === maximizedPane).map(id => { const otherImages = id !== active && assigned[active] && currentImages[active] ? [{ panel: active, imageId: currentImages[active] }] : []; return <ViewportPane key={`${id}-${datasetVersion}-${assigned[id] || "empty"}`} id={id} initialImageId={currentImages[id]} series={seriesList.find(s => s.id === assigned[id])} selected={active === id} tool={limited ? 'scroll' : tool} cursor={cursor} onCursor={onCursor} hideText={hideText} preset={preset} resetToken={resetToken} clearToken={clearToken} ready={ready} marks={marks} selectedMarkId={selectedMarkId} localizers={localizers && id !== active} otherImages={otherImages} onImageChange={onImageChange} onMoveSource={onMoveSource} onAddMark={onAddMark} onUpdateMark={onUpdateMark} onRemoveMark={onRemoveMark} onSelectMark={markId => { setActive(id); setSelectedMarkId(markId); }} onClearImage={onClearImage} onSelect={() => { setActive(id); setSelectedMarkId(null); }} onToggleMaximize={() => { setActive(id); setMaximizedPane(current => current === id ? null : id); }} onDropSeries={sid => place(sid, id)}/>; })}
         </div>}
         {workspace === 'mpr' && <>
-        {mprError ? <div className="mpr-empty" role="alert"><Layers3 size={38}/><strong>MPR açıla bilmədi</strong><span>{mprError}</span></div> : mprData && <div className={`mpr-grid ${maximizedMprPane ? 'maximized' : ''}`}>{(['SAG','COR','AX'] as const).map((plane, index) => ({ plane, index, id: ['MS','MC','MA'][index] })).filter(({ id }) => !maximizedMprPane || id === maximizedMprPane).map(({ plane, index, id }) => <ViewportPane key={`${id}-${mprData.sourceId}`} id={id} initialImageId={currentImages[id]} series={mprData.planes[index]} reconstruction={mprSettings[plane]} selected={mprActive === id} tool={limited ? 'scroll' : tool} cursor={cursor} onCursor={onCursor} hideText={hideText} preset={preset} resetToken={resetToken} clearToken={clearToken} ready={ready} marks={marks} selectedMarkId={selectedMarkId} localizers={localizers} otherImages={(['SAG','COR','AX'] as const).filter(other => other !== plane).map(other => ({ panel: { SAG:'MS',COR:'MC',AX:'MA' }[other], imageId: currentImages[{ SAG:'MS',COR:'MC',AX:'MA' }[other]] || '' })).filter(s => s.imageId)} onImageChange={onImageChange} onMoveSource={moveMprSource} onRotateSource={rotateMprSource} onRotateStart={beginMprRotation} onPreviewRotateSource={(source,target,radians) => updateMprRotation(source,target,radians)} onAddMark={onAddMark} onUpdateMark={onUpdateMark} onRemoveMark={onRemoveMark} onSelectMark={markId => { setMprActive(id); setSelectedMarkId(markId); }} onClearImage={onClearImage} onSelect={() => { setMprActive(id); setSelectedMarkId(null); }} onToggleMaximize={() => { setMprActive(id); setMaximizedMprPane(current => current === id ? null : id); }} onDropSeries={sid => place(sid,'A')}/>)}</div>}</>}
-        {workspace === '3d' && <VolumePreview series={volumeSeries} preset={volumePreset} threshold={volumeThreshold} opacity={volumeOpacity} settings={volumeSettings} resetToken={volumeResetToken} onThresholdChange={setVolumeThreshold} onOpacityChange={setVolumeOpacity} />}
+          {mprError && <div className="mpr-error-notice" role="alert">{mprError}</div>}
+          <div className={`mpr-grid ${maximizedMprPane ? 'maximized' : ''}`}>
+            {(['SAG','COR','AX'] as const).map((plane,index)=>({plane,index,id:['MS','MC','MA'][index]})).filter(({id})=>!maximizedMprPane||id===maximizedMprPane).map(({plane,index,id})=>{
+              const shown=mprData?.planes[index] || (plane==='AX'?mprPreview:undefined);
+              const progress=!shown?.imageIds.length ? mprProgress || sourceLoading : null;
+              return <ViewportPane key={`${id}-${mprData?.sourceId || mprPreview?.id || 'waiting'}`} id={id} initialImageId={currentImages[id]} series={shown} loadingProgress={progress} reconstruction={mprSettings[plane]} selected={mprActive===id} tool={limited?'scroll':tool} cursor={cursor} onCursor={onCursor} hideText={hideText} preset={preset} resetToken={resetToken} clearToken={clearToken} ready={ready} marks={marks} selectedMarkId={selectedMarkId} localizers={localizers}
+                otherImages={(['MS','MC','MA']).filter(other=>other!==id).map(other=>({panel:other,imageId:currentImages[other] || ''})).filter(item=>item.imageId)}
+                onImageChange={onImageChange} onMoveSource={moveMprSource} onMoveIntersection={moveMprIntersection} onRotateSource={rotateMprSource} onRotateStart={beginMprRotation} onPreviewRotateSource={(source,target,radians)=>updateMprRotation(source,target,radians)}
+                onAddMark={onAddMark} onUpdateMark={onUpdateMark} onRemoveMark={onRemoveMark} onClearImage={onClearImage} onSelectMark={markId=>{setMprActive(id);setSelectedMarkId(markId);}} onSelect={()=>{setMprActive(id);setSelectedMarkId(null);}} onToggleMaximize={()=>{setMprActive(id);setMaximizedMprPane(current=>current===id?null:id);}} onDropSeries={sid=>place(sid,'A')}/>;
+            })}
+          </div>
+        </>}
+        {workspace === '3d' && <VolumePreview series={volumeSeries} sourceProgress={sourceLoading} preset={volumePreset} threshold={volumeThreshold} opacity={volumeOpacity} settings={volumeSettings} resetToken={volumeResetToken} onThresholdChange={setVolumeThreshold} onOpacityChange={setVolumeOpacity} />}
         <footer className="statusbar"><div><span className="status-led"/> {ready ? 'Cornerstone3D hazırdır' : 'Görüntüləmə hazırlanır'} <span className="status-sep">/</span> <span>{workspace === 'mpr' ? `MPR · ${mprSettings[panePlane[mprActive as keyof typeof panePlane] || 'AX'].mode}` : workspace === '3d' ? '3D görünüş' : `Aktiv panel ${active}`}</span><span className="status-sep">/</span>{status}<span className="status-sep">/</span><span aria-label="Lisenziya statusu">{licenseStatus}</span></div></footer>
       </section>
     </div>

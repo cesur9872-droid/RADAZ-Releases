@@ -71,7 +71,7 @@ corepack pnpm run build
 
 ## Fırlatma, pozitiv / neqativ
 
-Fırlat menyusu: 90° sola/sağa, 180°, üfüqi/şaquli çevir və sıfırla. Qısayollar: Ctrl+[ / Ctrl+], Ctrl+Shift+[ / Ctrl+Shift+], Ctrl+Shift+\. Neqativ / pozitiv F11 ilə dəyişir. Window menyusunda DICOM standartı, tam dinamik diapazon, WL/WW cütləri və xüsusi pəncərə (Ctrl+F11) var. Əməliyyatlar aktiv panelə tətbiq edilir. Məkan koordinatı varsa sağ/sol istiqamət yazıları çevirməyə uyğun yenilənir.
+Fırlat menyusu: 90° sola/sağa, 180°, üfüqi/şaquli çevir və sıfırla. Qısayollar: Ctrl+[ / Ctrl+], Ctrl+Shift+[ / Ctrl+Shift+], Ctrl+Shift+\. Neqativ / pozitiv Fırlat menyusundan dəyişir. F11 yalnız siçan görüntü üzərində olanda viewport-u tam ekran açır/bağlayır. Window menyusunda DICOM standartı, tam dinamik diapazon, WL/WW cütləri və xüsusi pəncərə var. Əməliyyatlar aktiv panelə tətbiq edilir. Məkan koordinatı varsa sağ/sol istiqamət yazıları çevirməyə uyğun yenilənir.
 
 ## Viewer-dən seçilmiş görüntülərin çapı
 
@@ -88,7 +88,7 @@ Fırlat menyusu: 90° sola/sağa, 180°, üfüqi/şaquli çevir və sıfırla. Q
 
 **Oxumaq:** Viewer başlığında ayrıca **CD/DVD import** düyməsini aktiv edin. Seçim yadda saxlanır; RADAZ açıq olduqda Windows optik qurğuları yoxlanır. Taxılmış disk üçün DICOMDIR əvvəl oxunur, sonra bütün alt qovluqlardakı əlavə DICOM görüntüləri tapılır. DICOMDIR yoxdursa və ya xarabdırsa avtomatik skan davam edir. `.dcm` uzantısı və `DICM` başlığı məcburi deyil; faylın DICOM teqləri və piksel məlumatı yoxlanır. Upload, qovluq seçimi və təsdiq göstərilmir.
 
-Seriya aşkarlanan kimi siyahıya çıxır, ilk görüntü oxunanda thumbnail və Viewer açılır. Qalan kəsitlər arxa planda gəlir və seçilmiş görüntü yerində qalır. MPR/3D tam seriyanı gözləyir. Oxunmayan görüntülərin sayı ayrıca göstərilir. Müvəqqəti RAM büdcəsi 1.5 GiB-dır; hədd dolarsa yükləmə bildirişlə dayanır.
+Seriya aşkarlanan kimi siyahıya çıxır, ilk görüntü oxunanda thumbnail və Viewer açılır. Qalan kəsitlər arxa planda gəlir və seçilmiş görüntü yerində qalır. MPR-də hazır aksial görüntü seriya yüklənərkən açılır, rekonstruksiya müstəviləri hazır olduqca göstərilir. 3D tam seriyadan volume qurur; kəsitlərin hazırlanması, GPU və ilk render mərhələləri progressbar ilə göstərilir. Oxunmayan görüntülərin sayı ayrıca göstərilir. Müvəqqəti RAM büdcəsi 1.5 GiB-dır; hədd dolarsa yükləmə bildirişlə dayanır.
 
 Optik görüntülər disk və brauzer Local Archive-a yazılmır, backend fayl nüsxəsi yaratmır. Disk çıxarılanda oxuma ləğv olunur; onun seriya, piksel, thumbnail, ölçmə, MPR/3D volume və hesabat mənbələri təmizlənir. Yenidən taxma yeni sessiya yaradır. Açıq vərəqələr disk çıxarılmasını ayrıca yoxlayır. Oxunan qurğu RADAZ serverinin işlədiyi Windows kompüterdəki CD/DVD qurğusudur.
 

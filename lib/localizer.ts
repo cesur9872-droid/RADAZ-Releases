@@ -37,6 +37,17 @@ export function worldAt(geometry: ImageGeometry, x: number, y: number): Point3 {
   return geometry.origin.map((value, index) => value + x * geometry.columnSpacing * geometry.columnDirection[index] + y * geometry.rowSpacing * geometry.rowDirection[index]) as Point3;
 }
 
+/** Solve three DICOM planes in LPS millimetres; independent of canvas rotation/zoom. */
+export function intersectPlanes(geometries: ImageGeometry[]): Point3 | null {
+  if (geometries.length !== 3 || geometries.some(g => !sameCoordinateSpace(geometries[0], g))) return null;
+  const normals = geometries.map(normalOf);
+  const products = [cross(normals[1], normals[2]), cross(normals[2], normals[0]), cross(normals[0], normals[1])];
+  const determinant = dot(normals[0], products[0]);
+  if (Math.abs(determinant) < 1e-5) return null;
+  const distances = normals.map((normal, index) => dot(normal, geometries[index].origin));
+  return [0,1,2].map(component => products.reduce((sum, product, index) => sum + distances[index] * product[component], 0) / determinant) as Point3;
+}
+
 function clipAxis(start: number, end: number, min: number, max: number, range: [number, number]): boolean {
   const delta = end - start;
   if (Math.abs(delta) < 1e-8) return start >= min && start <= max;

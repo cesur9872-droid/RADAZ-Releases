@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import type * as Core from '@cornerstonejs/core';
 import { getLocalizerGeometry } from '@/lib/cornerstone';
-import { localizerSegment, type Point3 } from '@/lib/localizer';
+import { localizerSegment, intersectPlanes, type Point3 } from '@/lib/localizer';
 
 type Props = {
   element: HTMLDivElement | null;
@@ -13,13 +13,14 @@ type Props = {
   otherImages: { panel: string; imageId: string }[];
   enabled: boolean;
   onMoveSource: (panel: string, world: Point3) => void;
+  onMoveIntersection?: (world: Point3) => void;
   targetPanel?: string;
   onRotateSource?: (sourcePanel: string, targetPanel: string, angleRadians: number) => void;
   onRotateStart?: (sourcePanel: string, targetPanel: string) => void;
   onPreviewRotateSource?: (sourcePanel: string, targetPanel: string, angleRadians: number) => void;
 };
 
-export function LocalizerOverlay({ element, viewport, imageId, otherImages, enabled, onMoveSource, targetPanel, onRotateSource, onRotateStart, onPreviewRotateSource }: Props) {
+export function LocalizerOverlay({ element, viewport, imageId, otherImages, enabled, onMoveSource, onMoveIntersection, targetPanel, onRotateSource, onRotateStart, onPreviewRotateSource }: Props) {
   const [, setRevision] = useState(0);
   const [rotation, setRotation] = useState<{ panel: string; origin: [number, number]; start: number; delta: number } | null>(null);
   const rotationRef = useRef<typeof rotation>(null);
@@ -42,20 +43,17 @@ export function LocalizerOverlay({ element, viewport, imageId, otherImages, enab
     const a = viewport.worldToCanvas(segment[0]) as [number, number];
     const b = viewport.worldToCanvas(segment[1]) as [number, number];
     if (![...a, ...b].every(Number.isFinite)) return [];
-    return [{ panel, a, b }];
+    return [{ panel, a, b, source }];
   });
   if (!lines.length) return null;
-  const intersection = (a: [number, number], b: [number, number], c: [number, number], d: [number, number]): [number, number] | null => {
-    const dx = b[0]-a[0], dy = b[1]-a[1], ex = d[0]-c[0], ey = d[1]-c[1];
-    const denominator = dx * ey - dy * ex;
-    if (Math.abs(denominator) < 1e-5) return null;
-    const t = ((c[0]-a[0])*ey - (c[1]-a[1])*ex) / denominator;
-    return [a[0]+t*dx, a[1]+t*dy];
-  };
-  const pivot = lines.length > 1 ? intersection(lines[0].a, lines[0].b, lines[1].a, lines[1].b) : null;
+  const pivotWorld = lines.length > 1 ? intersectPlanes([target, lines[0].source!, lines[1].source!]) : null;
+  const pivot = pivotWorld ? viewport.worldToCanvas(pivotWorld) as [number, number] : null;
   const pointerAngle = (event: ReactPointerEvent<SVGCircleElement>, origin: [number, number]) => {
     const rect = element.getBoundingClientRect();
-    return Math.atan2(event.clientY - rect.top - origin[1], event.clientX - rect.left - origin[0]);
+    const world = viewport.canvasToWorld([event.clientX - rect.left, event.clientY - rect.top]);
+    const center = viewport.canvasToWorld(origin);
+    const delta = world.map((v, i) => v - center[i]);
+    return Math.atan2(delta.reduce((sum,v,i) => sum + v * target.rowDirection[i], 0), delta.reduce((sum,v,i) => sum + v * target.columnDirection[i], 0));
   };
   const wrapAngle = (angle: number) => Math.atan2(Math.sin(angle), Math.cos(angle));
   const move = (event: ReactPointerEvent<SVGGElement>, panel: string) => {
@@ -65,7 +63,12 @@ export function LocalizerOverlay({ element, viewport, imageId, otherImages, enab
     const world = viewport.canvasToWorld([event.clientX - rect.left, event.clientY - rect.top]) as Point3;
     onMoveSource(panel, world);
   };
-  return <svg className="localizer-overlay" aria-label="Lokayzer xətləri">
+  const moveCenter = (event: ReactPointerEvent<SVGCircleElement>) => {
+    event.preventDefault(); event.stopPropagation();
+    const rect = element.getBoundingClientRect();
+    onMoveIntersection?.(viewport.canvasToWorld([event.clientX-rect.left, event.clientY-rect.top]) as Point3);
+  };
+  return <svg className="localizer-overlay" aria-label="Lokayzer xətləri" data-world={pivotWorld?.join(',')}>
     {lines.map(({ panel, a, b }) => {
       const origin: [number, number] = pivot || [(a[0]+b[0])/2, (a[1]+b[1])/2];
       const endpoint = Math.hypot(a[0]-origin[0], a[1]-origin[1]) > Math.hypot(b[0]-origin[0], b[1]-origin[1]) ? a : b;
@@ -101,5 +104,12 @@ export function LocalizerOverlay({ element, viewport, imageId, otherImages, enab
       </>}
       <text x={origin[0] + 7} y={origin[1] - 7}>{panel}</text>
     </g>})}
+    {pivot && onMoveIntersection && <g className="localizer-center">
+      <circle className="localizer-center-dot" cx={pivot[0]} cy={pivot[1]} r={6}/>
+      <circle className="localizer-center-hit" cx={pivot[0]} cy={pivot[1]} r={12} role="button" aria-label="Lokalizer kəsişməsini hərəkət etdir"
+        onPointerDown={event => { if(event.button!==0)return; event.currentTarget.setPointerCapture(event.pointerId); moveCenter(event); }}
+        onPointerMove={event => { if(event.currentTarget.hasPointerCapture(event.pointerId))moveCenter(event); }}
+        onPointerUp={event => { event.preventDefault();event.stopPropagation(); if(event.currentTarget.hasPointerCapture(event.pointerId))event.currentTarget.releasePointerCapture(event.pointerId); }}/>
+    </g>}
   </svg>;
 }

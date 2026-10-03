@@ -56,6 +56,15 @@ class Handler(Base):
             present.clear(); media.poll(); released.set(); self.respond({'ok': True}); return
         if self.path == '/_test/resume':
             released.set(); self.respond({'ok': True}); return
+        if self.path == '/_test/archive':
+            for i in range(1, 4):
+                ds = dcmread(disc/'CT/I0002')
+                ds.PatientName = f'TEST^PATIENT^{i}'; ds.PatientID = f'TEST-{i}'
+                ds.StudyInstanceUID = f'2.25.200.{i}'; ds.SeriesInstanceUID = f'2.25.201.{i}'
+                ds.SOPInstanceUID = f'2.25.202.{i}'; ds.SeriesDescription = f'Archive test {i}'
+                buffer = io.BytesIO(); ds.save_as(buffer, enforce_file_format=True)
+                archive.store(buffer.getvalue(), ds)
+            self.respond({'ok': True}); return
         return super().do_POST()
 
 http = ThreadingHTTPServer(('127.0.0.1', 0), Handler)

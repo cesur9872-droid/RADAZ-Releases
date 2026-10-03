@@ -2,7 +2,7 @@
 import http from 'node:http';
 import {readFileSync} from 'node:fs';
 import dicomParser from 'dicom-parser';
-const file=readFileSync(new URL('../public/demo/abdomen-1.dcm',import.meta.url));
+const file=readFileSync(new URL('./fixtures/demo/abdomen-1.dcm',import.meta.url));
 const ds=dicomParser.parseDicom(new Uint8Array(file));
 const tag=id=>ds.string('x'+id.toLowerCase())||'';
 const value=(v,vr='LO')=>({vr,Value:[v]});

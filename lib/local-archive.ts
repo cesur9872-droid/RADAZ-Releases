@@ -194,14 +194,15 @@ export async function listArchiveStudies(requireDisk = false): Promise<ArchiveSt
   for (const study of disk) entries.set(study.uid, study);
   return [...entries.values()].sort((a, b) => b.date.localeCompare(a.date) || b.addedAt - a.addedAt);
 }
-export async function getArchiveFiles(study: string): Promise<File[]> {
+export async function getArchiveFiles(study: string, onProgress?: (done: number, total: number) => void): Promise<File[]> {
   const browser = await browserGetArchiveFiles(study);
   let disk: File[] = [];
   if (hasLocalArchiveEndpoint()) {
-    try { disk = await diskFiles(study); }
+    try { disk = await diskFiles(study, onProgress); }
     catch (error) { if (!browser.length) throw error; }
   }
   const unique = new Map<string, File>();
+  if (!disk.length) onProgress?.(browser.length, browser.length);
   for (const file of [...browser, ...disk]) {
     const data = parseDicomFile(new Uint8Array(await file.arrayBuffer()));
     unique.set(data.string('x00080018') || file.name, file);

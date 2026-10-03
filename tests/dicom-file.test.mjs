@@ -99,7 +99,7 @@ test('a broken Part 10 header is never reinterpreted as raw data', () => {
 });
 
 test('existing CT demo stays readable', () => {
-  const bytes = new Uint8Array(readFileSync(new URL('../public/demo/thorax-1.dcm', import.meta.url)));
+  const bytes = new Uint8Array(readFileSync(new URL('./fixtures/demo/thorax-1.dcm', import.meta.url)));
   const old = dicomParser.parseDicom(bytes), current = parseDicomFile(bytes);
   assert.equal(current.string('x00080060'), 'CT');
   assert.deepEqual(current.elements.x7fe00010, old.elements.x7fe00010);

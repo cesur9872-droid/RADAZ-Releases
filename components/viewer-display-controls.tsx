@@ -57,7 +57,6 @@ export function ViewerDisplayControls({ panel, imageId, onStatus }: { panel: str
     const key = (event: KeyboardEvent) => {
       if (['INPUT','TEXTAREA','SELECT'].includes((event.target as HTMLElement).tagName) || (event.target as HTMLElement).isContentEditable || document.querySelector('[role="dialog"]')) return;
       let kind = '';
-      if (event.key === 'F11') kind = event.ctrlKey ? 'custom' : 'negative';
       if (event.ctrlKey && event.code === 'BracketLeft') kind = event.shiftKey ? 'horizontal' : 'left';
       if (event.ctrlKey && event.code === 'BracketRight') kind = event.shiftKey ? 'vertical' : 'right';
       if (event.ctrlKey && event.shiftKey && event.code === 'Backslash') kind = 'reset';
@@ -79,8 +78,8 @@ export function ViewerDisplayControls({ panel, imageId, onStatus }: { panel: str
       <DropdownMenuItem onSelect={() => void action('default')}>DICOM standart pəncərə</DropdownMenuItem>
       <DropdownMenuItem onSelect={() => void action('full')}>Tam dinamik diapazon</DropdownMenuItem><div className="menu-separator"/>
       {[20,40,80,160,320,640,1280,2560].map(wl => <DropdownMenuItem key={wl} onSelect={() => void action('window', wl, wl * 2)}>WL {wl} / WW {wl * 2}</DropdownMenuItem>)}<div className="menu-separator"/>
-      <DropdownMenuItem onSelect={() => void action('negative')}>{negative ? '✓ ' : ''}Neqativ / pozitiv <kbd>F11</kbd></DropdownMenuItem>
-      <DropdownMenuItem onSelect={() => void action('custom')}>Xüsusi pəncərə <kbd>Ctrl+F11</kbd></DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => void action('negative')}>{negative ? '✓ ' : ''}Neqativ / pozitiv</DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => void action('custom')}>Xüsusi pəncərə</DropdownMenuItem>
     </DropdownMenuContent></DropdownMenu>
     <Dialog open={custom} onOpenChange={setCustom}><DialogContent className="output-dialog"><DialogHeader><DialogTitle>Xüsusi window</DialogTitle><DialogDescription>Aktiv görüntü üçün parlaqlıq və kontrast.</DialogDescription></DialogHeader>
       <form onSubmit={event => { event.preventDefault(); if (Number(width) > 0 && level.trim()) { void action('window', Number(level), Number(width)); setCustom(false); } }}><div className="output-fields"><label>Window level (WL)<input required type="number" step="any" value={level} onChange={e => setLevel(e.target.value)}/></label><label>Window width (WW)<input required type="number" min="0.001" step="any" value={width} onChange={e => setWidth(e.target.value)}/></label></div><button className="output-primary" type="submit">Tətbiq et</button></form>

@@ -1,6 +1,16 @@
 # RADAZ — satıcı, ödəniş və buraxılış təlimatı
 
-Bu sənəd proqramın sahibi üçündür. Alıcıya göndəriləcək quraşdırma qaydası [README.md](README.md)-dədir. Cari versiya 0.2.5-dir. Aylıq qiymət 10 AZN, seçim 1–120 aydır; ayrıca illik paket və avtomatik kartdan təkrar pul çəkmə yoxdur.
+Bu sənəd proqramın sahibi üçündür. Alıcıya göndəriləcək quraşdırma qaydası [README.md](README.md)-dədir. Cari versiya 0.2.9-dur. Aylıq qiymət 10 AZN, seçim 1–120 aydır; ayrıca illik paket və avtomatik kartdan təkrar pul çəkmə yoxdur.
+
+## Kapital Bank hesabları
+
+Satıcı panelində **Kapital Bank / Birbank Biznes** seçin. AZN və USD üçün ayrı IBAN sahələri, bankın filial kodu, VÖEN-i, SWIFT və müxbir hesab saxlanılır. Bu sahələr yalnız satıcı kompüterindəki ayarlardır və müştəri paketinə daxil edilmir. USD hesabı verilməyibsə onu AZN hesabı ilə doldurmayın.
+
+Kapital Bank üçün avtomatik ödəniş adapteri hələ qoşulmayıb. Bankın [API müraciət qaydası](https://api.birbank.business/how-to-use) ilə biznes/e-commerce müraciətini başlayın; istifadə olunacaq internet-ekvayrinq məhsulunun rəsmi sənədi, test merchant hesabı və webhook qaydaları alınmalıdır. Hesab çıxarışı/transfer API-si ayrıca məhsuldur və kart ödənişi checkout-u ilə eyni deyil. Açarlar alındıqdan sonra server inteqrasiyası və bankın test ssenariləri tamamlanmalıdır.
+
+Mövcud avtomatik lisenziya checkout-u AZN qiymətləri ilə işləyir. USD IBAN-ın saxlanması USD checkout və ya valyuta çevirməsini aktiv etmir. Bank köçürməsinin əl ilə təsdiqi üçün əvvəlki `scripts/license-admin.mjs` aləti mövcuddur; bankdan vəsaitin daxil olduğu yoxlanmadan aktivləşdirmə açarı verilməməlidir.
+
+Aşağıdakı Epoint bölmələri əvvəlki adapterin texniki sənədidir; Kapital Bank seçimində Epoint işə düşmür.
 
 ## Hazır olan və tamamlanmalı hissələr
 

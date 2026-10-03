@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="az"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RADAZ 0.2.9 — quraşdırma və CD/DVD təlimatı</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#edf3f5;color:#17313f;font:16px/1.65 system-ui,Arial}main{max-width:940px;margin:32px auto;background:white;padding:48px;border-radius:16px;box-shadow:0 4px 25px #17313f15}header{border-bottom:4px solid #16879a;padding-bottom:20px}h1{font-size:32px;line-height:1.2;margin:8px 0}h2{font-size:22px;margin-top:32px;color:#136b7d}h3{font-size:17px}small{color:#53727f}.note{padding:16px 20px;border-left:4px solid #16879a;background:#edf8fa;border-radius:4px}li{margin:10px 0}code{font-size:.9em;background:#edf3f5;padding:2px 5px;overflow-wrap:anywhere}table{border-collapse:collapse;width:100%;font-size:14px}td,th{padding:12px;text-align:left;border:1px solid #c5d8df}th{background:#edf8fa}a{color:#086f85}button{border:0;background:#137e92;color:white;padding:10px 20px;border-radius:6px;cursor:pointer}footer{margin-top:35px;border-top:1px solid #c5d8df;padding-top:15px;font-size:13px;color:#53727f}@media print{body{background:white}main{margin:0;padding:10mm;box-shadow:none;max-width:none}button{display:none}h2{break-after:avoid}li,.note,tr{break-inside:avoid}}@media(max-width:640px){main{margin:0;padding:24px;border-radius:0}h1{font-size:27px}}
+</style>
+<main><header><small>RADAZ · WINDOWS 10/11, 64 BİT · VERSİYA 0.2.9</small><h1>Quraşdırma, yeniləmə və CD/DVD import</h1><p>Bu təlimat həm hazırda RADAZ işləyən kompüter, həm də yeni kompüter üçündür.</p><button onclick="window.print()">Çap et / PDF saxla</button></header>
+<h2>1. Hazırkı kompüteri yeniləyin</h2>
+<ol><li>Açıq müayinəni və cihazdan görüntü qəbulunu tamamlayın. Vacib hesabatları saxlayın.</li>
+<li><b>RADAZ-0.2.9-Setup.exe</b> faylını açıb quraşdırmanı tamamlayın. Eyni Windows istifadəçi hesabından istifadə edin. Köhnə proqramı əvvəlcədən silmək lazım deyil.</li>
+<li>Köhnə lokal xidmət işləyirsə və ya CD/DVD yeniləmə xəbərdarlığı qalırsa, Windows-u <b>bir dəfə yenidən başladın</b>. Yenidən başlatmazdan əvvəl qəbul edən cihazda göndərişin bitdiyini yoxlayın.</li>
+<li>İş masasındakı yeni <b>RADAZ</b> qısayolunu açın. Köhnə layihə qovluğundakı START faylını və ya köhnə qısayolu açmayın.</li>
+<li>Brauzerdə <code>http://localhost:5173</code> açılacaq. Köhnə interfeys görünürsə <b>Ctrl+F5</b> basın.</li></ol>
+<div class="note"><b>Local Archive qorunur.</b> Standart arxiv <code>Documents\RADAZ-Archive</code> qovluğundadır. Bu qovluğu silməyin. Node.js, Python və DICOM xidməti Setup-a daxildir; onları ayrıca quraşdırmaq lazım deyil.</div>
+<h2>2. Başqa kompüterə quraşdırın</h2>
+<ol><li><b>RADAZ-0.2.9-Setup.exe</b> faylını USB yaddaşla və ya etibarlı paylaşma vasitəsi ilə digər kompüterə köçürün. Source code ZIP quraşdırıcı deyil.</li>
+<li>Windows 10/11 64-bit kompüterdə Setup-ı açın. Sonra iş masasındakı <b>RADAZ</b> qısayolunu başladın.</li>
+<li>Yeni kompüter öz lokal arxivi və lisenziya vəziyyəti ilə başlayır. Əvvəlki kompüterin pasiyentləri avtomatik köçürülmür.</li>
+<li>CD/DVD-ni həmin kompüterin daxili və ya USB optik oxuyucusuna taxın. Disk File Explorer-də görünməlidir.</li>
+<li>RADAZ-da <b>CD/DVD import</b> düyməsini bir dəfə aktiv edin. Lokal ünvanı istifadə edin: <code>localhost:5173</code>. Başqa kompüterin IP-si ilə açılan RADAZ həmin server kompüterin diskini oxuyur.</li></ol>
+<h2>3. CD/DVD necə açılır?</h2>
+<p>CD/DVD import aktiv olduqda proqram taxılmış və sonradan taxılan diski özü aşkar edir. DICOMDIR varsa onu oxuyur, sonra qovluqlardakı DICOM görüntülərini tapır. DICOMDIR olmayan disk də avtomatik skan edilir. Faylda <code>.dcm</code> uzantısı tələb olunmur. Upload, qovluq seçimi və təsdiq pəncərəsi açılmır.</p>
+<p>Seriya tapılan kimi solda görünür. İlk kəsit hazır olanda seriyaya klik edib baxmağa başlayın; qalan görüntülər yüklənir. Series panelinin altında real say və faiz göstərilir. Disk hələ skan edilirsə ümumi say məlum olmadığından faiz əvəzinə skan vəziyyəti görünür. Yükləmə bitəndə progressbar gizlənir.</p>
+<div class="note">CD/DVD müayinəsi <b>Local Archive-a yazılmır</b>. Disk çıxarılanda həmin müayinənin açıq görüntüləri, MPR/3D volume və müvəqqəti cache silinir. Davam etmək üçün diski yenidən taxın.</div>
+<h2>4. Yeni Viewer və MPR idarəetməsi</h2>
+<table><tr><th>Əməliyyat</th><th>Nəticə</th></tr>
+<tr><td>Arxivdə müayinə sətrinə klik</td><td>Yeni Viewer vərəqəsi açılır. Əvvəl açılan pasiyentin ölçüləri və görüntü ayarları saxlanır. Brauzer yeni vərəqəni bloklayarsa localhost üçün pop-up icazəsini açın.</td></tr>
+<tr><td>MPR açılışı</td><td>Hazır aksial görüntü əvvəl göstərilir. Digər müstəvilər hazır olduqca açılır; hazırlıq gedişi viewport üzərində görünür.</td></tr>
+<tr><td>Lokalizer kəsişməsini tutub sürüşdürmək</td><td>Hər iki xətt hərəkət edir, digər MPR görüntüləri uyğun anatomik koordinata keçir.</td></tr>
+<tr><td>Xəttin özünü sürüşdürmək</td><td>Yalnız həmin xəttə aid müstəvi yerini dəyişir.</td></tr>
+<tr><td>Xəttin dairəvi fırlatma tutacağını sürüşdürmək</td><td>Yalnız seçilən xətt fırlanır və oblique görüntü yenilənir.</td></tr>
+<tr><td>Length / Uzunluq</td><td>Hər iki ucda X marker görünür. Normal rəng sarı, hover mavi, seçilmiş çəhrayı, çəkilmə yaşıl rəngdədir.</td></tr>
+<tr><td>F11</td><td>Siçan birbaşa görüntünün üzərində olanda həmin viewport tam ekran açılır/bağlanır. Menyu, input, modal və ayarlar üzərində işləmir. Tam ekrandan Esc ilə də çıxmaq olar.</td></tr></table>
+<h2>5. Xəbərdarlıq qalırsa</h2>
+<p><b>“RADAZ və lokal xidməti yeni Setup ilə yeniləyin”</b> yazısı adətən yeni interfeysin köhnə lokal xidmətə qoşulduğunu göstərir. İşləri saxlayın, Setup-ı quraşdırın, Windows-u yenidən başladın və yalnız yeni RADAZ qısayolunu açın.</p>
+<p>Yoxlama üçün <a href="http://localhost:5173/radaz-runtime.json">interfeys versiyası</a> və <a href="http://localhost:5173/local-archive-api/status">lokal xidmət statusu</a> açıla bilər. Birincidə <code>version: 0.2.9</code>, ikincidə <code>appVersion: 0.2.9</code> gözlənilir. Xidmət statusunda appVersion yoxdursa köhnə xidmət işləyir.</p>
+<p>Disk tapılmırsa onun File Explorer-də göründüyünü, optik oxuyucunun işlədiyini və CD/DVD import-un aktiv olduğunu yoxlayın. Fiziki disk çıxarılandan sonra görüntülərin bağlanması normaldır.</p>
+<h2>6. Rentgen / CR cihazı olan iş yeri</h2>
+<p>Hazırda uğurla işləyən CR → RADAZ göndəriş ayarlarını dəyişməyin. Yeniləmədən sonra Local Archive bölməsində qəbul xidmətinin işlədiyini yoxlayın. Başqa kompüterdə CR qəbulu qurulacaqsa həmin kompüterin IP ünvanı, RADAZ AE Title və qəbul portu cihazın göndəriş siyahısına ayrıca yazılmalıdır; köhnə kompüterin IP-sini olduğu kimi köçürməyin.</p>
+<h2>7. Satıcı üçün Kapital Bank</h2>
+<p>Satıcı panelində Kapital Bank, AZN hesabı və ayrıca USD hesabı sahələri var. Bu rekvizitlər yalnız satıcı kompüterində saxlanır və müştərinin Setup paketinə daxil edilmir. USD IBAN təqdim olunmadıqda boş qalır.</p>
+<p>Bank rekvizitləri avtomatik kart ödənişi yaratmır. Avtomatik ödəniş üçün Kapital Bank / Birbank Biznes ilə internet-ekvayrinq müraciəti, bankın rəsmi inteqrasiya sənədi və test hesabı tələb olunur. <a href="https://api.birbank.business/how-to-use">Rəsmi API müraciət qaydası</a>. API açarlarını yalnız lokal satıcı ayarları və ya serverin gizli ayarlarında saxlayın.</p>
+<footer>RADAZ 0.2.9 · 3 oktyabr 2026 · Dəstək: drnaghiyev@gmail.com</footer></main></html>

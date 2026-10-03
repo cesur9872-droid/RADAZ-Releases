@@ -2,7 +2,7 @@
 
 Bu xidmət satıcının serverində işləyir. Müştəri paketinə gizli açar, ödəniş provayderinin sirri və SQLite bazası daxil edilmir. Hazır satıcı hesabı olmadığı üçün canlı kart ödənişi aktiv deyil.
 
-Tam satıcı təlimatı: [DISTRIBUTION.md](../DISTRIBUTION.md). Şəxsi ayar paneli üçün `billing/OPEN-SELLER-SETTINGS.cmd` açın. Rekvizitlər, Epoint açarları və HTTPS domeni standart olaraq `Documents/RADAZ-License-Admin/merchant.json` içində saxlanır. Satıcı paneli müştəri ZIP-inə daxil edilmir. Bank/IBAN sahələri şəxsi qeyddir; faktiki köçürmə hesabı Epoint kabinetində təsdiqlənməlidir.
+Tam satıcı təlimatı: [DISTRIBUTION.md](../DISTRIBUTION.md). Şəxsi ayar paneli üçün `billing/OPEN-SELLER-SETTINGS.cmd` açın. Rekvizitlər, Epoint açarları və HTTPS domeni standart olaraq `Documents/RADAZ-License-Admin/merchant.json` içində saxlanır. Satıcı paneli müştəri ZIP-inə daxil edilmir. Kapital Bank seçimi AZN/USD rekvizitlərini ayrıca saxlayır; canlı bank API inteqrasiyası hələ yoxdur. Epoint seçimi əvvəlki adapter üçün saxlanılır. Kapital Bank seçimində Epoint checkout-u aktivləşmir.
 
 Qiymət serverdə 10 AZN × 1–120 ay hesablanır. Müştəridən gələn qiymət qəbul edilmir. Provayderin təsdiqlənmiş webhook-u sifariş, əməliyyat ID-si, məbləğ və valyutanı uyğunlaşdırır. Brauzerin “ödəniş uğurludur” keçidi açar yaratmır.
 

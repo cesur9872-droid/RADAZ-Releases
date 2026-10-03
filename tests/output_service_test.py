@@ -100,7 +100,7 @@ class MediaTests(unittest.TestCase):
         self.assertTrue(target.is_file())
         self.assertEqual(dcmread(target).PixelData, original.PixelData)
     def test_missing_study_id_only_gets_a_directory_catalog_id(self):
-        file=Path(__file__).resolve().parents[1]/'public'/'demo'/'abdomen-1.dcm'
+        file=Path(__file__).resolve().parent/'fixtures'/'demo'/'abdomen-1.dcm'
         source=dcmread(file);buffer=io.BytesIO()
         with ZipFile(buffer,'w') as archive:archive.writestr('DICOM/IMG000001.dcm',file.read_bytes())
         job=self.output.prepare(buffer.getvalue());root=self.output.job_path(job['id'])/'disc'

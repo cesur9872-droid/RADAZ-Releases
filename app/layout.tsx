@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { ProductBoundary } from '@/components/app-product';
+import { ViewerFullscreen } from '@/components/viewer-fullscreen';
 
 export const metadata: Metadata = {
   title: "RADAZ | DICOM Viewer",
@@ -21,7 +22,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="az">
-      <body className="antialiased"><ProductBoundary>{children}</ProductBoundary></body>
+      <body className="antialiased"><ViewerFullscreen/><ProductBoundary>{children}</ProductBoundary></body>
     </html>
   );
 }

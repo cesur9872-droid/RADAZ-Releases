@@ -4,8 +4,11 @@ import { useEffect, useRef, useState } from 'react';
 import { Box } from 'lucide-react';
 import { getViewer, getVolumeTexture } from '@/lib/cornerstone';
 import type { VolumeStyle } from '@/lib/volume-renderer';
+import { WorkProgress } from './work-progress';
+import { type WorkProgress as LoadingProgress, yieldToBrowser } from '@/lib/work-progress';
 
 type Props = {
+  sourceProgress?: LoadingProgress | null;
   series?: { id: string; imageIds: string[]; name: string; modality: string };
   preset: VolumeStyle['preset']; threshold: number; opacity: number;
   settings: VolumeRenderSettings;
@@ -75,7 +78,7 @@ function professionalPreset(core: Awaited<ReturnType<typeof getViewer>>['core'],
   };
 }
 
-export function VolumePreview({ series, preset, threshold, opacity, settings, resetToken, onThresholdChange, onOpacityChange }: Props) {
+export function VolumePreview({ series, sourceProgress, preset, threshold, opacity, settings, resetToken, onThresholdChange, onOpacityChange }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewportRef = useRef<NativeViewport | null>(null);
   const volumeIdRef = useRef('');
@@ -83,15 +86,18 @@ export function VolumePreview({ series, preset, threshold, opacity, settings, re
   const dragRef = useRef<Drag | null>(null);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState('');
+  const [progress, setProgress] = useState<LoadingProgress | null>(null);
 
   useEffect(() => {
     const element = hostRef.current;
     if (!element || !series) { setReady(false); setError(''); return; }
     let disposed = false;
+    const controller = new AbortController();
     let resizeObserver: ResizeObserver | undefined;
     let viewer: Awaited<ReturnType<typeof getViewer>> | undefined;
     let volumeId = '';
     setReady(false); setError('');
+    setProgress({label:'3D görüntü hazırlanır',done:0,total:0,phase:'Volume məlumatı hazırlanır'});
 
     (async () => {
       viewer = await getViewer();
@@ -101,11 +107,16 @@ export function VolumePreview({ series, preset, threshold, opacity, settings, re
 
       const gl = document.createElement('canvas').getContext('webgl2');
       const textureLimit = gl?.getParameter(gl.MAX_3D_TEXTURE_SIZE) || 256;
-      const sample = getVolumeTexture(series.imageIds, textureLimit >= 512 ? 448 : 320, textureLimit >= 512 ? 384 : 280);
+      gl?.getExtension('WEBGL_lose_context')?.loseContext();
+      const sample = await getVolumeTexture(series.imageIds, textureLimit >= 512 ? 448 : 320, textureLimit >= 512 ? 384 : 280,
+        (done,total)=>{if(!disposed)setProgress({label:'3D görüntü hazırlanır',done,total:total+2,unit:'iş vahidi',phase:'Volume kəsitləri hazırlanır'});},controller.signal);
+      if(disposed)return;
       if (!sample) throw new Error('Professional 3D üçün eyni ölçülü, düzgün məkan koordinatlı ən azı 3 DICOM kəsiti lazımdır');
       volumeRangeRef.current = sample.range;
       volumeId = `radaz-volume:${series.id}:${series.imageIds.length}`;
       volumeIdRef.current = volumeId;
+      setProgress({label:'3D görüntü hazırlanır',done:sample.slices,total:sample.slices+2,unit:'iş vahidi',phase:'GPU teksturası hazırlanır'});
+      await yieldToBrowser(); if(disposed)return;
       if (core.cache.getVolume(volumeId)) core.cache.removeVolumeLoadObject(volumeId);
       core.volumeLoader.createLocalVolume(volumeId, {
         metadata: {
@@ -124,6 +135,7 @@ export function VolumePreview({ series, preset, threshold, opacity, settings, re
         defaultOptions: { background: [0, 0, 0] } });
       await core.setVolumesForViewports(engine, [{ volumeId }], [viewportId], true);
       if (disposed) return;
+      setProgress({label:'3D görüntü hazırlanır',done:sample.slices+1,total:sample.slices+2,unit:'iş vahidi',phase:'İlk render gözlənilir'});
       const viewport = engine.getViewport(viewportId) as unknown as NativeViewport;
       viewportRef.current = viewport;
       viewport.setSampleDistanceMultiplier?.(settings.quality);
@@ -135,7 +147,15 @@ export function VolumePreview({ series, preset, threshold, opacity, settings, re
       property?.setSpecular?.(0, settings.specular);
       property?.setSpecularPower?.(0, settings.specularPower);
       viewport.resetCamera({ resetPan: true, resetZoom: true });
-      viewport.render();
+      await new Promise<void>((resolve,reject)=>{
+        const rendered=()=>{cleanup();resolve();};
+        const cancelled=()=>{cleanup();reject(controller.signal.reason);};
+        const cleanup=()=>{element.removeEventListener(core.Enums.Events.IMAGE_RENDERED,rendered);controller.signal.removeEventListener('abort',cancelled);};
+        element.addEventListener(core.Enums.Events.IMAGE_RENDERED,rendered,{once:true});
+        controller.signal.addEventListener('abort',cancelled,{once:true});
+        viewport.render();
+      });
+      if(disposed)return;
 
       tools.ToolGroupManager.destroyToolGroup(toolGroupId);
       const group = tools.ToolGroupManager.createToolGroup(toolGroupId);
@@ -146,11 +166,11 @@ export function VolumePreview({ series, preset, threshold, opacity, settings, re
       group?.addViewport(viewportId, engine.id);
       resizeObserver = new ResizeObserver(() => { engine.resize(true, true); viewport.render(); });
       resizeObserver.observe(element);
-      setReady(true);
+      setReady(true); setProgress(null);
     })().catch(cause => { if (!disposed) setError(cause instanceof Error ? cause.message : String(cause)); });
 
     return () => {
-      disposed = true; resizeObserver?.disconnect(); viewportRef.current = null; volumeIdRef.current = ''; dragRef.current = null; setReady(false);
+      disposed = true; controller.abort(); resizeObserver?.disconnect(); viewportRef.current = null; volumeIdRef.current = ''; dragRef.current = null; setReady(false); setProgress(null);
       if (viewer) {
         viewer.tools.ToolGroupManager.destroyToolGroup(toolGroupId);
         if (viewer.engine.getViewport(viewportId)) viewer.engine.disableElement(viewportId);
@@ -184,7 +204,7 @@ export function VolumePreview({ series, preset, threshold, opacity, settings, re
   const finishAdjust = () => { dragRef.current = null; };
 
   return <section className="volume-workspace" aria-label="3D həcm görünüşü">
-    <div className="volume-stage cornerstone-volume-stage"
+    <div className="volume-stage cornerstone-volume-stage" data-ready={ready}
       onContextMenu={event => event.preventDefault()}
       onDoubleClick={() => { viewportRef.current?.resetCamera({ resetPan: true, resetZoom: true }); viewportRef.current?.render(); }}
       onPointerDownCapture={event => {
@@ -209,7 +229,7 @@ export function VolumePreview({ series, preset, threshold, opacity, settings, re
       }}>
       {series && <div key={series.id} ref={hostRef} className="cornerstone-volume-host" aria-label="İşıqlandırılmış professional 3D DICOM renderi"/>}
       {ready && !error && <div className="volume-help"><span><b>Sol mouse</b> fırlat</span><span><b>Sağ mouse</b> HU / şəffaflıq</span><span><b>Orta mouse</b> sürüşdür</span><span><b>Təkər</b> zoom</span><span><b>İki klik</b> sıfırla</span></div>}
-      {(!ready || error) && <div className="volume-cover"><Box size={34}/><strong>{error ? 'Professional 3D həcm açıla bilmədi' : series ? 'İşıqlandırılmış 3D həcm hazırlanır…' : '3D üçün ardıcıl DICOM seriyası seçin'}</strong>{error && <span>{error}</span>}</div>}
+      {(!ready || error) && <div className="volume-cover"><Box size={34}/>{error ? <><strong>3D həcm açıla bilmədi</strong><span>{error}</span></> : progress || sourceProgress ? <WorkProgress progress={progress || {...sourceProgress!,label:'3D görüntü hazırlanır'}}/> : <strong>3D üçün ardıcıl DICOM seriyası seçin</strong>}</div>}
     </div>
   </section>;
 }

@@ -2,6 +2,8 @@ import * as core from '@cornerstonejs/core';
 import * as tools from '@cornerstonejs/tools';
 import dicomParser from 'dicom-parser';
 import type { ImageGeometry, Point3 } from './localizer';
+import { themedMeasurement, installMeasurementTheme } from './measurement-tools';
+import { yieldToBrowser } from './work-progress';
 
 type DataSet = ReturnType<typeof dicomParser.parseDicom>;
 type RecordItem = { dataSet: DataSet; pixels: Int16Array | Float32Array; rows: number; columns: number; bits: number; min: number; max: number };
@@ -297,7 +299,7 @@ export function rotateMprOrientation(orientation: MprOrientation, axis: Point3, 
 }
 
 /** Reconstruct one actual oblique frame from the original calibrated voxel volume. */
-export function createObliqueMprStacks(imageIds: string[], settings: MprSettings, orientations: MprOrientations, pivot: Point3): Record<MprPlane, string[]> {
+export function createObliqueMprStacks(imageIds: string[], settings: MprSettings, orientations: MprOrientations, pivot: Point3, planes: MprPlane[] = ['SAG','COR','AX']): Record<MprPlane, string[]> {
   // Use the existing volume validation before registering any new derived images.
   const slices = imageIds.map(id => ({ id, record: records.get(id), geometry: getLocalizerGeometry(id) }));
   if (slices.length < 3 || slices.some(s => !s.record || !s.geometry)) throw new Error('MPR üçün məkan koordinatlı kəsitlər lazımdır');
@@ -326,16 +328,17 @@ export function createObliqueMprStacks(imageIds: string[], settings: MprSettings
   const projected = (axis: Point3) => corners.map(corner => dot3(plus3(corner, pivot, -1), axis));
   const spacingFor = (axis: Point3) => 1 / Math.hypot(dot3(axis, sourceAxes.u) / first.columnSpacing,
     dot3(axis, sourceAxes.v) / first.rowSpacing, dot3(axis, sourceAxes.w) / gap);
-  const descriptor = (axis: Point3) => {
+  const descriptor = (axis: Point3, anchor = false) => {
     const coordinates = projected(axis), min = Math.min(...coordinates), max = Math.max(...coordinates);
     const step = Math.max(spacingFor(axis), (max - min) / 799);
+    if (anchor) { const first = Math.floor(min / step), last = Math.ceil(max / step); return { start: first * step, count: last - first + 1, step }; }
     return { start: min + step / 2, count: Math.max(1, Math.ceil((max - min) / step)), step };
   };
   const stacks: Record<MprPlane, string[]> = { SAG: [], COR: [], AX: [] };
-  for (const plane of ['SAG', 'COR', 'AX'] as const) {
+  for (const plane of planes) {
     const { mode, thickness } = settings[plane];
     const axes = orientations[plane];
-    const n = descriptor(axes.normal), h = descriptor(axes.horizontal), v = descriptor(axes.vertical);
+    const n = descriptor(axes.normal, true), h = descriptor(axes.horizontal), v = descriptor(axes.vertical);
     const baseOrigin = plus3(plus3(pivot, axes.horizontal, h.start), axes.vertical, v.start);
     for (let index = 0; index < n.count; index++) {
       const geometry: ImageGeometry = { ...start, origin: plus3(baseOrigin, axes.normal, n.start + index * n.step),
@@ -353,7 +356,7 @@ export function createObliqueMprStacks(imageIds: string[], settings: MprSettings
 }
 
 /** Reformat one parallel, regularly spaced mono volume into three patient-space stacks. */
-export function createMprStacks(imageIds: string[], settings: MprSettings): Record<MprPlane, string[]> {
+export function createMprStacks(imageIds: string[], settings: MprSettings, planes: MprPlane[] = ['SAG','COR','AX']): Record<MprPlane, string[]> {
   if (imageIds.length < 3) throw new Error('MPR üçün ən azı 3 məkan koordinatlı kəsit lazımdır');
   const slices = imageIds.map(id => ({ id, record: records.get(id), geometry: getLocalizerGeometry(id) }));
   if (slices.some(s => !s.record || !s.geometry)) throw new Error('MPR üçün DICOM məkan koordinatları tələb olunur');
@@ -387,7 +390,7 @@ export function createMprStacks(imageIds: string[], settings: MprSettings): Reco
   const sagittalSign = first.rowDirection[1] < 0 ? -1 : 1;
   const originAt = (origin: Point3, axis: Point3, distance: number): Point3 => origin.map((v, i) => v + axis[i] * distance) as Point3;
   const stacks = { SAG: [] as string[], COR: [] as string[], AX: [] as string[] };
-  for (const plane of ['SAG', 'COR', 'AX'] as const) {
+  for (const plane of planes) {
     const { mode, thickness } = settings[plane];
     const count = plane === 'SAG' ? first.columns : plane === 'COR' ? first.rows : sourceIds.length;
     for (let index = 0; index < count; index++) {
@@ -530,7 +533,7 @@ export function getVolumeSample(imageIds: string[]) {
 }
 
 /** Compact regular voxel grid for the local WebGL volume renderer. No DICOM bytes leave the browser. */
-export function getVolumeTexture(imageIds: string[], maxDimension = 256, maxSlices = 224) {
+export async function getVolumeTexture(imageIds: string[], maxDimension = 256, maxSlices = 224, onProgress?: (done: number, total: number) => void, signal?: AbortSignal) {
   const frames = imageIds.map(id => ({ item: records.get(id), geometry: getLocalizerGeometry(id) }));
   if (frames.length < 3 || frames.some(frame => !frame.item || !frame.geometry)) return null;
   const base = frames[0].geometry!, reference = frames[0].item!;
@@ -549,7 +552,9 @@ export function getVolumeTexture(imageIds: string[], maxDimension = 256, maxSlic
   const lower = modality === 'CT' ? -1024 : reference.min;
   const upper = modality === 'CT' ? 2048 : Math.max(lower + 1, reference.max);
   const data = new Uint8Array(width * height * slices);
+  onProgress?.(0, slices);
   for (let z = 0; z < slices; z++) {
+    signal?.throwIfAborted();
     const position = Math.max(0, Math.min(frames.length - 1, (z + .5) * frames.length / slices - .5));
     const lowerSlice = frames[Math.floor(position)].item!.pixels;
     const upperSlice = frames[Math.min(frames.length - 1, Math.ceil(position))].item!.pixels;
@@ -572,6 +577,8 @@ export function getVolumeTexture(imageIds: string[], maxDimension = 256, maxSlic
         data[(z * height + y) * width + x] = Math.round(Math.max(0, Math.min(1, (value - lower) / (upper - lower))) * 255);
       }
     }
+    onProgress?.(z + 1, slices);
+    if (z % 4 === 0) await yieldToBrowser();
   }
   return { data, width, height, slices, range: [lower, upper] as [number, number],
     size: [reference.columns * base.columnSpacing, reference.rows * base.rowSpacing, frames.length * gap] as Point3,
@@ -585,8 +592,9 @@ export async function getViewer() {
     core.imageLoader.registerImageLoader('radaz-volume', loadCachedVolumeSlice);
     core.metaData.addProvider(metadata, 1000);
     await tools.init();
-    [tools.WindowLevelTool, tools.PanTool, tools.ZoomTool, tools.TrackballRotateTool, tools.LengthTool,
-      tools.AngleTool, tools.CobbAngleTool, tools.EllipticalROITool, tools.EraserTool].forEach(tools.addTool);
+    [tools.WindowLevelTool, tools.PanTool, tools.ZoomTool, tools.TrackballRotateTool, tools.EraserTool].forEach(tools.addTool);
+    [tools.LengthTool, tools.AngleTool, tools.CobbAngleTool, tools.EllipticalROITool].map(themedMeasurement).forEach(tool => tools.addTool(tool as any));
+    installMeasurementTheme();
     engine = new core.RenderingEngine('radiology-viewer');
   })();
   await initialized;

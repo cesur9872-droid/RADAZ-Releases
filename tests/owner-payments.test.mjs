@@ -11,7 +11,7 @@ import {createEpointProvider,epointSignature,amountMinor} from '../billing/epoin
 import {createLicenseService} from '../billing/license-service.mjs';
 import {sortRows} from '../lib/table-sort.ts';
 import {runtimeConfig} from '../billing/runtime-config.mjs';
-const settings={enabled:true,publicBaseUrl:'https://license.example.test',epointPublicKey:'test-merchant',epointPrivateKey:'test-secret-not-real',epointRequestUrl:'https://epoint.az/test-endpoint'};
+const settings={provider:'epoint',enabled:true,publicBaseUrl:'https://license.example.test',epointPublicKey:'test-merchant',epointPrivateKey:'test-secret-not-real',epointRequestUrl:'https://epoint.az/test-endpoint'};
 const callback=event=>{const data=Buffer.from(JSON.stringify(event)).toString('base64');return {headers:{'content-type':'application/x-www-form-urlencoded'},rawBody:Buffer.from(new URLSearchParams({data,signature:epointSignature(data,settings.epointPrivateKey)}).toString())};};
 const temporary=()=>mkdtempSync(path.join(os.tmpdir(),'radaz-owner-test-'));
 function cleanup(root){assert.ok(path.resolve(root).startsWith(path.resolve(os.tmpdir())+path.sep+'radaz-owner-test-'));rmSync(root,{recursive:true,force:true});}
@@ -31,9 +31,19 @@ test('cloud configuration derives the real HTTPS host and remains disabled witho
  const root=temporary();try{
   const result=runtimeConfig(root,{RENDER_EXTERNAL_URL:'https://synthetic-radaz.onrender.com',RADAZ_PAYMENTS_ENABLED:'false'});
   assert.equal(result.settings.publicBaseUrl,'https://synthetic-radaz.onrender.com');assert.equal(result.settings.enabled,false);assert.equal(result.privateKey,null);
-  assert.throws(()=>runtimeConfig(root,{RADAZ_PAYMENTS_ENABLED:'true'}),/API ünvanı/);
+  assert.throws(()=>runtimeConfig(root,{RADAZ_PAYMENTS_ENABLED:'true'}),/API inteqrasiyası/);
   assert.throws(()=>runtimeConfig(root,{RADAZ_ISSUER_PRIVATE_KEY_PEM:'not-a-key'}),/PEM formatında/);
   const {privateKey}=generateKeyPairSync('rsa',{modulusLength:2048});
   assert.throws(()=>runtimeConfig(root,{RADAZ_ISSUER_PRIVATE_KEY_PEM:privateKey.export({format:'pem',type:'pkcs8'})}),/public açara uyğun deyil/);
+ }finally{cleanup(root);}
+});
+
+test('Kapital accounts keep AZN and USD separate and never activate Epoint',()=>{
+ const root=temporary();try{
+  saveSettings({provider:'kapital',iban:'AZ21NABZ00000000137010001944',usdIban:'',enabled:false},root);
+  const value=loadSettings(root);assert.equal(value.provider,'kapital');assert.equal(value.usdIban,'');
+  assert.equal(createEpointProvider({...settings,provider:'kapital'}),undefined);
+  assert.throws(()=>validateSettings({...value,enabled:true}),/Kapital Bank API/);
+  assert.throws(()=>validateSettings({...value,usdIban:'AZ123'}),/IBAN/);
  }finally{cleanup(root);}
 });
