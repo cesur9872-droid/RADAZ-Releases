@@ -6,7 +6,7 @@ Azərbaycan dilində DICOM görüntüləmə və radiologiya iş sahəsi — Wind
 
 ## Quraşdırma
 
-1. Son buraxılışın **Assets** bölməsindən **RADAZ-0.2.17-Setup.exe** endirin.
+1. Son buraxılışın **Assets** bölməsindən **RADAZ-0.2.18-Setup.exe** endirin.
 2. Setup-ı açıb quraşdırın. Node.js, Python və lazım olan komponentlər paketə daxildir.
 3. İş masasındakı **RADAZ** qısayolunu açın. Proqram lokal brauzer pəncərəsində işləyir.
 
@@ -14,7 +14,7 @@ Azərbaycan dilində DICOM görüntüləmə və radiologiya iş sahəsi — Wind
 
 ## 30 günlük demo
 
-İlk istifadədən **30 gün** bütün funksiyalar açıqdır. Demo üçün kart və açar lazım deyil. Əvvəlki 7 günlük demo yeni versiyada **ilk açılış tarixindən 30 günə** uzanır; yenidən quraşdırmaq tarixi sıfırlamır. Qalan vaxt **Yardım → Lisenziya** bölməsində görünür.
+Standart olaraq ilk istifadədən **30 gün** bütün funksiyalar açıqdır; sahib imzalı ayarla demo müddətini dəyişə bilər. Demo üçün kart və açar lazım deyil. Əvvəlki 7 günlük demo yeni versiyada **ilk açılış tarixindən 30 günə** uzanır; yenidən quraşdırmaq tarixi sıfırlamır. Qalan vaxt **Yardım → Lisenziya** bölməsində görünür.
 
 Aylıq lisenziya: **10 AZN**. Demo bitdikdə arxiv və PACS əlçatan qalır, Viewer-in qabaqcıl alətləri üçün lisenziya tələb olunur. Saxlanmış müayinələr silinmir. Onlayn ödəniş xidməti qoşulmayıbsa, aktivləşdirmə üçün məhsul sahibi ilə əlaqə saxlayın.
 
@@ -64,3 +64,9 @@ Məhsul sahibi: **Radioloq Rövşən Nağıyev** · [E-poçt](mailto:drnaghiyev@
 Xəta bildirərkən RADAZ versiyasını, Windows versiyasını və xəta mətnini qeyd edin. Açıq GitHub yazışmasına pasiyentin DICOM fayllarını və şəxsi məlumatlarını əlavə etməyin.
 
 İlkin sınaq buraxılışıdır. Bütün hüquqlar məhsul sahibinə məxsusdur. Üçüncü tərəf komponentləri öz lisenziyalarına tabedir. Açıq RADAZ-Releases deposu quraşdırıcılar və yenilənmə faylları üçündür.
+
+## Sahib idarəetməsi və ödənişlər
+
+Şəxsi sahib paneli müştəri Setup-ına daxil deyil. Bank hesabları parolla şifrələnir; AZN/USD qiymət, Mərkəzi Bank məzənnəsi, demo və modul qiymətləri idarə olunur. 0.2.18+ imzalı ümumi ayarları avtomatik qəbul edir. Provayder hələ seçilmədiyi üçün canlı ödəniş bağlıdır. Provayder qoşulduqdan sonra təsdiqlənmiş ödəniş alınmış lisenziyanı və ya modulu avtomatik aktivləşdirir.
+
+Yenilənmə endirildikdən sonra təsdiq pəncərəsi bağlanır. Yenilənməyə yenidən baxıb **Yenidən başlat və tətbiq et** düyməsini seçmək olar. Köhnə hazırlanmış paket daha yeni versiyanı gizlətmir.

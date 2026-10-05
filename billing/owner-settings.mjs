@@ -4,7 +4,7 @@ import os from 'node:os';
 export const ownerDirectory=()=>path.resolve(process.env.RADAZ_OWNER_DIR||path.join(os.homedir(),'Documents','RADAZ-License-Admin'));
 // Verified against Epoint's linked PHP SDK, EpointClient.php + PaymentRequest.php.
 export const EPOINT_REQUEST_URL='https://epoint.az/api/1/request';
-const defaults={provider:'kapital',sellerName:'',taxId:'',bankName:'',iban:'',usdIban:'',branchCode:'',bankTaxId:'',swift:'',correspondentAccount:'',beneficiary:'',supportEmail:'drnaghiyev@gmail.com',publicBaseUrl:'',epointPublicKey:'',epointPrivateKey:'',epointRequestUrl:EPOINT_REQUEST_URL,enabled:false};
+const defaults={provider:'kapital',sellerName:'',taxId:'',bankName:'',iban:'',usdIban:'',branchCode:'',bankTaxId:'',swift:'',correspondentAccount:'',beneficiary:'',paymentLink:'',usdPaymentLink:'',supportEmail:'drnaghiyev@gmail.com',publicBaseUrl:'',epointPublicKey:'',epointPrivateKey:'',epointRequestUrl:EPOINT_REQUEST_URL,enabled:false};
 export function loadSettings(root=ownerDirectory()){
  const file=path.join(root,'merchant.json');
  if(!existsSync(file))return {...defaults};
@@ -36,6 +36,7 @@ export function validateSettings(input,previous=defaults){
  if(next.enabled&&next.provider==='kapital')throw new Error('Kapital Bank API inteqrasiyası hələ qoşulmayıb. Rekvizitlər ödənişi avtomatik aktiv etmir.');
  if(/^(azn|usd|eur)$/i.test(next.beneficiary))throw new Error('Vəsaiti alanın adı sahəsinə valyuta deyil, bank hesabının sahibinin tam adı yazılmalıdır.');
  if(next.taxId&&!/^\d{10}$/.test(next.taxId))throw new Error('VÖEN 10 rəqəm olmalıdır.');
+ for(const field of ['paymentLink','usdPaymentLink'])if(next[field]){const link=new URL(next[field]);if(link.protocol!=='https:'||link.username||link.password)throw Error('Ödəniş linki təhlükəsiz HTTPS ünvanı olmalıdır.');}
  if(next.publicBaseUrl){const u=new URL(next.publicBaseUrl);if(u.protocol!=='https:'||u.username||u.password||u.search||u.hash||u.pathname!=='/')throw new Error('Lisenziya xidmətinin HTTPS domenini daxil edin (alt yol olmadan).');next.publicBaseUrl=u.origin;}
  if(next.epointRequestUrl){const u=new URL(next.epointRequestUrl);if(u.protocol!=='https:'||!(u.hostname==='epoint.az'||u.hostname.endsWith('.epoint.az'))||u.username||u.password||u.search||u.hash)throw new Error('Epoint-in verdiyi rəsmi HTTPS API ünvanını daxil edin.');}
  if(next.enabled&&(!next.publicBaseUrl||!next.epointRequestUrl||!next.epointPublicKey||!next.epointPrivateKey))throw new Error('Ödənişi açmaq üçün domen və Epoint-in API ünvanı/açarları lazımdır.');

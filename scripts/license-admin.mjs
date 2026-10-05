@@ -4,29 +4,34 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import {fileURLToPath} from 'node:url';
+import {OwnerVault} from '../billing/owner-vault.mjs';
 const args=process.argv.slice(2),command=args.shift();
 const flags={};for(let i=0;i<args.length;i+=2){if(!args[i].startsWith('--')||!args[i+1])throw new Error('Arguments: --name value');flags[args[i].slice(2)]=args[i+1];}
 const root=path.resolve(flags.dir||path.join(os.homedir(),'Documents','RADAZ-License-Admin'));
 const project=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 fs.mkdirSync(root,{recursive:true});
 const privatePath=path.join(root,'issuer-private.pem'),ledgerPath=path.join(root,'subscriptions.json');
+const vault=new OwnerVault(root);
+const protectedOwner=vault.exists?await vault.unlock(process.env.RADAZ_OWNER_PASSWORD):null;
+const privatePem=()=>protectedOwner?.issuer||fs.readFileSync(privatePath);
 function save(p,value){const temp=p+'.tmp';const fd=fs.openSync(temp,'w',0o600);try{fs.writeFileSync(fd,JSON.stringify(value,null,2));fs.fsyncSync(fd);}finally{fs.closeSync(fd);}fs.renameSync(temp,p);}
 function expiry(period,base=Date.now()){const d=new Date(base);const day=d.getUTCDate();d.setUTCDate(1);d.setUTCMonth(d.getUTCMonth()+(period==='yearly'?12:1));const last=new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth()+1,0)).getUTCDate();d.setUTCDate(Math.min(day,last));return Math.floor(d.getTime()/1000);}
 const lock=path.join(root,'.admin.lock');let fd;
 try{
  fd=fs.openSync(lock,'wx');
  if(command==='init'){
-  if(!fs.existsSync(privatePath)){const keys=generateKeyPairSync('rsa',{modulusLength:3072,privateKeyEncoding:{type:'pkcs8',format:'pem'},publicKeyEncoding:{type:'spki',format:'pem'}});fs.writeFileSync(privatePath,keys.privateKey,{mode:0o600,flag:'wx'});}
-  const key=createPublicKey(createPrivateKey(fs.readFileSync(privatePath))).export({format:'jwk'});
+  if(vault.exists&&!protectedOwner?.issuer)throw Error('Vault contains no issuer key. Restore the existing key; do not replace customer signing identity.');
+  if(!vault.exists&&!fs.existsSync(privatePath)){const keys=generateKeyPairSync('rsa',{modulusLength:3072,privateKeyEncoding:{type:'pkcs8',format:'pem'},publicKeyEncoding:{type:'spki',format:'pem'}});fs.writeFileSync(privatePath,keys.privateKey,{mode:0o600,flag:'wx'});}
+  const key=createPublicKey(createPrivateKey(privatePem())).export({format:'jwk'});
   save(path.join(root,'issuer-public.json'),key);save(path.resolve(flags.public||path.join(project,'public','license-public.json')),key);
   console.log('Issuer initialized. Private key stays in admin directory. Back it up securely.');
  }else{
-  if(!fs.existsSync(privatePath))throw new Error('Run init first.');
+  if(!protectedOwner?.issuer&&!fs.existsSync(privatePath))throw new Error('Run init first.');
   const ledger=fs.existsSync(ledgerPath)?JSON.parse(fs.readFileSync(ledgerPath,'utf8')):{subscriptions:[]};
   if(command==='owner'){
    const device=String(flags.device||'').toUpperCase();
    if(!/^[A-F0-9]{64}$/.test(device)||!flags.customer?.trim()||flags.customer.length>200||!flags.out)throw new Error('owner --customer Name --device DeviceID --out activation.txt');
-   const privateKey=createPrivateKey(fs.readFileSync(privatePath));
+   const privateKey=createPrivateKey(privatePem());
    const actual=createPublicKey(privateKey).export({format:'jwk'}),expected=JSON.parse(fs.readFileSync(path.resolve(flags.public||path.join(project,'public/license-public.json')),'utf8'));
    if(actual.n!==expected.n||actual.e!==expected.e)throw new Error('Issuer key does not match the installed public key.');
    let subscription=ledger.subscriptions.find(s=>s.entitlement==='owner'&&s.activations?.[0]?.deviceId===device);
@@ -46,7 +51,7 @@ try{
    let activation=subscription.activations.find(a=>a.deviceId===device);
    if(!activation){if(subscription.activations.length>=subscription.seats)throw new Error('Seat limit reached. Existing offline activations remain valid until expiry.');activation={id:randomUUID(),deviceId:device};subscription.activations.push(activation);}
    const claims={v:1,product:'RADAZ',licenseId:subscription.id,activationId:activation.id,customer:subscription.customer,plan:subscription.plan,seats:subscription.seats,deviceId:device,issuedAt:Math.floor(Date.now()/1000),expiresAt:subscription.expiresAt};
-   const payload='RADAZ1.'+Buffer.from(JSON.stringify(claims)).toString('base64url');const key=payload+'.'+sign('RSA-SHA256',Buffer.from(payload),fs.readFileSync(privatePath)).toString('base64url');
+   const payload='RADAZ1.'+Buffer.from(JSON.stringify(claims)).toString('base64url');const key=payload+'.'+sign('RSA-SHA256',Buffer.from(payload),privatePem()).toString('base64url');
    if(!flags.out)throw new Error('Specify --out activation.txt to save the key.');save(ledgerPath,ledger);fs.writeFileSync(path.resolve(flags.out),key+'\n',{mode:0o600});console.log('Activation saved.');
   }else if(command==='renew'){
    const subscription=ledger.subscriptions.find(s=>s.id===flags.license);if(!subscription)throw new Error('Subscription not found.');

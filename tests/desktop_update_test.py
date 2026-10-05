@@ -77,6 +77,21 @@ class DesktopUpdates(unittest.TestCase):
                 self.assertFalse((self.root/'pending.json').exists())
             opened.assert_not_called()
 
+    def test_staged_older_release_does_not_hide_latest_and_keeps_old_without_approval(self):
+        desktop.atomic_json(self.root/'pending.json',{'version':'0.2.8'})
+        desktop.atomic_json(self.root/'active.json',{'version':'0.2.7'})
+        release=self.release()
+        with patch.object(desktop,'get_latest_release',return_value=release),patch.object(desktop,'open_release_download') as opened:
+            desktop.check_update(self.root)
+            self.assertEqual(desktop.read_json(self.root/'update-state.json')['version'],self.target)
+            self.assertEqual(desktop.read_json(self.root/'update-state.json')['state'],'available')
+            self.assertEqual(desktop.read_json(self.root/'pending.json')['version'],'0.2.8')
+            opened.assert_not_called()
+        with patch.object(desktop,'get_latest_release',side_effect=OSError('offline')):
+            desktop.check_update(self.root)
+            self.assertEqual(desktop.read_json(self.root/'update-state.json')['state'],'ready')
+            self.assertEqual(desktop.read_json(self.root/'update-state.json')['version'],'0.2.8')
+
     def test_confirmed_version_downloads_and_stages_with_progress(self):
         release=self.release()
         with patch.object(desktop,'get_latest_release',return_value=release),patch.object(desktop,'open_release_download',side_effect=lambda _:self.archive.open('rb')):

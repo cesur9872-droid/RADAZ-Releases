@@ -127,10 +127,13 @@ Setup.exe bütün runtime-ları daxil edir və offline quraşdırılır; Authent
 
 ## 30 günlük demo və sahib kompüteri
 
-0.2.17 paketində `licenseRequired=true`, `trialDays=30` saxlanır. Demo ilk istifadədən 30 × 24 saatdır; bütün lisenziyalı funksiyalar bu vaxt açıqdır. Demo bitdikdə əvvəlki PACS/arxiv və yalnız listələmə qaydası tətbiq edilir. Yeniləmə, brauzer keşini silmək və adi yenidən quraşdırma demo müddətini sıfırlamır.
+0.2.18 paketində `licenseRequired=true`, `trialDays=30` saxlanır. Demo ilk istifadədən 30 × 24 saatdır; bütün lisenziyalı funksiyalar bu vaxt açıqdır. Demo bitdikdə əvvəlki PACS/arxiv və yalnız listələmə qaydası tətbiq edilir. Yeniləmə, brauzer keşini silmək və adi yenidən quraşdırma demo müddətini sıfırlamır.
 
 Windows-da demo qeydi `%LOCALAPPDATA%/RADAZ/Licensing` və `HKCU/Software/RADAZ/Licensing` içində saxlanır, DPAPI ilə həmin Windows istifadəçisinə bağlanır. Qeyd MachineGuid əsasında alınan kompüter kodunu daşıyır. Bir nüsxə itərsə qalan qeyddən ilkin tarix bərpa olunur; korlanmış qeyd və saatın geriyə çəkilməsi yeni demo yaratmır. Offline demo yerli administratorun müdaxiləsinə, yeni Windows profilinə və əməliyyat sisteminin tam yenidən qurulmasına qarşı mütləq müdafiə deyil; bu səviyyədə nəzarət üçün internetdə cihaz qeydiyyatı xidməti lazımdır.
 
 Satıcının öz kompüteri üçün `scripts/license-admin.mjs owner --customer "Ad Soyad" --device KOMPÜTER_KODU --out ŞƏXSİ_QOVLUQ/owner-activation.txt` ayrıca imzalı, bir cihaza bağlı sahib açarı verir. Mövcud private açar müştərinin public açarı ilə uyğun olmalıdır. Bu açar yalnız sahib kompüterində aktivləşdirilir; alıcı ZIP-inə daxil edilmir. Köhnə işləyən xidmətlə uyğunluq üçün imzalı açarda aylıq format və 9999-cu il bitmə tarixi saxlanır, yeni interfeys bunu müddətsiz sahib lisenziyası kimi göstərir. Bu, ümumi hazırlama rejimini açmır.
 
 Sahibin aktivləşdirmə faylı, `Documents/RADAZ-Archive/product/license.json`, demo qeydləri və `Documents/RADAZ-License-Admin` qovluğu GitHub-a və müştəri paketinə daxil edilməməlidir.
+
+
+0.2.18 sahib paneli və yeni ödəniş təhlükəsizliyi qaydaları üçün [billing/README.md](billing/README.md) əsas götürülür. Parol yaradıldıqda əvvəlki açıq mətn merchant və issuer faylları şifrələnmiş owner-vault.json yaddaşına köçürülür. Sahib paneli müştəri buraxılışına daxil edilmir.

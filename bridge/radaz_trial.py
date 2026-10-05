@@ -76,7 +76,8 @@ class TrialStore:
             with winreg.CreateKey(winreg.HKEY_CURRENT_USER, self.reg_path) as key:
                 winreg.SetValueEx(key, 'Trial', 0, winreg.REG_SZ, raw)
 
-    def status(self, now=None):
+    def status(self, now=None, days=30):
+        if type(days) is not int or not 0 <= days <= 365: raise ValueError('Demo müddəti düzgün deyil.')
         now = int(time.time()) if now is None else int(now)
         try:
             file_raw = self.path.read_text(encoding='ascii') if self.path.exists() else None
@@ -89,10 +90,11 @@ class TrialStore:
             record = dict(v=1, deviceId=self.device, startedAt=started, lastSeen=max(now, last_seen))
             if not file_raw or (self.registry and not registry_raw) or now-last_seen >= 60 or any(r['startedAt'] != started or r['lastSeen'] != last_seen for r in records):
                 self.write(record)
-            expires = started + TRIAL_SECONDS
+            expires = started + days * 86400
             remaining = max(0, expires - now)
             return dict(valid=remaining > 0, startedAt=started, expiresAt=expires,
+                        durationDays=days,
                         daysRemaining=math.ceil(remaining/86400),
-                        message='30 günlük pulsuz demo aktivdir.' if remaining else '30 günlük pulsuz demo bitib. Davam etmək üçün lisenziyanı aktivləşdirin.')
+                        message=f'{days} günlük pulsuz demo aktivdir.' if remaining else 'Pulsuz demo bitib. Davam etmək üçün lisenziyanı aktivləşdirin.')
         except (ValueError, OSError, TypeError, KeyError) as error:
             return dict(valid=False, daysRemaining=0, message=str(error) if isinstance(error, ValueError) else 'Demo məlumatı oxunmadı. Satıcı ilə əlaqə saxlayın.')

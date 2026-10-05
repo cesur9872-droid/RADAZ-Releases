@@ -637,3 +637,5 @@
 .records-unified-header button:not(.modality-trigger),.output-page-nav>button{font-size:0!important}
 .records-unified-header button:not(.modality-trigger)>svg{width:clamp(16px,1.45vw,22px);height:clamp(16px,1.45vw,22px)}
 .records-header-actions>button{min-width:34px!important;width:clamp(34px,2.8vw,42px)!important;padding:0 6px!important;justify-content:center}
+
+.product-dialog select{padding:10px;border:1px solid #416277;background:#091c28;color:#e0f1f9;border-radius:6px;font:inherit;max-width:100%}

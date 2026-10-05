@@ -10,6 +10,7 @@ export function amountMinor(value){
 export function createEpointProvider(settings,request=fetch){
  if(!settings.enabled||settings.provider==='kapital')return undefined;
  return {
+  currencies:['AZN'],
   async createCheckout({orderId,amountMinor:minor,currency,months}){
    if(currency!=='AZN')throw new Error('Yalnız AZN ödənişi dəstəklənir.');
    const payload={public_key:settings.epointPublicKey,amount:(minor/100).toFixed(2),currency:'AZN',language:'az',order_id:orderId,description:`RADAZ lisenziyası · ${months} ay`,success_redirect_url:settings.publicBaseUrl+'/payment/return',error_redirect_url:settings.publicBaseUrl+'/payment/return'};

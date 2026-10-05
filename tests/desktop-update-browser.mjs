@@ -22,10 +22,11 @@ try{
  const page=await browser.newPage({viewport:{width:1366,height:768}});
  await page.route('**/local-archive-api/**',r=>r.fulfill({json:r.request().url().endsWith('/license')?{valid:true,required:true,kind:'owner',message:'Synthetic license',deviceId:'TEST'}:[]}));
  await page.goto(base+'/archive');
- let checks=0,downloads=0;
+ let checks=0,downloads=0,applies=0;
  await page.route('**/radaz-update',route=>{
   const input=route.request().postDataJSON();
   if(input.action==='check'){checks++;state('available','RADAZ 99.0.1 — yeni versiya mövcuddur.');}
+  else if(input.action==='apply'){assert.deepEqual(input,{action:'apply',version:'99.0.1',confirmed:true});applies++;return route.fulfill({status:202,json:{state:'applying'}});}
   else{assert.deepEqual(input,{action:'download',version:'99.0.1',confirmed:true});downloads++;state('downloading','RADAZ yüklənir…',{done:25,total:100,unit:'bayt'});}
   return route.fulfill({status:202,json:{state:'checking'}});
  });
@@ -49,10 +50,18 @@ try{
  state('error','Synthetic failed checksum');await page.getByRole('alert').filter({hasText:'Synthetic failed checksum'}).waitFor();
  assert.equal(await page.locator('.update-confirmation').count(),0,'Failure must never show success');
  state('ready',message);await page.getByText(message,{exact:true}).waitFor();
- await page.getByText('Yeniləmə hazırdır. Setup-ı yenidən quraşdırmaq lazım deyil.',{exact:true}).waitFor();
+ await page.getByText('Endirmə tamamlandı. Yeni versiyanı tətbiq etmək üçün yenidən başladın.',{exact:true}).waitFor();
  assert.equal(await page.getByRole('progressbar',{name:'Yenilənmə prosesi'}).getAttribute('value'),'1');
- await page.locator('dialog footer').getByRole('button',{name:'Bağla',exact:true}).click();
+ await page.locator('dialog[open]').waitFor({state:'hidden',timeout:6000});
  await page.locator('.update-toast').getByText(/qısayolunu yenidən açın/).waitFor({timeout:20000});
+ await page.getByRole('button',{name:'Yenilənməyə bax',exact:true}).click();
+ await page.getByRole('button',{name:'Yenidən başlat və tətbiq et',exact:true}).click();assert.equal(applies,0);
+ await page.getByRole('button',{name:'Sonra',exact:true}).click();assert.equal(applies,0);
+ await page.getByRole('button',{name:'Yenidən başlat və tətbiq et',exact:true}).click();
+ await page.route('**/radaz-runtime.json',r=>r.fulfill({json:{version:'99.0.1'}}));
+ await page.getByRole('button',{name:'Təsdiq et və yenidən başlat',exact:true}).click();
+ await delay(1500);assert.equal(applies,1);
+ await page.locator('.update-toast').waitFor({timeout:20000});
  await page.getByRole('button',{name:'Bildirişi bağla'}).click();assert.equal(await page.locator('.update-toast').count(),0);
  console.log('PASS: discovery-only check, available notification, no download on opening or cancel, explicit version confirmation, progress and completion, origin/approval guards');
 }finally{

@@ -1,31 +1,43 @@
-const form=document.querySelector('form'),status=document.querySelector('#status'),save=document.querySelector('#save'),retry=document.querySelector('#retry'),fields=document.querySelector('#fields');
-const field=name=>form.elements.namedItem(name);
-const sessionKey='radaz-owner-session:'+location.origin;
-let token=location.hash.slice(1),connected=false;
-// Keep the short-lived capability in this tab so Reload does not log the owner out.
-// Never keep bank details or provider keys in browser storage.
+const form=document.querySelector('#settings'),status=document.querySelector('#status'),auth=document.querySelector('#auth'),workspace=document.querySelector('#workspace');
+const field=name=>form.elements.namedItem(name),sessionKey='radaz-owner-session:'+location.origin;
+let token=location.hash.slice(1),commerce,configured=false,dirty=false;
 try{if(token)sessionStorage.setItem(sessionKey,token);else token=sessionStorage.getItem(sessionKey)||'';}catch{}
-if(token&&location.protocol!=='file:')history.replaceState(null,'',location.pathname);
-const urls=()=>{const base=field('publicBaseUrl').value.trim().replace(/\/$/,'');document.querySelector('#callback').textContent=base?base+'/v1/webhooks/provider':'Əvvəl işlək HTTPS domenini daxil edin.';document.querySelector('#return').textContent=base?base+'/payment/return':'—';};
-async function request(body){
- const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),10000);
- try{
-  const response=await fetch('/settings',{method:body?'POST':'GET',headers:{Authorization:'Bearer '+token,...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined,signal:controller.signal});
-  const data=await response.json();if(!response.ok)throw new Error(data.error||'Panelə giriş alınmadı.');return data;
- }catch(error){if(error.name==='AbortError'||error instanceof TypeError)throw new Error('Satıcı panelinin xidməti cavab vermir. OPEN-SELLER-SETTINGS.cmd ilə açın və terminal pəncərəsini bağlamayın.');throw error;}
- finally{clearTimeout(timer);}
+if(token)history.replaceState(null,'',location.pathname);
+async function request(url,body){
+ const r=await fetch(url,{method:body?'POST':'GET',headers:{Authorization:'Bearer '+token,...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(45000)});
+ const result=await r.json();if(!r.ok){if(r.status===401&&url!=='/auth/unlock')showLocked();throw Error(result.error||'Sorğu alınmadı.');}return result;
 }
-function providerChanged(){const kapital=field('provider').value==='kapital';document.querySelector('#epoint-settings').hidden=kapital;document.querySelector('#kapital-note').hidden=!kapital;if(kapital)field('enabled').checked=false;}
-field('provider').addEventListener('change',providerChanged);
-function populate(data){for(const [name,value]of Object.entries(data)){const input=field(name);if(!input)continue;if(input.type==='checkbox')input.checked=!!value;else input.value=value;}field('epointPrivateKey').value='';field('clearPrivateKey').checked=false;document.querySelector('#secret-state').textContent=data.privateKeyConfigured?'Gizli açar saxlanıb; burada geri göstərilmir.':'Gizli açar hələ daxil edilməyib.';urls();providerChanged();}
-async function connect(){
- connected=false;save.disabled=true;fields.disabled=true;retry.hidden=true;
- if(location.protocol==='file:'||!token){document.querySelector('#storage').textContent='Bağlantı yoxdur';status.textContent='Bu HTML faylı ayarları saxlamır. billing qovluğundakı OPEN-SELLER-SETTINGS.cmd faylını açın; panel brauzerdə özü açılacaq. Köhnə vərəqəni bağlayın.';return;}
- status.textContent='Yerli satıcı xidmətinə qoşulur…';
- try{const data=await request();populate(data);document.querySelector('#storage').textContent=data.storagePath;connected=true;fields.disabled=false;save.disabled=false;status.textContent='Panel qoşuldu. Yadda saxla düyməsi ayarları yalnız bu kompüterdə saxlayır.';}
- catch(error){document.querySelector('#storage').textContent='Bağlantı alınmadı';status.textContent=error.message;retry.hidden=false;}
+function showLocked(){workspace.hidden=true;auth.hidden=false;document.querySelector('#lock').hidden=true;form.reset();document.querySelector('#modules').replaceChildren();commerce=null;dirty=false;}
+const amount=value=>Math.round(Number(value)*100);
+function pair(minor,currency){const r=commerce?.exchange?.usdAzn;return {AZN:currency==='AZN'?minor:r?Math.round(minor*r):null,USD:currency==='USD'?minor:r?Math.round(minor/r):null};}
+function switchBase(target){
+ const previous=commerce.baseCurrency;if(previous===target)return true;
+ const rows=[...document.querySelectorAll('.module-row')];
+ if(rows.length&&!commerce.exchange){status.textContent='Modul qiymətlərini çevirmək üçün əvvəl məzənnəni yeniləyin.';return false;}
+ for(const row of rows){const input=row.querySelector('[data-field=price]');const p=pair(amount(input.value),previous);input.value=(p[target]/100).toFixed(2);}
+ commerce.baseCurrency=target;return true;
 }
-field('publicBaseUrl').addEventListener('input',urls);
-retry.addEventListener('click',()=>void connect());
-form.addEventListener('submit',async event=>{event.preventDefault();if(!connected)return;save.disabled=true;try{const body=Object.fromEntries(new FormData(form));body.enabled=field('enabled').checked;body.clearPrivateKey=field('clearPrivateKey').checked;populate(await request(body));status.textContent='Ayarlar saxlandı. Ödəniş serverini yenidən başladın. Bank kabinetində rekvizitlərin ayrıca təsdiqləndiyini yoxlayın.';}catch(error){status.textContent=error.message;}finally{save.disabled=false;}});
+function prices(){const p=pair(commerce.monthlyMinor,commerce.baseCurrency);field('priceAzn').value=p.AZN===null?'':(p.AZN/100).toFixed(2);field('priceUsd').value=p.USD===null?'':(p.USD/100).toFixed(2);field('baseCurrency').value=commerce.baseCurrency;const e=commerce.exchange;document.querySelector('#exchange-status').textContent=e?`1 USD = ${e.usdAzn.toFixed(4)} AZN · Mərkəzi Bank · ${e.date}${Date.now()-e.checkedAt>7*86400000?' · köhnə məzənnə, yeniləyin':''}`:'Məzənnə hələ alınmayıb. Digər valyutanı hesablamaq üçün yeniləyin.';}
+function moduleRow(m={id:'',name:'',monthlyMinor:100,enabled:true}){
+ const row=document.createElement('div');row.className='module-row';
+ for(const [name,label,type,value] of [['id','Modul kodu','text',m.id],['name','Modul adı','text',m.name],['price','Aylıq qiymət','number',(m.monthlyMinor/100).toFixed(2)]]){
+  const wrap=document.createElement('label');wrap.textContent=label;const input=document.createElement('input');input.dataset.field=name;input.type=type;input.value=value;input.required=true;if(type==='number'){input.min='.01';input.step='.01';}wrap.append(input);row.append(wrap);
+ }
+ const label=document.createElement('label');label.className='check';const enabled=document.createElement('input');enabled.type='checkbox';enabled.dataset.field='enabled';enabled.checked=m.enabled;label.append(enabled,document.createTextNode('Satışda'));row.append(label);
+ const remove=document.createElement('button');remove.type='button';remove.textContent='Sil';remove.onclick=()=>{row.remove();dirty=true;};row.append(remove);document.querySelector('#modules').append(row);
+}
+function provider(){const e=field('provider').value==='epoint';document.querySelector('#epoint-settings').hidden=!e;if(!e)field('enabled').checked=false;document.querySelector('#callback').textContent=field('publicBaseUrl').value.replace(/\/$/,'')+'/v1/webhooks/provider';}
+function populate(data){for(const [name,value]of Object.entries(data)){const input=field(name);if(!input)continue;if(input.type==='checkbox')input.checked=!!value;else input.value=value;}commerce=data.commerce;field('trialDays').value=commerce.trialDays;field('epointPrivateKey').value='';field('clearPrivateKey').checked=false;document.querySelector('#secret-state').textContent=data.privateKeyConfigured?'Açar saxlanıb; geri göstərilmir.':'Açar daxil edilməyib.';document.querySelector('#storage').textContent=data.storagePath;document.querySelector('#modules').replaceChildren();commerce.modules.forEach(moduleRow);prices();provider();dirty=false;}
+async function connected(){populate(await request('/settings'));auth.hidden=true;workspace.hidden=false;document.querySelector('#lock').hidden=false;document.querySelector('#password').value='';document.querySelector('#confirm-password').value='';status.textContent='Şifrələnmiş sahib yaddaşı açıldı.';}
+async function connect(){try{if(!token)throw Error('OPEN-SELLER-SETTINGS.cmd faylını açın.');const state=await request('/auth/status');configured=state.configured;document.querySelector('#auth-title').textContent=configured?'Sahib girişi':'Sahib parolunu yaradın';document.querySelector('#confirm-wrap').hidden=configured;document.querySelector('#confirm-password').required=!configured;document.querySelector('#unlock').textContent=configured?'Daxil ol':'Parolu yarat və aç';if(state.unlocked)await connected();}catch(e){document.querySelector('#auth-status').textContent=e.message;}}
+auth.onsubmit=async e=>{e.preventDefault();const button=document.querySelector('#unlock');button.disabled=true;try{await request('/auth/unlock',{password:document.querySelector('#password').value,confirmPassword:document.querySelector('#confirm-password').value});configured=true;await connected();}catch(e){document.querySelector('#auth-status').textContent=e.message;}finally{document.querySelector('#password').value='';document.querySelector('#confirm-password').value='';button.disabled=false;}};
+document.querySelector('#lock').onclick=async()=>{await request('/auth/lock',{});showLocked();void connect();};
+for(const currency of ['AZN','USD'])field(currency==='AZN'?'priceAzn':'priceUsd').addEventListener('input',e=>{if(!switchBase(currency))return;commerce.monthlyMinor=amount(e.target.value);const p=pair(commerce.monthlyMinor,currency),other=currency==='AZN'?'USD':'AZN';field(other==='AZN'?'priceAzn':'priceUsd').value=p[other]===null?'':(p[other]/100).toFixed(2);field('baseCurrency').value=currency;});
+field('baseCurrency').onchange=()=>{const target=field('baseCurrency').value,p=pair(commerce.monthlyMinor,commerce.baseCurrency);if(p[target]===null){status.textContent='Əvvəl məzənnəni yeniləyin.';field('baseCurrency').value=commerce.baseCurrency;return;}if(!switchBase(target)){field('baseCurrency').value=commerce.baseCurrency;return;}commerce.monthlyMinor=p[target];prices();};
+field('provider').onchange=provider;field('publicBaseUrl').oninput=provider;form.addEventListener('input',()=>dirty=true);form.addEventListener('change',()=>dirty=true);
+document.querySelector('#add-module').onclick=()=>{moduleRow();dirty=true;};
+document.querySelector('#exchange').onclick=async()=>{try{commerce.exchange=await request('/exchange',{});prices();status.textContent='Məzənnə Mərkəzi Bankdan yeniləndi.';}catch(e){status.textContent=e.message;}};
+form.onsubmit=async e=>{e.preventDefault();const button=document.querySelector('#save');button.disabled=true;try{const body=Object.fromEntries(new FormData(form));body.enabled=field('enabled').checked;body.clearPrivateKey=field('clearPrivateKey').checked;body.commerce={...commerce,trialDays:Number(field('trialDays').value),modules:[...document.querySelectorAll('.module-row')].map(row=>{const f=n=>row.querySelector(`[data-field="${n}"]`);return {id:f('id').value,name:f('name').value,monthlyMinor:amount(f('price').value),enabled:f('enabled').checked};})};populate(await request('/settings',body));status.textContent='Ayarlar şifrələnərək saxlandı. Müştərilərə tətbiq etmək üçün qiymət və demo ayarlarını yayımlayın.';}catch(e){status.textContent=e.message;}finally{button.disabled=false;}};
+for(const action of ['publish','export'])document.querySelector('#'+action).onclick=async()=>{if(dirty){status.textContent='Əvvəl dəyişiklikləri yadda saxlayın.';return;}const button=document.querySelector('#'+action);button.disabled=true;try{const result=await request('/policy/'+action,{});if(action==='export'){const url=URL.createObjectURL(new Blob([JSON.stringify(result)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download='radaz-commerce.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);status.textContent='İmzalı ümumi ayarlar endirildi. Hesablar və açarlar bu faylda yoxdur.';}else status.textContent=result.message;}catch(e){status.textContent=e.message;}finally{button.disabled=false;}};
+setInterval(()=>{if(!workspace.hidden)void request('/auth/status').then(s=>{if(!s.unlocked){showLocked();void connect();}}).catch(()=>showLocked());},30000);
 void connect();

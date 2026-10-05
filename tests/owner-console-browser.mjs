@@ -1,0 +1,32 @@
+import assert from 'node:assert/strict';
+import {createRequire} from 'node:module';
+import {once} from 'node:events';
+import {mkdtempSync,readFileSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import path from 'node:path';
+import {createOwnerConsole} from '../billing/owner-console.mjs';
+const {chromium}=createRequire(import.meta.url)(process.env.PLAYWRIGHT_MODULE||'playwright');
+const root=mkdtempSync(path.join(tmpdir(),'radaz-owner-browser-'));
+const {server,token}=createOwnerConsole({root,exchange:async()=>({usdAzn:1.7,date:'2026-10-06',checkedAt:Date.now(),source:'CBAR'})});
+server.listen(0,'127.0.0.1');await once(server,'listening');
+const browser=await chromium.launch({headless:true,channel:'msedge'});
+try{
+ const page=await browser.newPage({viewport:{width:1280,height:900}}),url=`http://127.0.0.1:${server.address().port}/`;
+ const errors=[];page.on('pageerror',e=>errors.push(e.message));await page.goto(url+'#'+token);
+ await page.getByText('Sahib parolunu yaradın',{exact:true}).waitFor();
+ await page.locator('#password').fill('Synthetic owner password 2026');await page.locator('#confirm-password').fill('Synthetic owner password 2026');
+ await page.getByRole('button',{name:'Parolu yarat və aç'}).click();await page.locator('#workspace').waitFor();
+ await page.getByRole('button',{name:'Məzənnəni yenilə',exact:true}).click();await page.getByText(/1 USD = 1.7000 AZN/).waitFor();
+ await page.locator('[name="priceUsd"]').fill('10');assert.equal(await page.locator('[name="priceAzn"]').inputValue(),'17.00');
+ await page.locator('[name="trialDays"]').fill('45');await page.locator('[name="sellerName"]').fill('Synthetic seller');
+ await page.getByRole('button',{name:'+ Modul əlavə et'}).click();await page.locator('[data-field="id"]').fill('future-module');await page.locator('[data-field="name"]').fill('Gələcək modul');await page.locator('[data-field="price"]').fill('5');
+ await page.getByRole('button',{name:'Yadda saxla',exact:true}).click();await page.getByText(/Ayarlar şifrələnərək saxlandı/).waitFor();
+ await page.evaluate(()=>window.scrollTo(0,0));await page.screenshot({path:'outputs/owner-console-0218.png'});
+ const vault=readFileSync(path.join(root,'owner-vault.json'),'utf8');assert.equal(vault.includes('Synthetic seller'),false);assert.equal(vault.includes('future-module'),false);
+ const stranger=await browser.newPage();await stranger.goto(url);assert.equal(await stranger.locator('#workspace').isVisible(),false);assert.equal(await stranger.evaluate(()=>fetch('/settings').then(r=>r.status)),401);
+ await page.getByRole('button',{name:'Kilidlə',exact:true}).click();await page.locator('#auth').waitFor();assert.equal(await page.locator('[name="sellerName"]').inputValue(),'');
+ await page.locator('#password').fill('Incorrect password 2026');await page.getByRole('button',{name:'Daxil ol',exact:true}).click();await page.getByText(/Parol yanlışdır/).waitFor();
+ await page.locator('#password').fill('Synthetic owner password 2026');await page.getByRole('button',{name:'Daxil ol',exact:true}).click();await page.locator('#workspace').waitFor();
+ assert.equal(await page.locator('[name="trialDays"]').inputValue(),'45');assert.equal(await page.locator('[name="priceAzn"]').inputValue(),'17.00');assert.equal(await page.locator('[data-field="name"]').inputValue(),'Gələcək modul');assert.deepEqual(errors,[]);
+ console.log('PASS: protected owner page, password setup/lock/relogin, encrypted persistence, USD/AZN conversion, demo and module editing, unauthenticated access denied');
+}finally{await browser.close();server.closeAllConnections();await new Promise(r=>server.close(r));assert.ok(root.startsWith(path.join(tmpdir(),'radaz-owner-browser-')));rmSync(root,{recursive:true,force:true});}

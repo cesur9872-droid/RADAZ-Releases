@@ -8,7 +8,8 @@ import re
 import time
 import uuid
 from pathlib import Path
-from threading import RLock
+from threading import RLock, Thread
+from radaz_commerce import verify_policy, POLICY_URL
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
@@ -52,6 +53,8 @@ def verify_key(key, public, device, now=None):
     if claims['expiresAt'] <= claims['issuedAt']: raise ValueError('Lisenziya müddəti düzgün deyil')
     if not all(isinstance(claims.get(k),str) and 0 < len(claims[k]) < 250 for k in ('licenseId','activationId','customer')):
         raise ValueError('Lisenziya məlumatı natamamdır')
+    if 'moduleId' in claims and (not isinstance(claims['moduleId'],str) or not re.fullmatch(r'[a-z][a-z0-9-]{1,47}',claims['moduleId']) or claims['moduleId']=='base' or claims.get('entitlement')=='owner'):
+        raise ValueError('Modul lisenziyası düzgün deyil')
     return claims
 
 def atomic_json(path, data):
@@ -68,6 +71,30 @@ class ProductService:
         self.lock = RLock(); self.cached_update = None; self.last_check = 0
         self.device = device or self.machine_id()
         self.trial = TrialStore(self.device, trial_root)
+        self.policy = None; self.policy_check = 0; self.policy_busy = False
+        self.policy_network = config_path is None
+        try:
+            self.policy=verify_policy(json.loads((self.root/'commerce.json').read_text()),json.loads(self.public_path.read_text()))
+        except (OSError,ValueError,KeyError,TypeError): pass
+
+    def refresh_policy(self):
+        if not self.policy_network: return
+        with self.lock:
+            if self.policy_busy or time.time()-self.policy_check<900: return
+            self.policy_busy=True; self.policy_check=time.time()
+        def refresh():
+            try:
+                with urlopen(Request(POLICY_URL+'?v='+str(int(time.time())//900),headers={'User-Agent':'RADAZ-commerce'}),timeout=10) as response:
+                    raw=response.read(32769)
+                if len(raw)>32768: raise ValueError('Policy too large')
+                envelope=json.loads(raw); policy=verify_policy(envelope,json.loads(self.public_path.read_text()))
+                with self.lock:
+                    if not self.policy or policy['revision']>self.policy['revision']:
+                        atomic_json(self.root/'commerce.json',envelope); self.policy=policy
+            except (OSError,ValueError,KeyError,TypeError): pass
+            finally:
+                with self.lock: self.policy_busy=False
+        Thread(target=refresh,daemon=True).start()
 
     def machine_id(self):
         try:
@@ -81,9 +108,11 @@ class ProductService:
         return hashlib.sha256(('RADAZ:v1:' + value).encode()).hexdigest().upper()
 
     def status(self):
+        self.refresh_policy()
         with self.lock:
             result = dict(valid=False,required=bool(self.config.get('licenseRequired',True)),deviceId=self.device,message='Lisenziya açarını daxil edin.')
-            trial = self.trial.status() if self.config.get('trialDays') in (7, 30) else None
+            days=self.policy['trialDays'] if self.policy else 30 if self.config.get('trialDays') in (7,30) else 0
+            trial = self.trial.status(days=days)
             path = self.root/'license.json'
             if path.exists():
                 try:
@@ -91,6 +120,7 @@ class ProductService:
                     now = int(time.time())
                     if saved.get('lastSeen',0) > now + 300: raise ValueError('Kompüterin tarixi geriyə dəyişib. Tarixi düzəldin.')
                     claims = verify_key(saved['key'],json.loads(self.public_path.read_text()),self.device,now)
+                    if claims.get('moduleId'): raise ValueError('Modul açarı əsas lisenziyanı əvəz etmir.')
                     if now - saved.get('lastSeen',0) > 300: atomic_json(path,dict(key=saved['key'],lastSeen=now))
                     result.update(valid=True,claims=claims,message='Lisenziya təsdiqləndi.')
                     if claims.get('entitlement') == 'owner':
@@ -103,7 +133,26 @@ class ProductService:
                     result.update(valid=trial['valid'], kind='trial' if trial['valid'] else 'expired', message=trial['message'])
             if result['valid'] and 'kind' not in result:
                 result['kind'] = 'paid'
+            result['modules'] = self.module_entitlements()
             return result
+
+    def module_entitlements(self):
+        modules={}; path=self.root/'module-licenses.json'; now=int(time.time())
+        try:
+            saved=json.loads(path.read_text())
+            if saved.get('lastSeen',0)>now+300: return modules
+            for identifier,key in saved.get('keys',{}).items():
+                try:
+                    claims=verify_key(key,json.loads(self.public_path.read_text()),self.device,now)
+                    if claims.get('moduleId')==identifier: modules[identifier]={'valid':True,'expiresAt':claims['expiresAt']}
+                except (ValueError,KeyError,TypeError): pass
+            if now-saved.get('lastSeen',0)>300: saved['lastSeen']=now; atomic_json(path,saved)
+        except (OSError,ValueError,KeyError,TypeError): pass
+        return modules
+
+    def module_allowed(self, identifier):
+        state=self.status()
+        return state['valid'] and (state.get('kind')=='owner' or bool(state['modules'].get(identifier,{}).get('valid')))
 
     def activate(self, key):
         with self.lock:
@@ -116,12 +165,18 @@ class ProductService:
                 if saved.get('lastSeen',0)>now+300: raise ValueError('Kompüterin tarixini düzəldin.')
             if isinstance(key,str) and key.strip().startswith('RADAZ-ACT-'):
                 key=self.billing_call('/v1/activate',dict(code=key.strip(),deviceId=self.device)).get('key')
-            verify_key(key,json.loads(self.public_path.read_text()),self.device,now)
+            claims=verify_key(key,json.loads(self.public_path.read_text()),self.device,now)
+            if claims.get('moduleId'):
+                path=self.root/'module-licenses.json'
+                saved=json.loads(path.read_text()) if path.exists() else {'keys':{}}
+                if saved.get('lastSeen',0)>now+300: raise ValueError('Kompüterin tarixini düzəldin.')
+                saved['keys'][claims['moduleId']]=key.strip();saved['lastSeen']=now;atomic_json(path,saved)
+                return {**self.status(),'activatedModule':claims['moduleId'],'message':'Ödənilmiş modul aktivləşdirildi.'}
             atomic_json(saved_path,dict(key=key.strip(),lastSeen=now))
             return self.status()
 
     def billing_call(self, path, body=None, token=None):
-        base=self.config.get('billingUrl','').rstrip('/')
+        base=((self.policy or {}).get('billingUrl') or self.config.get('billingUrl','')).rstrip('/')
         url=urlsplit(base)
         if not base: raise ValueError('Ödəniş xidməti hələ qoşulmayıb. Satıcı hesabı açıldıqdan sonra aktiv olacaq.')
         if url.username or url.password or url.query or url.fragment or (url.scheme!='https' and not (url.scheme=='http' and url.hostname in ('localhost','127.0.0.1'))):
@@ -138,13 +193,17 @@ class ProductService:
         except (URLError,OSError): raise ValueError('Ödəniş serverinə qoşulmaq mümkün olmadı. İnterneti yoxlayın.') from None
 
     def billing_catalog(self):
-        if not self.config.get('billingUrl'): return dict(enabled=False,monthly=10,currency='AZN',maxMonths=120,message='Satıcı hesabı və ödəniş provayderi hələ qoşulmayıb.')
+        self.refresh_policy()
+        if not ((self.policy or {}).get('billingUrl') or self.config.get('billingUrl')):
+            policy=self.policy or dict(monthlyMinor=1000,baseCurrency='AZN',modules=[],exchange=None)
+            return dict(enabled=False,monthly=policy['monthlyMinor']/100,currency=policy['baseCurrency'],maxMonths=120,modules=policy['modules'],exchange=policy.get('exchange'),currencies=[],message='Satıcı hesabı və ödəniş provayderi hələ qoşulmayıb.')
         return self.billing_call('/v1/catalog')
 
-    def checkout(self, months):
+    def checkout(self, months, currency='AZN', module_id=None):
         if type(months) is not int or not 1<=months<=120: raise ValueError('Ay sayı 1–120 olmalıdır.')
+        if currency not in ('AZN','USD') or module_id is not None and (not isinstance(module_id,str) or not re.fullmatch(r'[a-z][a-z0-9-]{1,47}',module_id)): raise ValueError('Valyuta və ya modul düzgün deyil.')
         with self.lock:
-            result=self.billing_call('/v1/orders',dict(months=months))
+            result=self.billing_call('/v1/orders',dict(months=months,currency=currency,moduleId=module_id))
             if not re.fullmatch(r'[a-f0-9-]{36}',result.get('id','')) or not re.fullmatch(r'[a-f0-9]{64}',result.get('token','')): raise ValueError('Sifariş cavabı düzgün deyil.')
             url=urlsplit(result.get('url',''))
             if url.scheme!='https' or url.username or url.password: raise ValueError('Ödəniş ünvanı düzgün deyil.')

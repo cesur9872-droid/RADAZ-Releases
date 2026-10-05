@@ -438,7 +438,8 @@ def handler_for(archive, removable=None):
                 if self.path == '/billing/checkout':
                     if self.headers.get_content_type() != 'application/json':
                         self.respond({'error':'JSON tələb olunur'},415); return
-                    self.respond(product.checkout(json.loads(data).get('months'))); return
+                    request=json.loads(data)
+                    self.respond(product.checkout(request.get('months'),request.get('currency','AZN'),request.get('moduleId'))); return
                 if self.path == '/license/activate':
                     if self.headers.get_content_type() != 'application/json':
                         self.respond({'error':'JSON tələb olunur'},415); return

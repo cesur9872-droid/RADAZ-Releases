@@ -205,14 +205,21 @@ def stage_package(root, archive, target, digest, size):
 
 def check_update(root, approved_version=None):
     active = read_json(root / 'active.json')['version']
+    pending = None
     if (root / 'pending.json').exists():
-        pending = read_json(root / 'pending.json')['version']
-        if version(pending) > version(active):
-            state(root, 'ready', f'RADAZ {pending} hazırdır. Növbəti açılışda avtomatik tətbiq olunacaq.', pending)
-            return
+        candidate = read_json(root / 'pending.json')['version']
+        if version(candidate) > version(active): pending = candidate
     state(root, 'checking', 'Yeniləmələr arxa planda yoxlanılır.')
-    choice = select_asset(get_latest_release(), active)
+    try:
+        choice = select_asset(get_latest_release(), pending or active)
+    except Exception:
+        if not pending: raise
+        state(root, 'ready', f'RADAZ {pending} hazırdır. Daha yeni buraxılış yoxlanmadı; hazırlanmış yeniləmə saxlanıldı.', pending)
+        return
     if choice is None:
+        if pending:
+            state(root, 'ready', f'RADAZ {pending} hazırdır. Tətbiq etmək üçün RADAZ-ı yenidən başladın.', pending)
+            return
         state(root, 'current', 'Ən yeni versiya quraşdırılıb.'); return
     target, asset = choice
     if (root / 'failed-update.json').exists() and read_json(root / 'failed-update.json').get('version') == target:
@@ -387,6 +394,12 @@ def watch(root):
                 # Failed downloads lose their consumed approval and only recheck.
                 for tick in range(retry_delay):
                     time.sleep(1)
+                    apply_path=root/'apply-request.json'
+                    if apply_path.exists():
+                        apply=read_json(apply_path);apply_path.unlink(missing_ok=True)
+                        candidate=read_json(root/'pending.json').get('version') if (root/'pending.json').exists() else None
+                        if apply.get('confirmed') is True and candidate and apply.get('version')==candidate:
+                            launch(root,no_browser=True)
                     active = read_json(root / 'active.json')['version']
                     if active != own_version:
                         handoff = version_dir(root, active)

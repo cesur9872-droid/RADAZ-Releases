@@ -62,3 +62,6 @@ next-env.d.ts
 /RADAZ-License-Admin/
 merchant.json
 issuer-private.pem
+
+owner-vault.json
+owner-vault.json.*

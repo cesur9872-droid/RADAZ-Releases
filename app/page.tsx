@@ -1049,7 +1049,7 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
   const sourceLoading: LoadingProgress | null = loadProgress || (mediaProgress?.sessions && (mediaProgress.scanning || mediaProgress.loaded + mediaProgress.skipped < mediaProgress.discovered) ? {label:detachedMode === '3d'?'3D görüntü hazırlanır':'MPR hazırlanır',done:mediaProgress.loaded,total:mediaProgress.discovered,indeterminate:mediaProgress.scanning,phase:'DICOM görüntüləri oxunur'} : null);
   return <main className={`workstation grouped-workstation ${railHidden ? 'rail-hidden' : ''} ${detachedMode ? 'detached' : ''}`} data-mode={detachedMode || 'viewer'} style={measurementVariables as React.CSSProperties}>
     <header className="topbar">
-      {!detachedMode && <div className="brand"><RadazLogo size={34}/><span><strong>RADAZ</strong><small>RADIOLOGY WORKSPACE</small></span></div>}
+      {!detachedMode && <div className="brand"><RadazLogo size={34}/><span><strong>RADAZ</strong><small>RADIOLOGY, CONNECTED</small></span></div>}
       <div className="primary-command-row">
         {!detachedMode && <div className="toolbar-group import-command" role="group" aria-label="DICOM idxalı"><DropdownMenu><DropdownMenuTrigger asChild><Button variant="outline" className="header-control" title="DICOM import" aria-label="DICOM import" disabled={importBusy || limited}><FolderOpen size={17}/><span>DICOM import</span><ChevronDown size={14}/></Button></DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="header-menu">

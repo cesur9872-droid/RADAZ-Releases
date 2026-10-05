@@ -1,34 +1,33 @@
-# RADAZ ödəniş və aktivləşdirmə xidməti
+# RADAZ sahib paneli və ödəniş xidməti
 
-Bu xidmət satıcının serverində işləyir. Müştəri paketinə gizli açar, ödəniş provayderinin sirri və SQLite bazası daxil edilmir. Hazır satıcı hesabı olmadığı üçün canlı kart ödənişi aktiv deyil.
+Sahib paneli `OPEN-SELLER-SETTINGS.cmd` ilə açılır. Müştəri Setup-ında bu səhifə və onun serveri yoxdur. Panel yalnız `127.0.0.1` üzərində işləyir; giriş üçün launcher-in təsadüfi açarı və sahib parolu lazımdır. İlk açılışda ən azı 12 simvolluq parol seçin. Parol 15 dəqiqə fəaliyyətsizlikdən sonra yenidən tələb olunur. Kilidlə düyməsi hesab məlumatlarını səhifədən təmizləyir.
 
-Tam satıcı təlimatı: [DISTRIBUTION.md](../DISTRIBUTION.md). Şəxsi ayar paneli üçün `billing/OPEN-SELLER-SETTINGS.cmd` açın. Rekvizitlər, Epoint açarları və HTTPS domeni standart olaraq `Documents/RADAZ-License-Admin/merchant.json` içində saxlanır. Satıcı paneli müştəri ZIP-inə daxil edilmir. Kapital Bank seçimi AZN/USD rekvizitlərini ayrıca saxlayır; canlı bank API inteqrasiyası hələ yoxdur. Epoint seçimi əvvəlki adapter üçün saxlanılır. Kapital Bank seçimində Epoint checkout-u aktivləşmir.
+Hesablar və mövcud issuer açarı `Documents/RADAZ-License-Admin/owner-vault.json` daxilində scrypt (N=131072, r=8, p=1) və AES-256-GCM ilə qorunur. İlk parol yaradıldıqda köhnə `merchant.json` və `issuer-private.pem` şifrələnmiş yaddaşa köçürülür, açıq mətn nüsxələri silinir. Windows qovluq icazələri cari istifadəçi və SYSTEM ilə məhdudlaşdırılır. Şifrələnmiş faylın ehtiyat nüsxəsini və parolu ayrı təhlükəsiz yerlərdə saxlayın. Parol itərsə məlumat bərpa edilmir. Açıq sessiyaya və ya Windows administratoruna malik şəxsə qarşı mütləq müdafiə iddia edilmir; iş bitdikdə paneli kilidləyin.
 
-Qiymət serverdə 10 AZN × 1–120 ay hesablanır. Müştəridən gələn qiymət qəbul edilmir. Provayderin təsdiqlənmiş webhook-u sifariş, əməliyyat ID-si, məbləğ və valyutanı uyğunlaşdırır. Brauzerin “ödəniş uğurludur” keçidi açar yaratmır.
+## Qiymət, məzənnə və demo
 
-Ödənişdən sonra verilən `RADAZ-ACT-…` açarı hələ müddəti başlatmır. `/v1/activate` ilk dəfə açarı kompüterə bağlayır, server vaxtı ilə başlanğıcı yazır və alınmış təqvim ayları qədər RSA imzalı aktivləşdirmə verir. Yenidən aktivləşdirmə, təkrar webhook və müştərinin yerli məlumatları silməsi serverdəki müddəti sıfırlamır. Eyni açar ikinci kompüterə bağlanmır. Aktivləşdirmə üçün internet lazımdır; imzalı aktivləşdirmə sonradan lokal yoxlanır.
+AZN və USD qiymət sahələri bir-birini hesablayır. Axırıncı dəyişdirilmiş sahə əsas valyutadır. Məzənnə Azərbaycan Mərkəzi Bankının tarixli XML mənbəyindən alınır; mənbə tarixi göstərilir. Şəbəkə xətası əvvəlki məzənnəni silmir. Çevrilən ödəniş üçün 7 gündən köhnə məzənnə qəbul edilmir. Bankın faktiki məzənnəsi və komissiyası fərqli ola bilər.
 
-Əvvəlki `scripts/license-admin.mjs` əl ilə sabit bitmə tarixli `RADAZ1` açarı verir və geriyə uyğunluq üçün saxlanılır. Alışdan sonra ilk aktivləşdirmə tarixinə əsaslanan yeni ödəniş axını üçün həmin skript əvəzinə bu xidmətin `RADAZ-ACT` açarları istifadə olunur.
+Demo 0–365 gün arasında dəyişdirilir; 0 demo rejimini söndürür. Günlər ilk istifadədən hesablanır, yenidən quraşdırma ilə başlanğıc yenilənmir. Standart 30 gündür.
 
-## Qoşulma
+Yadda saxla yalnız şifrələnmiş yerli ayarları dəyişir. **Qiymət və demo ayarlarını yayımla** düyməsi sahibin RSA açarı ilə imzalanmış ümumi konfiqurasiyanı `cesur9872-droid/RADAZ-Releases` reposunun `commerce.json` faylına yazır. GitHub hesabı bu kompüterdə Git Credential Manager ilə qoşulmalıdır. Faylda yalnız qiymət, məzənnə, demo, modullar və ictimai ödəniş serverinin ünvanı var. Bank rekvizitləri və sirrlər göndərilmir. RADAZ 0.2.18+ və billing serveri imzanı və artan revision-u yoxlayır, ən gec 15 dəqiqəlik yoxlamada qəbul edir. İnternet yoxdursa son təsdiqlənmiş ayarlar saxlanır. İmzalı ayar faylını ayrıca endirmək də mümkündür.
 
-1. Satıcı hesabı açın; provayderin test və istehsal açarlarını serverdə saxlayın.
-2. Hazır `epoint.mjs` adapteri rəsmi checkout/callback imzasını yoxlayır. API ünvanı `https://epoint.az/api/1/request` olaraq doldurulur; merchant açarlarını Epoint kabinetindən götürün. Canlı sınaqdan əvvəl istehsal ödənişini açmayın. Başqa provayder üçün `RADAZ_PAYMENT_ADAPTER` modulu əvvəlki `createCheckout` və `verifyWebhook` müqaviləsini icra etməlidir; imzasız callback qəbul etməyin.
-3. Node.js 22.13+ ilə `node billing/server.mjs` başladın. Standart sahib qovluğu `Documents/RADAZ-License-Admin`, bazası onun `billing-data` alt qovluğudur. `RADAZ_OWNER_DIR`, `RADAZ_ISSUER_PRIVATE_KEY`, `RADAZ_BILLING_DATA`, `PORT` ilə yollar dəyişir. Mövcud satıcı imza açarı və müştərilərdəki `license-public.json` uyğun olmalıdır.
-4. HTTPS reverse proxy, sorğu limitləri, server vaxtının sinxronluğu və bazanın ehtiyat nüsxəsini qurun. Webhook ünvanı `/v1/webhooks/provider`-dır. Provayderin callback URL-ləri adapterdə müəyyənləşdirilir.
-5. `public/product.json` daxilində `billingUrl`-ı HTTPS xidmət ünvanına təyin edin. Lokal sınaqda localhost HTTP dəstəklənir. Buraxılış paketində `licenseRequired=true` olur.
-6. Test ödənişi, səhv məbləğ, təkrar callback, gec aktivləşdirmə, eyni açarın təkrar istifadəsi və müddət bitməsi yoxlanmadan canlı ödənişi açmayın.
+## Əlavə ödənişli modul
 
-Sifariş izləmə tokeni yerli məhsul qovluğunda saxlanır; yalnız həmin token açarı göstərir. Bank kartı məlumatı RADAZ-dan keçmir. Bazanı itirmək aktivləşdirmə tarixçəsini də itirir; ehtiyat nüsxə mütləqdir. Tam offline proqram yerli sistem administratorunun vaxtı və faylları dəyişməsinə qarşı mütləq müdafiə vermir.
+Sabit modul kodu, görünən adı və aylıq qiyməti daxil edin. Hazır olmayan modulu Satışda seçməyin. Modulun qiyməti əsas valyutadadır. Mövcud lisenziyalı funksiyalar özbaşına ayrıca ödənişə keçirilməyib.
 
-Private key panelə/API cavabına geri verilmir. Ayarlar dəyişdikdə billing serveri yenidən başladılmalıdır. Açar e-poçt/SMS ilə avtomatik göndərilmir; alıcı onu RADAZ-da görür, kopyalayır və TXT kimi saxlayır. İstehsal merchant hesabı və HTTPS hosting olmadığı üçün real ödəniş hələ sınaqdan keçirilməyib.
+Checkout modul kodunu və istənən valyutanı qəbul edir, məbləği serverdə hesablayır və sifarişə yazır. Sonrakı qiymət dəyişikliyi əvvəlki sifarişin məbləğini dəyişmir. İmzalı callback sifariş ID-si, əməliyyat ID-si, məbləğ və valyutanı uyğunlaşdırmadan kod verilmir. Ayrı modul üçün verilmiş açar yalnız həmin modulun `moduleId` icazəsini daşıyır və əsas lisenziyanı əvəz etmir. İlk aktivləşdirmə cihaz və başlanğıc tarixini bağlayır; təkrar callback/aktivləşdirmə müddəti uzatmır.
 
-Rəsmi protokol: [Epoint başlanğıc](https://developer.epoint.az/az), [ödəniş yaratma](https://developer.epoint.az/ru/checkout/request), [callback](https://developer.epoint.az/en/callbacks).
+Yeni modulun backend əməliyyatında `ProductService.module_allowed(id)` yoxlaması, React görünüşündə `useModuleLicense(id)` istifadə edilməlidir. Təkcə düyməni gizlətmək təhlükəsizlik yoxlaması deyil.
 
-## Domen və server hazır deyilsə
+## Canlı ödənişin qoşulması
 
-[Render quraşdırma təlimatı](RENDER-SETUP.md) və kök qovluqdakı `render.yaml` 20 AZN/ay büdcəsinə uyğun baza konfiqurasiyasını verir. HTTPS ünvanı xidmət yaradıldıqda verilir; ayrıca domen tələb olunmur. Açarlar Render Environment bölməsində saxlanır. Yerli panelə yazılmış məlumatlar Render-ə avtomatik göndərilmir.
+Bank / provayder hələ seçilməyib. Hesab və HTTPS ödəniş linkini saxlamaq mümkündür, amma sadə link avtomatik aktivləşdirmə yaratmır. Bunun üçün sifarişə bağlanan məbləğ/valyuta və provayderin imzalı webhook-u lazımdır. Kart PIN/CVV və internet-bank parolu saxlanmır.
 
-Server gizli açarlar olmadan ödənişi bağlı saxlayaraq başlaya bilir. `/healthz` yalnız serverin işlədiyini göstərir. `RADAZ_PAYMENTS_ENABLED=false` başlanğıc ayarıdır. `RADAZ_ISSUER_PRIVATE_KEY_PEM` mövcud imza açarını qəbul edir və müştərinin public açarı ilə uyğunluğunu yoxlayır; fərqli açar qəbul edilmir. Ödəniş aktivləşdirilərkən Epoint açarları və callback də qurulmalıdır.
+Mövcud Epoint adapteri AZN checkout və imzalı callback yoxlamasını dəstəkləyir. USD bazalı qiymət AZN-ə çevrilə bilər; faktiki USD ödənişi üçün USD dəstəkləyən provayder adapteri lazımdır. Yeni adapter `currencies`, `createCheckout` və `verifyWebhook` interfeyslərini təmin etməlidir. İmzasız və ya brauzerin uğur URL-inə əsaslanan təsdiq qəbul edilmir.
 
-Paneli `OPEN-SELLER-SETTINGS.cmd` ilə açın. HTML faylını ayrıca açmaq ayarları saxlamır. Səhifənin yenilənməsi cari panel sessiyasını qoruyur; server bağlanıbsa launcher-i yenidən açın. Hesab sahibinin adı valyuta adı olmamalıdır; Azərbaycan IBAN-ı 28 simvol və düzgün yoxlama rəqəmləri ilə daxil edilir.
+Server: Node.js 22.13+, `node billing/server.mjs`, HTTPS reverse proxy, `RADAZ_BIND`, `PORT`, `RADAZ_BILLING_DATA`. Hostingdə açarlar platformanın secret store-unda `RADAZ_ISSUER_PRIVATE_KEY_PEM`, `EPOINT_PUBLIC_KEY`, `EPOINT_PRIVATE_KEY`, `RADAZ_PUBLIC_BASE_URL`, `RADAZ_PAYMENTS_ENABLED` vasitəsilə verilir. Yerli şifrələnmiş yaddaş istifadə edilirsə `RADAZ_OWNER_PASSWORD` təhlükəsiz mühitdə verilməlidir. Parolu əmr sətrinə yazmayın. Köhnə license-admin CLI da şifrələnmiş yaddaşı bu dəyişənlə aça bilir və yeni imza açarı yaratmır.
+
+Provayder açarları dəyişəndə server yenidən başladılır; yayımlanmış qiymətlər avtomatik yenilənir. Müştəri ödəniş təsdiqini izləyir və alınmış kodu avtomatik həmin kompüterdə aktivləşdirir. Şəbəkə xətasında kod əl ilə yenidən aktivləşdirilə bilər. Canlı merchant hesabı və HTTPS serveri qoşulmadan real ödəniş sınağı keçmiş sayılmır.
+
+Mənbələr: [Mərkəzi Bank məzənnələri](https://www.cbar.az/currency/rates?language=az), [OWASP parol yaddaşı](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html), [Epoint callback](https://developer.epoint.az/en/callbacks).

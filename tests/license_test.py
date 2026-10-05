@@ -26,6 +26,32 @@ class Licenses(unittest.TestCase):
         return subprocess.run(['node',str(ROOT/'scripts/license-admin.mjs'),*args,'--dir',str(cls.admin)],capture_output=True,text=True,check=check)
     def test_valid_signature(self):
         self.assertEqual(verify_key(self.key,self.pub,self.device)['customer'],'Synthetic Test')
+    def signed(self, claims, prefix='RADAZ1'):
+        script="const fs=require('fs'),crypto=require('crypto');const data=JSON.parse(fs.readFileSync(0,'utf8'));const payload=process.argv[2]+'.'+Buffer.from(JSON.stringify(data)).toString('base64url');console.log(payload+'.'+crypto.sign('RSA-SHA256',Buffer.from(payload),fs.readFileSync(process.argv[1])).toString('base64url'));"
+        return subprocess.check_output(['node','-e',script,str(self.admin/'issuer-private.pem'),prefix],input=json.dumps(claims).encode()).decode().strip()
+    def test_module_key_cannot_unlock_base_and_only_grants_its_own_module(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);config=root/'product.json';config.write_text(json.dumps({'licenseRequired':True,'trialDays':0}))
+            service=ProductService(root,config_path=config,public_path=self.public,device=self.device,trial_root=root/'trial')
+            claims=verify_key(self.key,self.pub,self.device);claims['moduleId']='future-module'
+            result=service.activate(self.signed(claims))
+            self.assertFalse(result['valid']);self.assertFalse((service.root/'license.json').exists())
+            service.activate(self.key)
+            self.assertTrue(service.module_allowed('future-module'));self.assertFalse(service.module_allowed('other-module'))
+            saved=json.loads((service.root/'module-licenses.json').read_text());saved['lastSeen']=int(time.time())+1000
+            (service.root/'module-licenses.json').write_text(json.dumps(saved));self.assertFalse(service.module_allowed('future-module'))
+    def test_signed_policy_trial_duration_and_forgery_rejection(self):
+        from radaz_commerce import verify_policy
+        from radaz_trial import TrialStore
+        claims={'v':1,'product':'RADAZ','revision':int(time.time()*1000),'baseCurrency':'USD','monthlyMinor':1000,'trialDays':45,'modules':[]}
+        envelope={'policy':self.signed(claims,'RADAZPOLICY1')};policy=verify_policy(envelope,self.pub)
+        self.assertEqual(policy['trialDays'],45)
+        pieces=envelope['policy'].split('.');claims['trialDays']=365;pieces[1]=base64.urlsafe_b64encode(json.dumps(claims).encode()).decode().rstrip('=')
+        with self.assertRaises(ValueError):verify_policy({'policy':'.'.join(pieces)},self.pub)
+        with tempfile.TemporaryDirectory() as temporary:
+            trial=TrialStore(self.device,temporary);trial.status(now=1000000,days=30)
+            self.assertTrue(trial.status(now=1000000+40*86400,days=45)['valid'])
+            self.assertFalse(trial.status(now=1000000+45*86400,days=45)['valid'])
     def test_tamper_rejected(self):
         prefix,payload,sig=self.key.split('.');claims=json.loads(base64.urlsafe_b64decode(payload+'='*(-len(payload)%4)));claims['seats']=999
         tampered=base64.urlsafe_b64encode(json.dumps(claims).encode()).decode().rstrip('=')

@@ -30,12 +30,13 @@ const server=http.createServer((req,res)=>{
   let request;
   try{
    const input=JSON.parse(body||'{}'),action=input.action||'check';
-   if(!['check','download'].includes(action))throw Error('action');
-   if(action==='download'&&(input.confirmed!==true||typeof input.version!=='string'||!/^\d+\.\d+\.\d+$/.test(input.version)))throw Error('confirmation');
-   request=action==='download'?{action,confirmed:true,version:input.version}:{action};
+   if(!['check','download','apply'].includes(action))throw Error('action');
+   if(action!=='check'&&(input.confirmed!==true||typeof input.version!=='string'||!/^\d+\.\d+\.\d+$/.test(input.version)))throw Error('confirmation');
+   if(action==='apply'&&JSON.parse(readFileSync(path.join(installRoot,'pending.json'),'utf8')).version!==input.version)throw Error('stale version');
+   request=action!=='check'?{action,confirmed:true,version:input.version}:{action};
   }catch{res.writeHead(400);res.end('Invalid update request');return;}
   try{
-   const pending=path.join(installRoot,'update-request.json');
+   const pending=path.join(installRoot,request.action==='apply'?'apply-request.json':'update-request.json');
    const temp=pending+'.tmp';writeFileSync(temp,JSON.stringify({...request,requestedAt:Date.now()}));renameSync(temp,pending);
    const updater=spawn(path.join(root,'runtime/python/python.exe'),[path.join(root,'bridge/radaz_desktop.py'),'watch','--install-root',installRoot],{cwd:installRoot,windowsHide:true,detached:true,stdio:'ignore'});
    updater.on('error',error=>{
