@@ -519,7 +519,7 @@
 .grouped-records .today-filter{display:flex;flex-direction:row;align-items:center;gap:5px;font-size:12px;white-space:nowrap;cursor:pointer;padding:0 4px;min-height:32px}
 .grouped-records .today-filter input{width:15px;height:15px;accent-color:#62bfe2}
 .grouped-workstation .topbar .help-command{order:99!important;margin-left:auto!important}
-.grouped-workstation .topbar .help-trigger>span{display:inline!important}
+.grouped-workstation .topbar .help-trigger>span{display:none!important}
 .records-table th .column-resizer{position:absolute;right:0;top:0;bottom:0;width:8px;cursor:col-resize;touch-action:none;user-select:none;z-index:3}
 .records-table th:has(.column-resizer){padding-right:12px}
 .records-table th .column-resizer:hover,.records-table th .column-resizer:focus-visible{background:#62bfe270;outline:1px solid #62bfe2;outline-offset:-1px}

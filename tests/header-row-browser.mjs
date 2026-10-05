@@ -16,6 +16,7 @@ try{
     const bounds=await menu.boundingBox();assert.ok(bounds.x>=0&&bounds.x+bounds.width<=width+1&&bounds.y+bounds.height<=900,'Portaled menu remains visible outside scrolling toolbar');
     await page.getByRole('menuitem',{name:'Bütün müayinələr',exact:true}).click();
    }
+   assert.equal(await page.locator('.help-trigger>span').evaluate(e=>getComputedStyle(e).display),'none',`${path} ${width}: help label stays hidden`);
    await page.getByRole('button',{name:'Yardım və lisenziya',exact:true}).click();await page.getByRole('menuitem',{name:/Proqram haqqında/}).waitFor();await page.keyboard.press('Escape');
   }
  }

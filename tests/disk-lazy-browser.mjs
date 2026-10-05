@@ -42,6 +42,10 @@ try {
   const module=await import(performance.getEntriesByType('resource').find(e=>e.name.includes('/lib/cornerstone.ts')).name),{core}=await module.getViewer();
   const tags={x00280010:'2048',x00280011:'2048',x00280100:'16',x00280101:'12',x00280102:'11',x00280103:'0',x00280002:'1',x00280004:'MONOCHROME2',x00080060:'CT',x0020000d:'2.25.102',x0020000e:'2.25.103',x00200032:'0\\0\\0',x00200037:'1\\0\\0\\0\\1\\0',x00280030:'1\\1'};
   const controller=new AbortController(),ids=Array.from({length:38},(_,i)=>module.registerDiskDicom(tags,`/local-archive-api/stress/${i}`,controller.signal));
+  const fractional=module.registerDiskDicom({...tags,x00281053:'.5'},'/local-archive-api/stress/fractional',controller.signal);
+  const predicted=module.shareLocalDicoms([ids[0],fractional]).map(item=>item.record.bits);
+  if(predicted[0]!==16||predicted[1]!==32)throw Error('GPU budget must preserve integer CT resolution and fractional HU precision');
+  module.releaseLocalDicoms([fractional]);
   for(const id of ids)await core.imageLoader.loadAndCacheImage(id);
   const shared=module.shareLocalDicoms(ids),resident=shared.reduce((n,i)=>n+i.record.pixels.byteLength,0),evicted=!shared[0].record.pixels.length;
   const decoded=window.radazPerformance().decodeCount;await core.imageLoader.loadAndCacheImage(ids[0]);

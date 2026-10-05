@@ -16,6 +16,14 @@ const pendingDicoms = new Map<string, { bytes: Uint8Array; ds: DataSet; promise?
 const diskDicoms = new Map<string, {url: string; signal: AbortSignal; metadata: DataSet; tags: Record<string,string>; promise?: Promise<string>; used: number}>();
 const DISK_PIXEL_BUDGET = 256 * 1024 ** 2;
 const borrowedUse = new Map<string, {used:number; promise?:Promise<void>}>();
+function calibratedScalarBits(ds: DataSet): 16 | 32 {
+  const allocated=ds.uint16('x00280100')||0, stored=ds.uint16('x00280101')||allocated;
+  if (![8,16].includes(allocated) || stored<1 || stored>allocated) return 32;
+  const signed=ds.uint16('x00280103')===1,slope=asNumber(ds,'x00281053',1),intercept=asNumber(ds,'x00281052',0);
+  const low=(signed?-(2**(stored-1)):0)*slope+intercept;
+  const high=(signed?2**(stored-1)-1:2**stored-1)*slope+intercept;
+  return Number.isInteger(slope)&&Number.isInteger(intercept)&&Math.min(low,high)>=-32768&&Math.max(low,high)<=32767?16:32;
+}
 /** Metadata remains resident, while reloadable CD pixels use a bounded LRU. */
 export function registerDiskDicom(tags: Record<string,string>, url: string, signal: AbortSignal): string {
   const ds = {byteArray: new Uint8Array(0), elements: {x7fe00010: {}},
@@ -23,7 +31,10 @@ export function registerDiskDicom(tags: Record<string,string>, url: string, sign
   const rows = ds.uint16('x00280010') || 0, columns = ds.uint16('x00280011') || 0;
   if (!rows || !columns) throw Error('Disk metadatası natamamdır. RADAZ xidmətini yeniləyin.');
   const id = `localdicom:${serial++}`;
-  records.set(id, {dataSet: ds, pixels: new Float32Array(0), rows, columns, bits: 32, min: -1024, max: 3071});
+  // Plan texture memory using the calibrated type before pixels arrive. Assuming
+  // every CT is Float32 would unnecessarily halve its available GPU resolution.
+  const bits=calibratedScalarBits(ds);
+  records.set(id, {dataSet: ds, pixels: bits===16?new Int16Array(0):new Float32Array(0), rows, columns, bits, min: -1024, max: 3071});
   diskDicoms.set(id, {url, signal, metadata: ds, tags, used: performance.now()});
   return id;
 }
@@ -332,7 +343,6 @@ async function decodeLocalDicom(bytes: Uint8Array, ds: DataSet, imageId: string)
     }
   }
   const slope = asNumber(ds, 'x00281053', 1), intercept = asNumber(ds, 'x00281052', 0);
-  const rawMin = signed ? -(2 ** (storedBits-1)) : 0, rawMax = signed ? 2 ** (storedBits-1)-1 : 2 ** storedBits-1;
   const shift = highBit + 1 - storedBits, mask = 2 ** storedBits - 1, signBit = 2 ** (storedBits - 1);
   const pixelValue = (value: number) => {
     // Decoders return signed pixels already expanded; native pixels need
@@ -341,9 +351,7 @@ async function decodeLocalDicom(bytes: Uint8Array, ds: DataSet, imageId: string)
     const encoded = (value >>> shift) & mask;
     return signed && encoded >= signBit ? encoded - (mask + 1) : encoded;
   };
-  const scaledMin = Math.min(rawMin * slope + intercept, rawMax * slope + intercept);
-  const scaledMax = Math.max(rawMin * slope + intercept, rawMax * slope + intercept);
-  const useInt16 = Number.isInteger(slope) && Number.isInteger(intercept) && scaledMin >= -32768 && scaledMax <= 32767;
+  const useInt16 = calibratedScalarBits(ds)===16;
   const pixels = useInt16 ? new Int16Array(stored.length) : new Float32Array(stored.length);
   let min = Infinity, max = -Infinity;
   for (let i = 0; i < stored.length; i++) {
