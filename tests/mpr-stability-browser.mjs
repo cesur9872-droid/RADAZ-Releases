@@ -47,22 +47,44 @@ try{
  const [ax,ay,bx,by]=positions,tx=ax+(bx-ax)*.8,ty=ay+(by-ay)*.8;
  await mpr.mouse.move(lineBox.x+tx,lineBox.y+ty);await mpr.waitForTimeout(100);
  const following=await line.locator('.localizer-rotate-hit').evaluateAll(elements=>elements.map(e=>[e.cx.baseVal.value,e.cy.baseVal.value]));
- assert.ok(following.some(p=>Math.hypot(p[0]-tx,p[1]-ty)<30),'Handle follows cursor along hovered side');
- const handleBox=await line.locator('.localizer-rotate-hit').first().boundingBox(),pivot=rotated.panels.MA.anchor;
- const hx=handleBox.x+handleBox.width/2,hy=handleBox.y+handleBox.height/2,px=lineBox.x+pivot[0],py=lineBox.y+pivot[1],angle=.13;
+ assert.ok(following.some(p=>Math.hypot(p[0]-tx,p[1]-ty)<13),'Handle follows cursor along hovered side');
+ const pivot=rotated.panels.MA.anchor;
+ const hx=lineBox.x+tx,hy=lineBox.y+ty,px=lineBox.x+pivot[0],py=lineBox.y+pivot[1],angle=.13;
+ // Press exactly where we hovered the line: the catchable handle must already be there.
+ assert.ok(await mpr.evaluate(({x,y})=>document.elementFromPoint(x,y)?.classList.contains('localizer-rotate-hit'),{x:hx,y:hy}));
  await drag(hx,hy,px+(hx-px)*Math.cos(angle)-(hy-py)*Math.sin(angle)-hx,py+(hx-px)*Math.sin(angle)+(hy-py)*Math.cos(angle)-hy);
  const dragged=await snap();stable(rotated,dragged);assert.notDeepEqual(dragged.panels.MC.geometry.columnDirection,rotated.panels.MC.geometry.columnDirection,'Pointer drag rotates just its source plane');
  const coronalBox=await mpr.locator('[data-panel="MC"] .dicom-canvas').boundingBox();await mpr.mouse.click(coronalBox.x+25,coronalBox.y+25);
  await mpr.getByRole('slider',{name:'Aktiv MPR panelinin qalınlığı'}).fill('7');await mpr.waitForTimeout(700);stable(dragged,await snap());
- // Maximize with a blank-canvas double click, then manipulate hidden planes.
- await mpr.mouse.dblclick(lineBox.x+25,lineBox.y+lineBox.height-25);await mpr.waitForTimeout(300);
- assert.equal(await mpr.locator('.mpr-grid.maximized').count(),1);assert.equal(await mpr.locator('[data-panel]').count(),3);
+ // Every plane must span the whole grid, not its original grid area.
+ for(const id of ['MC','MS','MA']){
+  const box=await mpr.locator(`[data-panel="${id}"] .dicom-canvas`).boundingBox();
+  await mpr.mouse.dblclick(box.x+25,box.y+box.height-25);await mpr.waitForTimeout(300);
+  const grid=await mpr.locator('.mpr-grid').boundingBox(),expanded=await mpr.locator(`[data-panel="${id}"]`).boundingBox();
+  assert.equal(await mpr.locator('.mpr-grid.maximized').count(),1);
+  assert.ok(Math.abs(expanded.width-grid.width)<8&&Math.abs(expanded.height-grid.height)<8,`${id} fills grid: ${JSON.stringify({grid,expanded})}`);
+  assert.equal(await mpr.locator('[data-panel]').count(),3);
+  if(id!=='MA'){await mpr.mouse.dblclick(expanded.x+25,expanded.y+expanded.height-25);await mpr.waitForTimeout(300);}
+ }
  const center=mpr.locator('[data-panel="MA"] .localizer-center-hit'),cb=await center.boundingBox();
  const full=await snap();await drag(cb.x+cb.width/2,cb.y+cb.height/2,20,-18);const moved=await snap();
  assert.ok(Math.hypot(...moved.world.map((v,i)=>v-full.world[i]))>.3,'Center moves while other panes are concealed');
  assert.notEqual(moved.panels.MC.id,full.panels.MC.id);assert.notEqual(moved.panels.MS.id,full.panels.MS.id);
  await mpr.screenshot({path:'outputs/mpr-qa/maximized.png'});
  console.log('Maximized pane keeps both other viewports alive and draggable');
+ // Right-click deletion and repeated popup actions must never toggle maximization.
+ await mpr.getByRole('button',{name:'Ölçmə alətləri',exact:true}).click();await mpr.getByRole('menuitem',{name:/Uzunluq/}).click();
+ await mpr.getByRole('menu').waitFor({state:'hidden'});await mpr.waitForTimeout(150);
+ const measured=await mpr.locator('[data-panel="MA"] .dicom-canvas').boundingBox(),mx=measured.x+measured.width*.3,my=measured.y+measured.height*.7;
+ await drag(mx-40,my,80,0);await mpr.mouse.click(mx,my,{button:'right'});
+ await mpr.getByRole('menuitem',{name:'Sil',exact:true}).click();
+ assert.equal(await mpr.locator('line[data-id*="-endpoint-"]').count(),0);
+ await mpr.mouse.dblclick(mx,my,{button:'right'});
+ await mpr.getByRole('menuitem',{name:/Cari kəsitdə hamısını sil/}).dblclick({force:true});
+ assert.equal(await mpr.locator('[data-panel="MA"][data-expanded="true"]').count(),1,'Deletion and right double-click do not restore');
+ await mpr.keyboard.press('Escape');await mpr.waitForTimeout(800);
+ await mpr.mouse.dblclick(measured.x+25,measured.y+measured.height-25);await mpr.waitForTimeout(300);
+ assert.equal(await mpr.locator('.mpr-grid.maximized').count(),0,'Normal double-click still restores');
  for(const target of [page,mpr])for(const width of [1920,1366,1024,800,390]){
   await target.setViewportSize({width,height:900});await target.waitForTimeout(100);
   const state=await target.locator('.topbar').evaluate(e=>({height:e.clientHeight,overflow:getComputedStyle(e).overflowX,rows:[...e.querySelectorAll('button')].filter(b=>b.getBoundingClientRect().width).map(b=>{const r=b.getBoundingClientRect();return r.y+r.height/2;}),body:document.documentElement.scrollWidth,width:innerWidth}));

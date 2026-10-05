@@ -36,6 +36,7 @@ export function ViewportMouseControls(props:Props){
    if(current.current.disabled||isControl(event))return;
    setMenu(null);
    if(event.button!==1&&event.button!==2)return;
+   root.dataset.suppressMaximizeUntil=String(performance.now()+750);
    event.preventDefault();event.stopPropagation();
    current.current.onSelect();
    gesture={pointer:event.pointerId,button:event.button,x:event.clientX,y:event.clientY,scale:viewport.getCamera().parallelScale!,
@@ -65,6 +66,7 @@ export function ViewportMouseControls(props:Props){
    const saved=gesture;gesture=null;delete root.dataset.mouseGesture;
    if(root.hasPointerCapture(event.pointerId))root.releasePointerCapture(event.pointerId);
    if(event.type==='pointerup'&&saved.button===2&&!saved.moved){
+    root.dataset.suppressMaximizeUntil=String(performance.now()+750);
     const r=root.getBoundingClientRect();setMenu({x:Math.max(4,Math.min(event.clientX-r.left,r.width-254)),y:Math.max(4,Math.min(event.clientY-r.top,r.height-130)),target:saved.target});
    }
   };
@@ -100,7 +102,9 @@ export function ViewportMouseControls(props:Props){
   props.onClear(props.imageId);if(tools&&props.element)tools.utilities.triggerAnnotationRender(props.element);setMenu(null);
  };
  const arrow=menu.target?.kind==='local'&&props.marks.find(m=>m.id===menu.target!.id&&m.kind==='arrow');
- return <div className="measurement-menu" role="menu" aria-label="Ölçmə menyusu" style={{left:menu.x,top:menu.y}} onClick={e=>e.stopPropagation()}>
+ return <div className="measurement-menu" role="menu" aria-label="Ölçmə menyusu" style={{left:menu.x,top:menu.y}}
+  onPointerDown={e=>{e.stopPropagation();if(props.container.current)props.container.current.dataset.suppressMaximizeUntil=String(performance.now()+750);}}
+  onDoubleClick={e=>e.stopPropagation()} onClick={e=>e.stopPropagation()}>
   <button role="menuitem" disabled={!menu.target} onClick={remove}>Sil</button>
   {arrow&&<button role="menuitem" onClick={()=>{props.onEditArrow(arrow.id);setMenu(null);}}>Şərhi dəyiş</button>}
   <button role="menuitem" onClick={clear}>Cari kəsitdə hamısını sil <kbd>Ctrl+D</kbd></button>

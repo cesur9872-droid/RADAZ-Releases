@@ -17,7 +17,8 @@ export function localizerRotationHandles(a:Point2,b:Point2,origin:Point2,width:n
     const min=side<0?Math.max(32,-high):Math.max(32,low),max=side<0?-low:high;
     if(max<min)return [];
     const follows=pointer&&Math.sign(hovered)===side;
-    const distance=Math.max(min,Math.min(max,follows?Math.abs(hovered)+22:Math.min(120,max*.57)));
+    // Stay within the 13px hit circle so moving along the line can actually catch it.
+    const distance=Math.max(min,Math.min(max,follows?Math.abs(hovered)+8:Math.min(120,max*.57)));
     return [{side,point:[origin[0]+direction[0]*distance*side,origin[1]+direction[1]*distance*side] as Point2}];
   });
 }

@@ -23,9 +23,20 @@ const server=http.createServer((req,res)=>{
   const origin=req.headers.origin;
   const allowedOrigin=origin&&[`http://localhost:${port}`,`http://127.0.0.1:${port}`,`http://[::1]:${port}`].includes(origin);
   if(req.method!=='POST'||!local||!allowedOrigin||!installRoot){res.writeHead(403);res.end();return;}
+  let body='';
+  req.on('data',chunk=>{body+=chunk;if(body.length>4096){res.writeHead(413);res.end();req.destroy();}});
+  req.on('end',()=>{
+  if(res.writableEnded)return;
+  let request;
+  try{
+   const input=JSON.parse(body||'{}'),action=input.action||'check';
+   if(!['check','download'].includes(action))throw Error('action');
+   if(action==='download'&&(input.confirmed!==true||typeof input.version!=='string'||!/^\d+\.\d+\.\d+$/.test(input.version)))throw Error('confirmation');
+   request=action==='download'?{action,confirmed:true,version:input.version}:{action};
+  }catch{res.writeHead(400);res.end('Invalid update request');return;}
   try{
    const pending=path.join(installRoot,'update-request.json');
-   const temp=pending+'.tmp';writeFileSync(temp,JSON.stringify({requestedAt:Date.now()}));renameSync(temp,pending);
+   const temp=pending+'.tmp';writeFileSync(temp,JSON.stringify({...request,requestedAt:Date.now()}));renameSync(temp,pending);
    const updater=spawn(path.join(root,'runtime/python/python.exe'),[path.join(root,'bridge/radaz_desktop.py'),'watch','--install-root',installRoot],{cwd:installRoot,windowsHide:true,detached:true,stdio:'ignore'});
    updater.on('error',error=>{
     console.error('Updater start:',error.message);
@@ -33,12 +44,12 @@ const server=http.createServer((req,res)=>{
     const stateFile=path.join(installRoot,'update-state.json'),temporary=stateFile+'.tmp';
     try{writeFileSync(temporary,JSON.stringify({state:'error',message:'Yeniləmə xidməti başlamadı. RADAZ Setup quraşdırmasını yoxlayın.'}));renameSync(temporary,stateFile);}catch{}
    });updater.unref();
-   res.writeHead(202,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({state:'checking',message:'Yeniləmə başladıldı.'}));
+   res.writeHead(202,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({state:'checking',message:request.action==='download'?'Təsdiqlənmiş yeniləmə hazırlanır.':'Yeniləmələr yoxlanılır.'}));
   }catch{res.writeHead(500,{'Content-Type':'application/json'});res.end(JSON.stringify({error:'Yeniləmə başladılmadı.'}));}
-  return;
+  });return;
  }
  if(pathname==='/radaz-installation.json'){
-  let state={managed:!!installRoot,state:'current',message:installRoot?'Yeniləmələr avtomatik yüklənir və RADAZ növbəti dəfə açılarkən tətbiq olunur.':''};
+  let state={managed:!!installRoot,state:'current',message:installRoot?'Yeni versiya olduqda bildiriş göstərilir. Yükləmə yalnız təsdiqinizdən sonra başlayır.':''};
   if(installRoot)try{const saved=JSON.parse(readFileSync(path.join(installRoot,'update-state.json'),'utf8'));state={...state,state:saved.state,version:saved.version,message:saved.message,progress:saved.progress};
    if(existsSync(path.join(installRoot,'update-request.json')))state={...state,state:'checking',message:'Yeniləmələr yoxlanılır…',progress:null};
   }catch{}

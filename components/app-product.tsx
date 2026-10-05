@@ -32,10 +32,10 @@ async function releaseUpdate(force = false): Promise<Update> {
       const desktop = await response.json() as {managed?:boolean;state:string;message:string;version?:string};
       if(desktop.managed) {
         if(force && !['checking','downloading','verifying','installing','ready','deferred'].includes(desktop.state)) {
-          const started = await fetch('/radaz-update',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+          const started = await fetch('/radaz-update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'check'})});
           return {automatic:true,state:started.ok?'current':'error',message:started.ok?'Yeniləmələr yoxlanılır…':'Yeniləmə xidməti başladılmadı. Yenidən cəhd edin.'};
         }
-        return {automatic:true,phase:desktop.state,state:['ready','deferred','downloading','verifying','installing'].includes(desktop.state)?'available':desktop.state==='error'?'error':'current',message:desktop.message,version:desktop.version};
+        return {automatic:true,phase:desktop.state,state:['available','ready','deferred','downloading','verifying','installing'].includes(desktop.state)?'available':desktop.state==='error'?'error':'current',message:desktop.message,version:desktop.version};
       }
     }
   } catch { /* Source and older portable servers use the existing release check. */ }

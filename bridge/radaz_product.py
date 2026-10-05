@@ -166,12 +166,13 @@ class ProductService:
     def updates(self, force=False):
         with self.lock:
             now=time.time()
-            if self.cached_update and now-self.last_check < (30 if force else 21600): return self.cached_update
+            ttl = 5 if force else 60 if self.cached_update and self.cached_update.get('state') in ('error','unpublished') else 900
+            if self.cached_update and now-self.last_check < ttl: return self.cached_update
             repo=self.config.get('updateRepository') or self.config.get('repository','')
             if not re.fullmatch(r'[\w.-]+/[\w.-]+',repo): return dict(state='error',message='GitHub repozitoriyası ayarlanmayıb.')
             try:
-                req=Request(f'https://api.github.com/repos/{repo}/releases/latest',headers={'Accept':'application/vnd.github+json','User-Agent':'RADAZ-update-check'})
-                with urlopen(req, timeout=8) as response: release=json.loads(response.read(1024*1024))
+                from radaz_desktop import get_latest_release
+                release=get_latest_release(repo)
                 version=str(release.get('tag_name','')).removeprefix('v')
                 def parts(v):
                     match=re.fullmatch(r'(\d+)\.(\d+)\.(\d+)',v)

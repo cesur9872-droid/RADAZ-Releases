@@ -11,6 +11,6 @@ assert.ok(weights.some(bin=>bin.some(p=>p.index===699)),'A thin structure on a f
 const pixels=Float32Array.from({length:77},(_,i)=>i),plane=resamplePlane(pixels,11,areaWeights(11,4),areaWeights(7,3));
 assert.ok(Math.abs(plane.reduce((a,b)=>a+b,0)/plane.length-38)<.0001,'Area average conserves the mean over every input pixel');
 const handles=localizerRotationHandles([0,200],[600,200],[300,200],600,400,[490,200]);
-assert.equal(handles.length,2);assert.deepEqual(handles[1].point,[512,200]);assert.equal(handles[0].point[0],180);
+assert.equal(handles.length,2);assert.deepEqual(handles[1].point,[498,200]);assert.equal(handles[0].point[0],180);
 assert.equal(localizerRotationHandles([-1200,200],[1800,200],[300,200],600,400).length,2,'Zoom does not hide both handles outside the viewport');
 console.log('PASS: native volume preservation, all-slice weighted reduction, mean conservation, two visible dynamic rotation handles');

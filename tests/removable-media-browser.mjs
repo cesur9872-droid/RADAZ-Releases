@@ -131,17 +131,23 @@ try {
   await control('archive');
   const archivePage=await context.newPage();await archivePage.goto(base+'/archive');
   await archivePage.getByRole('checkbox',{name:'Bu gün',exact:true}).uncheck();
-  const viewers=[];
+  await page.waitForFunction(()=>document.querySelector('.statusbar')?.textContent.includes('Cornerstone3D hazırdır')&&window.name.startsWith('RADAZ_VIEWER_'));
+  const count=context.pages().length;
   for(let i=1;i<=3;i++){
+    await archivePage.bringToFront();
     const cell=archivePage.getByRole('cell').filter({hasText:`TEST PATIENT ${i}`});
-    await cell.waitFor();
-    const [child]=await Promise.all([context.waitForEvent('page'),cell.click()]);
-    await child.locator('[data-panel="A"][data-has-image="true"]').waitFor();viewers.push(child);
+    await cell.waitFor();await cell.click();
+    await page.waitForFunction(expected=>document.querySelector('[data-panel="A"] .top-left')?.textContent.includes(expected),`TEST PATIENT ${i}`);
+    assert.equal(context.pages().length,count,'Archive reuses existing Viewer');
   }
-  assert.equal(new Set(viewers.map(p=>p.url())).size,3);
-  for(const [index,child]of viewers.entries())assert.match(await child.locator('[data-panel="A"] .top-left').textContent(),new RegExp(`TEST PATIENT ${index+1}`));
-  assert.equal(await page.locator('.series-card').count(),0,'Existing viewer is not replaced');
-  const first=viewers[0];await first.bringToFront();
+  for(const i of [1,2])await archivePage.getByRole('checkbox',{name:`TEST PATIENT ${i} müayinəsini seç`,exact:true}).check();
+  await archivePage.getByRole('cell').filter({hasText:'TEST PATIENT 1'}).click();
+  await page.waitForFunction(()=>document.querySelectorAll('.series-card').length===2);
+  assert.equal(context.pages().length,count,'Checkbox selection still reuses Viewer');
+  assert.match(await page.locator('.series-rail').textContent(),/TEST PATIENT 1/);
+  assert.match(await page.locator('.series-rail').textContent(),/TEST PATIENT 2/);
+  assert.equal(await page.locator('.media-import-progress').count(),0,'Archive never starts CD import');
+  const first=page;await first.bringToFront();
   await first.getByRole('button',{name:'Ölçmə alətləri',exact:true}).click();await first.getByRole('menuitem',{name:/Uzunluq/}).click();
   await first.getByRole('menu').waitFor({state:'hidden'});await delay(150);
   const vp=first.locator('[data-panel="A"]'), b=await vp.boundingBox(), x=b.x+b.width/2,y=b.y+b.height/2;
@@ -161,14 +167,10 @@ try {
   assert.equal((await points.evaluateAll(lines=>lines.map(l=>l.getAttribute('stroke')))).filter(c=>c==='#56edff').length,4,'An intersection still highlights only one measurement');
   await first.locator('.brand').hover();await delay(100);
   assert.equal((await points.evaluateAll(lines=>lines.map(l=>l.getAttribute('stroke')))).filter(c=>c==='#56edff').length,0,'Leaving the viewport clears hover');
-  const others=await Promise.all(viewers.slice(1).map(p=>p.locator('.bottom-left').textContent()));
-  await first.keyboard.press('w');await first.mouse.move(x,y);await first.mouse.down();await first.mouse.move(x+80,y+50,{steps:5});await first.mouse.up();
-  assert.deepEqual(await Promise.all(viewers.slice(1).map(p=>p.locator('.bottom-left').textContent())),others,'Other patients retain their window settings');
-  for(const child of viewers.slice(1))assert.equal(await child.locator('line[data-id*="-endpoint-"]').count(),0,'Measurements belong to one viewer');
   await first.screenshot({path:'outputs/media/measurement-theme.png'});
-  console.log('Three archive patients stay open in isolated viewer tabs');
+  console.log('Archive opens and replaces selections in the same Viewer; CD import stays off');
   assert.deepEqual(errors,[]);
-  console.log(process.env.RADAZ_ARCHIVE_ONLY ? 'PASS: isolated archive tabs, per-measurement hover/selection, independent WL/WW and annotations.' : 'PASS: 700 CT slices progressive, raw/extensionless/JPEG import, scroll preserved, MPR/3D/report eject cleanup, mid-transfer eject, no archive writes or pickers; isolated archive tabs and measurements.');
+  console.log(process.env.RADAZ_ARCHIVE_ONLY ? 'PASS: Viewer reuse, multi-study selections and per-measurement hover/selection.' : 'PASS: 700 CT slices progressive, raw/extensionless/JPEG import, scroll preserved, MPR/3D/report eject cleanup, mid-transfer eject, no archive writes or pickers; Viewer reuse and measurements.');
 } catch(error) {
   for (const [i,p] of (browser?.contexts()[0]?.pages() || []).entries()) {
     console.error(`PAGE ${i} ${p.url()}:`,await p.locator('body').innerText().catch(()=>''));

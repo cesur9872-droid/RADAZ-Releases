@@ -124,6 +124,17 @@ def get_json(url, timeout=15):
         return json.load(response)
 
 
+def get_latest_release(repo=UPDATE_REPOSITORY):
+    if not re.fullmatch(r'[\w.-]+/[\w.-]+', repo): raise ValueError('Invalid update repository')
+    # Public release assets do not consume GitHub's unauthenticated REST quota
+    # shared by all workstations behind the same hospital/router address.
+    try:
+        return get_json(f'https://github.com/{repo}/releases/latest/download/radaz-update.json?check={int(time.time())//60}')
+    except (HTTPError, URLError, TimeoutError, ValueError):
+        # Existing releases predate the static feed; API remains a compatible fallback.
+        return get_json(f'https://api.github.com/repos/{repo}/releases/latest')
+
+
 def open_release_download(url):
     """Retry transient GitHub/CDN failures without reusing a cached error URL."""
     for attempt in range(3):
@@ -192,7 +203,7 @@ def stage_package(root, archive, target, digest, size):
     state(root, 'ready', f'RADAZ {target} yeniləməsi uğurla hazırlandı. Növbəti açılışda avtomatik tətbiq olunacaq.', target,
           {'done': 1, 'total': 1, 'unit': 'yeniləmə'})
 
-def check_update(root):
+def check_update(root, approved_version=None):
     active = read_json(root / 'active.json')['version']
     if (root / 'pending.json').exists():
         pending = read_json(root / 'pending.json')['version']
@@ -200,12 +211,16 @@ def check_update(root):
             state(root, 'ready', f'RADAZ {pending} hazırdır. Növbəti açılışda avtomatik tətbiq olunacaq.', pending)
             return
     state(root, 'checking', 'Yeniləmələr arxa planda yoxlanılır.')
-    choice = select_asset(get_json(f'https://api.github.com/repos/{UPDATE_REPOSITORY}/releases/latest'), active)
+    choice = select_asset(get_latest_release(), active)
     if choice is None:
-        state(root, 'current', 'Avtomatik yeniləmə aktivdir. Ən yeni versiya quraşdırılıb.'); return
+        state(root, 'current', 'Ən yeni versiya quraşdırılıb.'); return
     target, asset = choice
     if (root / 'failed-update.json').exists() and read_json(root / 'failed-update.json').get('version') == target:
         state(root, 'error', f'{target} açıla bilmədi. Əvvəlki işlək versiya saxlanılıb.'); return
+    # Discovery never downloads. Approval is single-use and tied to the version shown.
+    if approved_version != target:
+        state(root, 'available', f'RADAZ {target} — yeni versiya mövcuddur. Yükləmək üçün Yenilə düyməsini basıb təsdiq edin.', target)
+        return
     state(root, 'downloading', f'RADAZ {target} arxa planda yüklənir. Proqramdan istifadə edə bilərsiniz.', target)
     downloads = root / 'downloads'; downloads.mkdir(exist_ok=True)
     temporary = downloads / (target + '.zip.part')
@@ -308,7 +323,7 @@ def initialize(root, shortcuts=True):
         state(root, 'ready', f'RADAZ {target} hazırdır. Növbəti açılışda tətbiq olunacaq.', target)
     elif not current:
         atomic_json(root / 'active.json', {'version': target})
-        state(root, 'current', 'Avtomatik yeniləmə aktivdir.')
+        state(root, 'current', 'Yeni versiyalar yoxlanılır. Yükləmə yalnız təsdiqinizlə başlayır.')
     shutil.copyfile(SOURCE / 'installer/launcher.ps1', root / 'launcher.ps1')
     shutil.copyfile(SOURCE / 'public/radaz.ico', root / 'radaz.ico')
     if shortcuts:
@@ -340,19 +355,37 @@ def update_error_message(error):
     return 'Yeniləmə yüklənmədi. Mövcud versiya işləyir; növbəti yoxlamada yenidən cəhd ediləcək.'
 
 
+def consume_update_request(root):
+    pending = root / 'update-request.json'
+    consumed = root / 'update-request.consumed.json'
+    try: os.replace(pending, consumed)
+    except FileNotFoundError: return None
+    try:
+        request = read_json(consumed)
+        if request.get('action') == 'download' and request.get('confirmed') is True:
+            approved = request.get('version')
+            if isinstance(approved, str):
+                version(approved)
+                return approved
+        return None  # Legacy requests and scheduled checks only discover releases.
+    finally: consumed.unlink(missing_ok=True)
+
+
 def watch(root):
     handoff = None
     own_version = read_json(SOURCE / 'public/product.json')['version']
     try:
         with lock(root, 'update'):
             while True:
-                (root / 'update-request.json').unlink(missing_ok=True)
-                try: check_update(root)
+                retry_delay = 15 * 60
+                try: check_update(root, consume_update_request(root))
                 except Exception as error:
                     state(root, 'error', update_error_message(error))
                     print(type(error).__name__, ascii(str(error)), flush=True)
-                # Check every six hours while the local server runs.
-                for tick in range(6 * 60 * 60):
+                    retry_delay = 60
+                # A transient outage must not hide a new version for six hours.
+                # Failed downloads lose their consumed approval and only recheck.
+                for tick in range(retry_delay):
                     time.sleep(1)
                     active = read_json(root / 'active.json')['version']
                     if active != own_version:

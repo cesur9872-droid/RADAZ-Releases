@@ -1,12 +1,12 @@
 # RADAZ — alıcı üçün yükləmə və quraşdırma
 
-Azərbaycan dilində radiologiya iş sahəsi: DICOM viewer, lokal arxiv, PACS, MPR/3D, hesabat, çap və CD/DVD. Bu mənbə 0.2.14 paketini hazırlayır; qiymət 10 AZN/aydır. Satıcı üçün [geniş ödəniş və paylaşma təlimatı](DISTRIBUTION.md) ayrıca yazılıb.
+Azərbaycan dilində radiologiya iş sahəsi: DICOM viewer, lokal arxiv, PACS, MPR/3D, hesabat, çap və CD/DVD. Bu mənbə 0.2.15 paketini hazırlayır; qiymət 10 AZN/aydır. Satıcı üçün [geniş ödəniş və paylaşma təlimatı](DISTRIBUTION.md) ayrıca yazılıb.
 
 ## Alıcı hansı faylı endirməlidir?
 
-Satıcının verdiyi GitHub Release keçidində **Assets → RADAZ-0.2.14-Setup.exe** endirilir. **Source code (zip)** və **Code → Download ZIP** hazır quraşdırma paketi deyil.
+Satıcının verdiyi GitHub Release keçidində **Assets → RADAZ-0.2.15-Setup.exe** endirilir. **Source code (zip)** və **Code → Download ZIP** hazır quraşdırma paketi deyil.
 
-[Quraşdırıcılar və avtomatik yenilənmələr](https://github.com/cesur9872-droid/RADAZ-Releases/releases/latest) ayrıca açıq depoda yayımlanır. 0.2.9 və daha köhnə versiyalar köhnə ünvana bağlıdır: onlarda yeni Setup-ı bir dəfə açmaq lazımdır; sonrakı yenilənmələr yeni kanaldan avtomatik gələcək.
+[Quraşdırıcılar və avtomatik yenilənmələr](https://github.com/cesur9872-droid/RADAZ-Releases/releases/latest) ayrıca açıq depoda yayımlanır. 0.2.9 və daha köhnə versiyalar köhnə ünvana bağlıdır: onlarda yeni Setup-ı bir dəfə açmaq lazımdır; sonrakı versiyalar yeni kanaldan görünəcək. 0.2.15-dən etibarən yoxlama və pəncərəni açmaq yükləməni başlatmır: “Yenilə → Təsdiq et və yenilə” tələb olunur.
 
 ## Windows-da başlatma
 
@@ -61,7 +61,7 @@ Müddət bitdikdə **PACS və Local arxiv işləyir**. Viewer-də seriya seçimi
 
 Disk arxivi standart olaraq `Documents\RADAZ-Archive` içindədir. SQLite bazası və DICOM `instances` qovluğunu birlikdə ehtiyat nüsxələyin. Brauzer arxivi həmin brauzer profilindədir və brauzer məlumatlarını təmizləyəndə itə bilər; önəmli müayinələri disk arxivinə saxlayın.
 
-Setup ilə quraşdırılan versiya əlçatan GitHub buraxılışını arxa planda endirir, SHA-256 yoxlayır və növbəti açılışda tətbiq edir. Müayinə zamanı proqram bağlanmır; açılış alınmasa əvvəlki versiya bərpa edilir. Arxiv ayrıca saxlanılır; arxiv qovluğunu silməyin. Dəstək: [drnaghiyev@gmail.com](mailto:drnaghiyev@gmail.com).
+Setup ilə quraşdırılan versiya yeni buraxılışı bildirir. “Yenilə → Təsdiq et və yenilə” seçiləndə paketi endirir, SHA-256 yoxlayır və növbəti açılışda tətbiq edir. Müayinə zamanı proqram bağlanmır; açılış alınmasa əvvəlki versiya bərpa edilir. Arxiv ayrıca saxlanılır; arxiv qovluğunu silməyin. Dəstək: [drnaghiyev@gmail.com](mailto:drnaghiyev@gmail.com).
 
 0.2.7-dən başlayaraq yeni qovluğun START-RADAZ.cmd faylı köhnə RADAZ veb-serverini avtomatik əvəz edir və lazım olan paketlər yoxdursa ilkin quraşdırmanı başladır. İşləyən versiyanı Yardım → RADAZ haqqında bölməsində yoxlayın. Brauzer başqa kompüterin IP ünvanını açırsa, həmin server kompüter də yenilənməlidir.
 
@@ -85,7 +85,7 @@ Texniki quraşdırma: [LOKAL-ISTIFADE.md](LOKAL-ISTIFADE.md). Paylama və aylıq
 
 [Son GitHub buraxılışından](https://github.com/cesur9872-droid/RADAZ-Releases/releases/latest) **RADAZ-…-Setup.exe** endirin və açın. Windows 10/11 64 bit üçün per-user quraşdırıcıdır. Node.js, Python, Pillow, DICOM paketləri və FFmpeg daxildir; ayrıca paket quraşdırılması tələb olunmur. İş masası və Başlat menyusunda RADAZ qısayolu yaradılır. Qısayol serveri və arxiv xidmətini arxa planda başladıb brauzerdə RADAZ-ı açır.
 
-Yeniləmələr GitHub-dan avtomatik endirilir və SHA-256/file manifest ilə yoxlanılır. Hazır yeniləmə RADAZ qısayolundan növbəti açılışda tətbiq olunur. Aktiv müayinə qəfil yenidən yüklənmir. Server açıla bilməsə əvvəlki versiyaya qayıdılır. DICOM qəbulu və çıxış işi davam edirsə arxiv yeniləməsi təxirə salınır. İnternet olmayanda quraşdırılmış versiya işləyir. Yoxlama açılışda başlayır, açıq qaldıqda hər 6 saat təkrarlanır.
+Yeniləmələr GitHub-dan yalnız istifadəçi təsdiqindən sonra endirilir və SHA-256/file manifest ilə yoxlanılır. Hazır yeniləmə RADAZ qısayolundan növbəti açılışda tətbiq olunur. Aktiv müayinə qəfil yenidən yüklənmir. Server açıla bilməsə əvvəlki versiyaya qayıdılır. DICOM qəbulu və çıxış işi davam edirsə arxiv yeniləməsi təxirə salınır. İnternet olmayanda quraşdırılmış versiya işləyir. Yoxlama açılışda başlayır, açıq qaldıqda hər 15 dəqiqə təkrarlanır. Müvəqqəti xəta olarsa bir dəqiqə sonra yalnız yoxlama təkrarlanır.
 
 Proqram `%LOCALAPPDATA%\Programs\RADAZ` altında, klinik arxiv isə ayrıca `Documents\RADAZ-Archive` altında qalır. Köhnə ZIP-dən ilk keçiddə köhnə qəbuledici işləyirsə Windows-u bir dəfə yenidən başladın. `Windows-x64.zip` tam oflayn alternativdir: çıxarıb `SETUP-RADAZ.cmd` açın. `Windows-preview.zip` yüngül köhnə paylama formatıdır və sistemdə Node/Python tələb edir.
 
@@ -95,7 +95,7 @@ Quraşdırma və CD/DVD yeniləmə üçün [çap edilə bilən addım-addım tə
 
 ## Viewer və 3D (0.2.12)
 
-Arxiv/PACS-də checkbox-la seçilmiş müayinələr bir Viewer-də açılır. CD/DVD izləməsi yalnız həmin Viewer-də düymə ilə başladılır. MPR və 3D ayrıca vərəqələrdə açılır; 2D Viewer yerində qalır. Təkrar klik mövcud vərəqəni önə gətirir. Vərəqələr eyni decode edilmiş piksel buferlərini kopyalamadan istifadə edir. Hər səhifənin öz Cornerstone volume obyekti var; tam 3D texture yalnız 3D səhifəsində GPU-ya ötürülür. Mənbə seriyanın dəyişməsi və CD çıxarılması açıq vərəqələrə ötürülür. Böyük həcm GPU limitini aşanda yalnız 3D üçün azaldılmış həcm hazırlanır; MPR orijinal kəsitləri saxlayır.
+Arxiv/PACS-də checkbox-la seçilmiş müayinələr artıq açıq Viewer-də yüklənir; Viewer bağlıdırsa bir pəncərə açılır. CD/DVD izləməsi yalnız həmin Viewer-də düymə ilə başladılır. MPR və 3D ayrıca vərəqələrdə açılır; 2D Viewer yerində qalır. Təkrar klik mövcud vərəqəni önə gətirir. Vərəqələr eyni decode edilmiş piksel buferlərini kopyalamadan istifadə edir. Hər səhifənin öz Cornerstone volume obyekti var; tam 3D texture yalnız 3D səhifəsində GPU-ya ötürülür. Mənbə seriyanın dəyişməsi və CD çıxarılması açıq vərəqələrə ötürülür. Böyük həcm GPU limitini aşanda yalnız 3D üçün azaldılmış həcm hazırlanır; MPR orijinal kəsitləri saxlayır.
 
 CT Bone rejimi dolğun fil sümüyü rəngi, üç işıq mənbəyi və xətti interpolasiya istifadə edir. High/Ultra rejimlərində səth kölgələri aktivdir; Balanced təmiz və daha sürətli səth göstərir. MRT üçün ayrıca siqnal intensivliyi rejimi var, CT presetləri və HU yazısı göstərilmir. Qalın kəsitlərdən yaranan səth pillələnməsini rəngləmə aradan qaldırmır.
 
@@ -110,3 +110,11 @@ Yeni versiya hazırlanarkən bildiriş görünür; **Yenilənməyə bax** eyni p
 2D/MPR-də ilkin sol düymə WW/WL, orta düyməni basıb sürükləmək move, sağ düyməni basıb sürükləmək zoom edir. Qısa sağ klik ölçmə menyusunu açır: xətt üzərində **Sil**, ox üçün **Şərhi dəyiş**, həmçinin **Cari kəsitdə hamısını sil**. **Ctrl+D** yalnız aktiv kəsitdəki ölçüləri və çəkilmiş xətləri silir. Brauzerin standart sağ klik menyusu söndürülüb. 3D-də sol düymə fırlatma, orta düymə move, sağ düymə zoom üçündür.
 
 Ölçü və çəkilmiş xətlər incəldilib, məlumat yazıları böyüdülüb; xəttə yaxınlaşanda əl kursoru görünür. Ox çəkiləndə şərh əlavə etmək olur; sonradan iki kliklə və ya sağ klik menyusundan dəyişilir. Deviasiya iki nöqtə ilə ölçülür: bucaq görüntünün üfüqi oxuna görə, **H** isə kalibrə edilmiş şaquli məsafədir. Ayaq tağında hündürlük **H**, bucaq **°** ilə göstərilir.
+
+## 0.2.15 görünüş və yenilənmə düzəlişləri
+
+Çap önbaxışında xananı seçin, **Tək** və ya **Hamısı** checkbox-unu işarələyin; görüntünün zoom, parlaqlıq və kontrastını dəyişin. Hamısı bütün səhifələrə tətbiq olunur. Adi kağız və DICOM plyonka üçün uyğun ölçülü önbaxış seçilir; eyni dəyişikliklər çap rasterinə də yazılır.
+
+MPR-də hər üç müstəvi iki sol kliklə tam sahəyə açılır. Sağ düymədəki ölçü silmə menyusu bu funksiyanı işə salmır. Lokalizer xəttinin üzərinə gəldikdə dairəni tutub fırlatmaq mümkündür.
+
+Quraşdırılmış versiyada yenilənmə 15 dəqiqədən bir yoxlanır; müvəqqəti bağlantı xətası 6 saat gizlənmir, bir dəqiqə sonra yalnız yoxlama təkrarlanır. Açıq yenilənmə manifesti GitHub REST API limitindən asılı deyil, əvvəlki buraxılışlar üçün API ehtiyat yolu qalır. Yükləmə yalnız göstərilən versiya təsdiqləndikdən sonra başlayır. Köhnə 0.2.9 və əvvəlki quraşdırmalarda əlçatmaz mənbə ünvanını dəyişmək üçün bu Setup-ı bir dəfə açmaq lazımdır; arxiv və lisenziya saxlanılır.

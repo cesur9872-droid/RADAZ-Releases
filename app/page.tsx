@@ -319,7 +319,11 @@ function ViewportPane({ cursor, onCursor, hideText, id, series, initialImageId, 
     });
   }, [enabled, selected, clearToken, viewportId, onClearImage]);
 
-  return <section ref={containerRef} data-has-image={!!imageId} data-panel={id} data-expanded={expanded || undefined} aria-hidden={concealed || undefined} className={`viewport ${selected ? 'active' : ''} ${hideText ? 'hide-image-text' : ''} ${tool === 'scroll' ? 'touch-scroll-mode' : ''}`} onClick={onSelect} onDoubleClick={limited ? undefined : onToggleMaximize}
+  return <section ref={containerRef} data-has-image={!!imageId} data-panel={id} data-expanded={expanded || undefined} aria-hidden={concealed || undefined} className={`viewport ${selected ? 'active' : ''} ${hideText ? 'hide-image-text' : ''} ${tool === 'scroll' ? 'touch-scroll-mode' : ''}`} onClick={onSelect} onDoubleClick={event=>{
+    if(limited||event.button!==0||event.defaultPrevented||performance.now()<Number(containerRef.current?.dataset.suppressMaximizeUntil||0))return;
+    if(event.target instanceof Element&&event.target.closest('button,input,textarea,select,[role="menu"],[role="button"],.measurement-menu,.localizer-overlay,.measurement-overlay,.drawing-overlay'))return;
+    onToggleMaximize?.();
+  }}
     onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }}
     onDrop={e => { e.preventDefault(); const uid = e.dataTransfer.getData('application/x-series-id'); if (uid) onDropSeries(uid); }}
     aria-label={`Görüntü paneli ${id}`}>
@@ -717,20 +721,24 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
   }, [detachedMode]);
 
   useEffect(() => {
-    if (detachedMode || !ready || typeof BroadcastChannel === 'undefined') return;
-    const load = async (uid: string) => {
+    if (detachedMode || typeof BroadcastChannel === 'undefined') return;
+    const load = async (uids: string[]) => {
       setMediaEnabled(false);
       const request = ++importEpoch.current;
       setStatus('Local arxivdən müayinə açılır…');
       try {
-        const files = await getArchiveFiles(uid, (done,total) => { if(request === importEpoch.current)setLoadProgress({label:'Local arxiv yüklənir',done,total}); });
-        if (request !== importEpoch.current) return;
-        if (!files.length) throw new Error('Müayinə arxivdə tapılmadı');
-        if (await importFiles(files, request)) history.replaceState(null, '', `/#archive-study=${encodeURIComponent(uid)}`);
+        const files:File[]=[];
+        for(const [index,uid] of uids.entries()){
+          const found=await getArchiveFiles(uid,(done,total)=>{if(request===importEpoch.current)setLoadProgress({label:`Local arxiv ${index+1}/${uids.length}`,done,total});});
+          if(request!==importEpoch.current)return;
+          if(!found.length)throw new Error('Seçilmiş müayinə arxivdə tapılmadı');
+          files.push(...found);
+        }
+        if(await importFiles(files,request))history.replaceState(null,'',`/#archive-studies=${encodeURIComponent(uids.join(','))}`);
       } catch (error) { if (request === importEpoch.current) setStatus(String(error)); }
     };
     return registerViewer(load, (progress,error) => { setLoadProgress(progress); if(error)setStatus(error); });
-  }, [detachedMode, ready, importFiles]);
+  }, [detachedMode, importFiles]);
 
   const openDetached = (mode: DetachedMode) => {
     const existing=detachedWindows.current.get(mode);

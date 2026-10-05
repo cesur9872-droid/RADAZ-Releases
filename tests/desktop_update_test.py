@@ -62,6 +62,59 @@ class DesktopUpdates(unittest.TestCase):
         self.assertEqual(desktop.read_json(self.root/'update-state.json')['state'],'ready')
         desktop.validate_directory(self.root/'versions/0.2.9','0.2.9')
 
+    def release(self):
+        digest,size=self.package()
+        return {'tag_name':'v'+self.target,'draft':False,'prerelease':False,'assets':[{
+            'name':f'RADAZ-{self.target}-Windows-x64.zip','state':'uploaded','size':size,'digest':'sha256:'+digest,
+            'browser_download_url':f'https://github.com/{desktop.UPDATE_REPOSITORY}/releases/download/v{self.target}/RADAZ-{self.target}-Windows-x64.zip'}]}
+
+    def test_discovery_and_stale_approval_never_download(self):
+        release=self.release()
+        with patch.object(desktop,'get_latest_release',return_value=release),patch.object(desktop,'open_release_download') as opened:
+            for approved in (None,'0.2.8','0.3.0'):
+                desktop.check_update(self.root,approved)
+                self.assertEqual(desktop.read_json(self.root/'update-state.json')['state'],'available')
+                self.assertFalse((self.root/'pending.json').exists())
+            opened.assert_not_called()
+
+    def test_confirmed_version_downloads_and_stages_with_progress(self):
+        release=self.release()
+        with patch.object(desktop,'get_latest_release',return_value=release),patch.object(desktop,'open_release_download',side_effect=lambda _:self.archive.open('rb')):
+            desktop.check_update(self.root,self.target)
+        self.assertEqual(desktop.read_json(self.root/'update-state.json')['state'],'ready')
+        self.assertEqual(desktop.read_json(self.root/'active.json')['version'],'0.2.8')
+        self.assertEqual(desktop.read_json(self.root/'pending.json')['version'],self.target)
+
+    def test_legacy_requests_cannot_approve_and_confirmation_is_consumed_once(self):
+        for payload in ({},{'requestedAt':123},{'action':'check'},{'action':'download','version':self.target,'confirmed':False}):
+            desktop.atomic_json(self.root/'update-request.json',payload)
+            self.assertIsNone(desktop.consume_update_request(self.root))
+        desktop.atomic_json(self.root/'update-request.json',{'action':'download','version':self.target,'confirmed':True})
+        self.assertEqual(desktop.consume_update_request(self.root),self.target)
+        self.assertIsNone(desktop.consume_update_request(self.root))
+
+    def test_static_feed_avoids_api_quota_and_old_releases_fall_back(self):
+        release=self.release()
+        with patch.object(desktop,'get_json',return_value=release) as request:
+            self.assertEqual(desktop.get_latest_release(),release)
+            self.assertEqual(request.call_count,1)
+            self.assertIn('/releases/latest/download/radaz-update.json',request.call_args.args[0])
+        with patch.object(desktop,'get_json',side_effect=[HTTPError('static',404,'missing',{},None),release]) as request:
+            self.assertEqual(desktop.get_latest_release(),release)
+            self.assertIn('api.github.com',request.call_args.args[0])
+
+    def test_portable_update_error_does_not_stay_cached_for_six_hours(self):
+        import sys
+        sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'bridge'))
+        from radaz_product import ProductService
+        config=self.root/'product.json';config.write_text(json.dumps({'version':'0.2.8','updateRepository':desktop.UPDATE_REPOSITORY}))
+        service=ProductService(self.root,config_path=config,device='TEST',trial_root=self.root/'trial')
+        with patch('radaz_desktop.get_latest_release',side_effect=[URLError('offline'),{'tag_name':'v0.2.15'}]) as request:
+            with patch('radaz_product.time.time',return_value=1000):self.assertEqual(service.updates()['state'],'error')
+            with patch('radaz_product.time.time',return_value=1010):self.assertEqual(service.updates()['state'],'error')
+            with patch('radaz_product.time.time',return_value=1061):self.assertEqual(service.updates()['state'],'available')
+            self.assertEqual(request.call_count,2)
+
     @unittest.skipUnless(os.name == 'nt', 'Windows sharing violation regression')
     def test_progress_survives_a_real_windows_reader_blocking_replace(self):
         import ctypes

@@ -1,25 +1,25 @@
 'use client';
 import { OutputPageHeader } from '@/components/output-page-header';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import {flushSync} from 'react-dom';
 import { ArrowLeft, ChevronLeft, ChevronRight, Printer, Radio, Settings2 } from 'lucide-react';
 import { getArchiveFiles } from '@/lib/local-archive';
 import { bytesToBase64, readDicomPixels, type DicomPixelImage } from '@/lib/dicom-pixels';
 import { printDicomFilm } from '@/lib/dicom-print';
 import { defaultPrinter, loadPrinterSettings } from '@/lib/printer-settings';
 import { readOutputJob } from '@/lib/output-jobs';
+import {defaultPrintAdjustment,renderPrintImage,printImagePixels,type PrintAdjustment} from '@/lib/print-image';
 
 const layouts = ['1,1','1,2','2,2','2,3','2,4','3,3','3,4','4,4'];
-const adjusted = (image: DicomPixelImage, level: number, width: number) => image.pixels.map(value => Math.max(0,Math.min(255,Math.round((value - level + width / 2) * 255 / width))));
-function FilmImage({ image, level, width }: { image: DicomPixelImage; level: number; width: number }) {
-  const ref = useRef<HTMLCanvasElement>(null);
-  useEffect(() => {
-    const canvas = ref.current; if (!canvas) return;
-    canvas.width = image.columns; canvas.height = image.rows;
-    const ctx = canvas.getContext('2d')!, raster = ctx.createImageData(image.columns,image.rows), pixels = adjusted(image,level,width);
-    for (let i=0;i<pixels.length;i++) { raster.data[i*4]=raster.data[i*4+1]=raster.data[i*4+2]=pixels[i]; raster.data[i*4+3]=255; }
-    ctx.putImageData(raster,0,0);
-  },[image,level,width]);
+function FilmImage({image,adjustment,ratio}:{image:DicomPixelImage;adjustment:PrintAdjustment;ratio:number}){
+  const ref=useRef<HTMLCanvasElement>(null);
+  useLayoutEffect(()=>{
+    const canvas=ref.current;if(!canvas)return;
+    const rendered=renderPrintImage(image,adjustment,ratio);
+    canvas.width=rendered.width;canvas.height=rendered.height;
+    canvas.getContext('2d')!.drawImage(rendered,0,0);
+  },[image,adjustment,ratio]);
   return <canvas ref={ref}/>;
 }
 
@@ -29,7 +29,11 @@ export default function PrintPage() {
   const [printer,setPrinter] = useState(defaultPrinter), [layout,setLayout] = useState('2,2'), [filmSize,setFilmSize] = useState('14INX17IN');
   const [paper,setPaper] = useState('A4'), [orientation,setOrientation] = useState<'PORTRAIT'|'LANDSCAPE'>('PORTRAIT');
   const [page,setPage] = useState(0), [scope,setScope] = useState('all'), [copies,setCopies] = useState(1);
-  const [level,setLevel] = useState(127.5), [width,setWidth] = useState(255), [status,setStatus] = useState('Görüntülər hazırlanır…'), [busy,setBusy] = useState(false);
+  const [selected,setSelected]=useState(0),[editScope,setEditScope]=useState<'single'|'all'>('single');
+  const [adjustments,setAdjustments]=useState<Record<number,PrintAdjustment>>({});
+  const [previewTarget,setPreviewTarget]=useState<'paper'|'film'>('paper');
+  const [printing,setPrinting]=useState(false);
+  const [status,setStatus] = useState('Görüntülər hazırlanır…'), [busy,setBusy] = useState(false);
   const [columns,rows] = layout.split(',').map(Number), perPage = columns * rows, pageCount = Math.max(1,Math.ceil(images.length/perPage));
   const pages = Array.from({length:pageCount},(_,index) => images.slice(index*perPage,(index+1)*perPage));
   useEffect(() => {
@@ -62,39 +66,62 @@ export default function PrintPage() {
     return () => { disposed=true; };
   },[]);
   useEffect(() => setPage(value => Math.min(value,pageCount-1)),[pageCount]);
+  const filmRatio=({'8INX10IN':8/10,'10INX12IN':10/12,'11INX14IN':11/14,'14INX17IN':14/17,A4:210/297,A3:297/420}[filmSize]||14/17);
+  const paperSize=({A4:[210,297],A3:[297,420],Letter:[215.9,279.4]}[paper]||[210,297]);
+  const paperWidth=paperSize[orientation==='PORTRAIT'?0:1]-10,paperHeight=paperSize[orientation==='PORTRAIT'?1:0]-10;
+  const ratio=previewTarget==='paper'?paperWidth/paperHeight:orientation==='PORTRAIT'?filmRatio:1/filmRatio;
+  const cellRatio=ratio*rows/columns;
+  const currentAdjustment=adjustments[selected]||defaultPrintAdjustment;
+  const change=(values:Partial<PrintAdjustment>,target=selected)=>{
+    setAdjustments(previous=>{
+      const next={...previous},indices=editScope==='all'?images.map((_,i)=>i):[target];
+      for(const i of indices)next[i]={...(previous[i]||defaultPrintAdjustment),...values};
+      return next;
+    });
+  };
+  const selectPage=(index:number)=>{setPage(index);setSelected(index*perPage);};
+  // Switch to the actual paper shape before opening the browser's print dialog.
+  useEffect(()=>{const before=()=>flushSync(()=>{setPreviewTarget('paper');setPrinting(true);});const after=()=>setPrinting(false);window.addEventListener('beforeprint',before);window.addEventListener('afterprint',after);return()=>{window.removeEventListener('beforeprint',before);window.removeEventListener('afterprint',after);};},[]);
   const send = async () => {
-    setBusy(true); let sent=0;
+    setBusy(true);setPreviewTarget('film'); let sent=0;
     const indices = scope==='all' ? pages.map((_,i)=>i) : [page];
     try {
       for(const index of indices) {
-        setPage(index);setStatus(`DICOM printer: plyonka ${index+1} / ${pageCount} göndərilir…`);
-        const result = await printDicomFilm({...printer,copies},{filmSize,orientation,layout,images:pages[index].map(image=>({rows:image.rows,columns:image.columns,pixels:bytesToBase64(adjusted(image,level,width))}))});
+        selectPage(index);setStatus(`DICOM printer: plyonka ${index+1} / ${pageCount} göndərilir…`);
+        const result = await printDicomFilm({...printer,copies},{filmSize,orientation,layout,images:pages[index].map((image,i)=>{const raster=printImagePixels(renderPrintImage(image,adjustments[index*perPage+i]||defaultPrintAdjustment,(orientation==='PORTRAIT'?filmRatio:1/filmRatio)*rows/columns));return {...raster,pixels:bytesToBase64(raster.pixels)};})});
         sent++;setStatus(result.message);
       }
       setStatus(`${sent} plyonkanın çap əmri printer tərəfindən qəbul edildi · hərəsindən ${copies} nüsxə`);
     } catch(error){setScope('page');setStatus(`${sent} plyonka qəbul edildi. Cari plyonkada dayandırıldı: ${error instanceof Error ? error.message : String(error)}`);}
     finally{setBusy(false);}
   };
-  const ratio = ({'8INX10IN':8/10,'10INX12IN':10/12,'11INX14IN':11/14,'14INX17IN':14/17,A4:210/297,A3:297/420}[filmSize] || 14/17);
+
   return <main className="print-shell print-output-shell">
-    <style>{`@media print { @page { size: ${paper} ${orientation==='PORTRAIT'?'portrait':'landscape'}; margin: 5mm; } }`}</style>
+    <style>{`@media print { @page { size: ${paper} ${orientation==='PORTRAIT'?'portrait':'landscape'}; margin: 5mm; } .print-output-shell .print-sheet {height:${paperHeight}mm!important;width:${paperWidth}mm!important;} }`}</style>
     <OutputPageHeader kind="print">{title} · {images.length} görüntü</OutputPageHeader>
-    <aside className="print-controls"><label>Çap ediləcək səhifələr<select disabled={busy} value={scope} onChange={e=>setScope(e.target.value)}><option value="all">Bütün seçilmiş görüntülər</option><option value="page">Yalnız cari plyonka</option></select></label>
-      <label>Bölgü<select disabled={busy} value={layout} onChange={e=>{setLayout(e.target.value);setPage(0);}}>{layouts.map(value=><option key={value} value={value}>{value.replace(',',' × ')} · {value.split(',').map(Number).reduce((a,b)=>a*b)} görüntü</option>)}</select></label>
-      <label>DICOM plyonka ölçüsü<select disabled={busy} value={filmSize} onChange={e=>setFilmSize(e.target.value)}>{['8INX10IN','10INX12IN','11INX14IN','14INX17IN','A4','A3'].map(value=><option key={value}>{value}</option>)}</select></label>
+    <aside className="print-controls"><label>Önbaxış<select aria-label="Önbaxış formatı" disabled={busy} value={previewTarget} onChange={e=>setPreviewTarget(e.target.value as 'paper'|'film')}><option value="paper">Adi printer / PDF</option><option value="film">DICOM plyonka</option></select></label><label>Çap ediləcək səhifələr<select disabled={busy} value={scope} onChange={e=>setScope(e.target.value)}><option value="all">Bütün seçilmiş görüntülər</option><option value="page">Yalnız cari plyonka</option></select></label>
+      <label>Bölgü<select disabled={busy} value={layout} onChange={e=>{setLayout(e.target.value);selectPage(0);}}>{layouts.map(value=><option key={value} value={value}>{value.replace(',',' × ')} · {value.split(',').map(Number).reduce((a,b)=>a*b)} görüntü</option>)}</select></label>
+      <label>DICOM plyonka ölçüsü<select disabled={busy} value={filmSize} onChange={e=>{setFilmSize(e.target.value);setPreviewTarget('film');}}>{['8INX10IN','10INX12IN','11INX14IN','14INX17IN','A4','A3'].map(value=><option key={value}>{value}</option>)}</select></label>
       <label>Adi printer kağızı<select value={paper} onChange={e=>setPaper(e.target.value)}><option>A4</option><option>A3</option><option>Letter</option></select></label>
       <label>İstiqamət<select disabled={busy} value={orientation} onChange={e=>setOrientation(e.target.value as 'PORTRAIT'|'LANDSCAPE')}><option value="PORTRAIT">Portret</option><option value="LANDSCAPE">Landşaft</option></select></label>
       <label>DICOM nüsxə sayı<input disabled={busy} type="number" min="1" max="99" value={copies} onChange={e=>setCopies(Math.max(1,Math.min(99,+e.target.value || 1)))}/></label>
-      <label>Parlaqlıq<input disabled={busy} type="range" min="0" max="255" step="0.5" value={level} onChange={e=>setLevel(+e.target.value)}/></label><label>Kontrast<input disabled={busy} type="range" min="1" max="510" value={width} onChange={e=>setWidth(+e.target.value)}/></label>
-      <button className="print-settings-toggle" disabled={busy} onClick={()=>{setLevel(127.5);setWidth(255);}}>Görünüşü bərpa et</button>
-      <div className="print-pages"><button aria-label="Əvvəlki plyonka" disabled={page===0||busy} onClick={()=>setPage(value=>value-1)}><ChevronLeft size={18}/></button><span>{page+1} / {pageCount}</span><button aria-label="Sonrakı plyonka" disabled={page+1>=pageCount||busy} onClick={()=>setPage(value=>value+1)}><ChevronRight size={18}/></button></div>
-      <button className="print-action" disabled={!images.length||busy} onClick={()=>window.print()}><Printer size={17}/> Adi printer / PDF</button>
+      <fieldset className="print-edit-scope" disabled={busy||!images.length}><legend>Dəyişiklik tətbiq olunsun</legend>
+        <label><input type="checkbox" checked={editScope==='single'} onChange={()=>setEditScope('single')}/>Tək</label>
+        <label><input type="checkbox" checked={editScope==='all'} onChange={()=>setEditScope('all')}/>Hamısı</label>
+        <small>{editScope==='single'?`${selected+1}-ci görüntü · dəyişmək üçün xananı seçin`:'Bütün səhifələrdəki görüntülər'}</small>
+      </fieldset>
+      <label>Görüntü zoomu <output>{Math.round(currentAdjustment.zoom*100)}%</output><input aria-label="Görüntü zoomu" disabled={busy||!images.length} type="range" min="0.25" max="4" step="0.05" value={currentAdjustment.zoom} onChange={e=>change({zoom:+e.target.value})}/></label>
+      <label>Parlaqlıq <output>{currentAdjustment.brightness}</output><input aria-label="Parlaqlıq" disabled={busy||!images.length} type="range" min="-128" max="128" value={currentAdjustment.brightness} onChange={e=>change({brightness:+e.target.value})}/></label>
+      <label>Kontrast <output>{currentAdjustment.contrast.toFixed(1)}</output><input aria-label="Kontrast" disabled={busy||!images.length} type="range" min="0.2" max="3" step="0.1" value={currentAdjustment.contrast} onChange={e=>change({contrast:+e.target.value})}/></label>
+      <button className="print-settings-toggle" disabled={busy} onClick={()=>change(defaultPrintAdjustment)}>Görünüşü bərpa et</button>
+      <div className="print-pages"><button aria-label="Əvvəlki plyonka" disabled={page===0||busy} onClick={()=>selectPage(page-1)}><ChevronLeft size={18}/></button><span>{page+1} / {pageCount}</span><button aria-label="Sonrakı plyonka" disabled={page+1>=pageCount||busy} onClick={()=>selectPage(page+1)}><ChevronRight size={18}/></button></div>
+      <button className="print-action" disabled={!images.length||busy} onClick={()=>{setPreviewTarget('paper');requestAnimationFrame(()=>requestAnimationFrame(()=>window.print()));}}><Printer size={17}/> Adi printer / PDF</button>
       <button className="print-action dicom" disabled={!images.length||busy||!printer.host} onClick={()=>void send()}><Radio size={17}/> DICOM printerə göndər</button>
       {!printer.host&&<p className="output-note">DICOM çap üçün printerin IP, port və AE Title ayarlarını daxil edin.</p>}
       <a className="print-settings-toggle" href="/printer-settings" target="_blank" rel="noreferrer"><Settings2 size={17}/> Printer ayarları</a>
       <button className="output-link" disabled={busy} onClick={()=>void loadPrinterSettings().then(value=>{setPrinter(value);setStatus('Printer ayarları yeniləndi');})}>Ayarları yenilə</button>
     </aside>
-    <div className="print-sheets">{pages.map((frames,index)=><section key={index} data-print-page={index+1} className={`film-preview print-sheet ${index===page?'is-preview':''} ${scope==='page'&&index!==page?'skip-print':''}`} style={{'--film-columns':columns,'--film-rows':rows,aspectRatio:orientation==='PORTRAIT'?ratio:1/ratio} as React.CSSProperties}>{frames.map((image,i)=><div className="film-cell" key={i}><FilmImage image={image} level={level} width={width}/><span>{index*perPage+i+1}</span></div>)}</section>)}</div>
+    <div className="print-sheets">{pages.map((frames,index)=><section key={index} data-print-page={index+1} className={`film-preview print-sheet ${index===page?'is-preview':''} ${scope==='page'&&index!==page?'skip-print':''}`} style={{'--film-columns':columns,'--film-rows':rows,aspectRatio:ratio} as React.CSSProperties}>{frames.map((image,i)=>{const number=index*perPage+i;return <button type="button" aria-label={`${number+1}-ci görüntü`} aria-pressed={selected===number} disabled={busy} className={`film-cell ${selected===number?'is-selected':''}`} key={i} onClick={()=>setSelected(number)}>{(index===page||printing)&&<FilmImage image={image} adjustment={adjustments[number]||defaultPrintAdjustment} ratio={cellRatio}/>}<span>{number+1}</span></button>;})}</section>)}</div>
     <footer className="print-status" role="status">{busy&&<i/>}{status}</footer>
   </main>;
 }

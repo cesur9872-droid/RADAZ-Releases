@@ -101,7 +101,7 @@ try {
   const noAutoImport = async page => {
     await page.locator('.statusbar').filter({ hasText: 'Cornerstone3D hazırdır' }).waitFor();
     assert.equal(await button(page).getAttribute('aria-pressed'), 'false', 'Disc import must start off even with the legacy stored preference');
-    assert.equal(mediaRequests.filter(request => request.page === page).length, 0, 'Unrequested Viewer must not contact removable media');
+
     assert.equal(await page.locator('.media-import-progress').count(), 0);
   };
   const discViewer = await context.newPage();
@@ -115,54 +115,49 @@ try {
   const archivePage = await context.newPage();
   await archivePage.goto(base + '/archive');
   await archivePage.getByRole('checkbox', { name: 'Bu gün', exact: true }).uncheck();
-  const [archiveViewer] = await Promise.all([context.waitForEvent('page'), archivePage.getByRole('cell').filter({ hasText: archived.patient }).click()]);
+  const existingCount=context.pages().length,archiveViewer=discViewer;
+  await archivePage.getByRole('cell').filter({hasText:archived.patient}).click();
+  await archiveViewer.waitForURL('**/#archive-studies=*');
   await archiveViewer.locator('[data-panel="A"][data-has-image="true"]').waitFor();
+  assert.equal(context.pages().length,existingCount,'Archive replaces disc in existing Viewer');
   await noAutoImport(archiveViewer);
-  assert.equal(await archiveViewer.locator('.series-card').count(), 1, 'Only the requested archive series appears');
-  console.log('PASS: archive opens independently while another Viewer imports a disc.');
+  assert.equal(await archiveViewer.locator('.series-card').count(),1);
+  const discReads=mediaRequests.filter(r=>r.url.includes('/removable/file/')).length;
+  console.log('PASS: archive reuses Viewer and stops its explicit disc import.');
 
   const pacsPage = await context.newPage();
   await pacsPage.goto(base + '/pacs');
   await pacsPage.getByRole('checkbox', { name: 'Bu gün', exact: true }).uncheck();
   await pacsPage.getByRole('button', { name: 'Axtar', exact: true }).click();
-  const [pacsViewer] = await Promise.all([context.waitForEvent('page'), pacsPage.getByRole('cell').filter({ hasText: archived.patient }).dblclick()]);
-  await pacsViewer.getByRole('progressbar', { name: 'PACS yüklənir', exact: true }).waitFor();
-  assert.match(pacsViewer.url(), /pending=pacs/);
-  await noAutoImport(pacsViewer);
-  releasePacs();
-  await pacsViewer.waitForURL('**/#archive-study=*');
-  await pacsViewer.locator('[data-panel="A"][data-has-image="true"]').waitFor();
-  await noAutoImport(pacsViewer);
-  assert.equal(await pacsViewer.locator('.series-card').count(), 1, 'PACS study does not include the inserted disc');
-  assert.ok(pacsRequests.some(url => url.includes('/instances/')), 'PACS pixels were actually retrieved');
-  assert.equal(await button(discViewer).getAttribute('aria-pressed'), 'true', 'The explicitly enabled disc Viewer keeps watching');
-
-  await button(discViewer).click();
-  await discViewer.waitForFunction(() => document.querySelectorAll('.series-card').length === 0);
-  assert.equal(await button(discViewer).getAttribute('aria-pressed'), 'false');
-  assert.equal(await archiveViewer.locator('[data-panel="A"][data-has-image="true"]').count(), 1);
-  assert.equal(await pacsViewer.locator('[data-panel="A"][data-has-image="true"]').count(), 1);
-  await archiveViewer.reload();
-  await archiveViewer.locator('[data-panel="A"][data-has-image="true"]').waitFor();
+  const pacsViewer=discViewer;
+  await pacsPage.getByRole('cell').filter({hasText:archived.patient}).dblclick();
+  await pacsViewer.getByRole('progressbar',{name:'PACS yüklənir',exact:true}).waitFor();
+  await noAutoImport(pacsViewer);releasePacs();
+  await pacsViewer.locator('.statusbar').filter({hasText:'1 DICOM görüntüsü yükləndi'}).waitFor();
+  assert.equal(context.pages().length,existingCount+1,'PACS uses the existing Viewer');
+  assert.equal(await pacsViewer.locator('.series-card').count(),1);
+  assert.ok(pacsRequests.some(url=>url.includes('/instances/')));
+  await archiveViewer.reload();await archiveViewer.locator('[data-panel="A"][data-has-image="true"]').waitFor();
   await noAutoImport(archiveViewer);
   for(const records of [archivePage,pacsPage]){
     const table=records.getByRole('table',{name:records===archivePage?'Arxiv müayinələri':'PACS müayinələri',exact:true});
     await table.getByRole('checkbox',{name:'Hamısını seç',exact:true}).check();
     const before=context.pages().length;
-    const opened=context.waitForEvent('page');
+
     if(records===archivePage)await records.getByRole('button',{name:'Seçilmişləri aç (2)',exact:true}).click();
     else await table.getByRole('cell').filter({hasText:archived.patient}).dblclick();
-    const selected=await opened;
+    const selected=discViewer;
     await selected.waitForURL('**/#archive-studies=*');
     await selected.waitForFunction(()=>document.querySelectorAll('.series-card').length===2);
     await selected.locator('.statusbar').filter({hasText:'2 DICOM görüntüsü yükləndi'}).waitFor();
-    assert.equal(context.pages().length,before+1,'One Viewer for the whole selection');
+    assert.equal(context.pages().length,before,'Same Viewer for the whole selection');
     await noAutoImport(selected);
   }
   console.log('PASS: archive checkbox group and PACS checkbox double-click open exactly two selected studies in one Viewer');
+  assert.equal(mediaRequests.filter(r=>r.url.includes('/removable/file/')).length,discReads,'Archive/PACS/reload never restart disc reads');
   assert.equal(pickers, 0);
   assert.deepEqual(errors, []);
-  console.log('PASS: legacy preference ignored; explicit CD import works and stops; archive click, PACS pending/download/open and reload never start disc import; patients stay isolated.');
+  console.log('PASS: legacy preference ignored; explicit CD import works and stops; archive click, PACS pending/download/open and reload never start disc import; all opens reuse the same Viewer.');
 } catch (error) {
   console.error(error.message);
   mkdirSync('outputs/media-scope', { recursive: true });

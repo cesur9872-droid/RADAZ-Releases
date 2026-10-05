@@ -56,6 +56,21 @@ class Releases(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
+    def test_static_feed_is_uploaded_before_release_becomes_public(self):
+        desktop=self.root/f'outputs/releases/RADAZ-{VERSION}-Windows-x64.zip';desktop.write_bytes(b'synthetic verified archive')
+        api=FakeGitHub();api.repo='owner/binaries'
+        with patch.object(release,'validate_package',return_value=(desktop,)):
+            release.publish(api,self.root,VERSION,COMMIT)
+        feed=json.loads((self.root/'outputs/releases/radaz-update.json').read_text())
+        self.assertEqual(feed['tag_name'],'v'+VERSION)
+        asset=feed['assets'][0]
+        self.assertEqual(asset['digest'],'sha256:'+hashlib.sha256(desktop.read_bytes()).hexdigest())
+        self.assertEqual(asset['size'],desktop.stat().st_size)
+        self.assertEqual(asset['browser_download_url'],f'https://github.com/owner/binaries/releases/download/v{VERSION}/{desktop.name}')
+        uploads=[path for method,path,_ in api.calls if method=='POST' and 'assets?' in path]
+        self.assertTrue(uploads[-1].endswith('radaz-update.json'))
+        self.assertEqual(api.calls[-1][0],'PATCH')
+
     def test_first_release_is_planned(self):
         self.assertTrue(release.release_plan(FakeGitHub(), VERSION))
 

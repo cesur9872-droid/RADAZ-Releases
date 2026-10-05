@@ -22,38 +22,39 @@ try{
  const page=await browser.newPage({viewport:{width:1366,height:768}});
  await page.route('**/local-archive-api/**',r=>r.fulfill({json:r.request().url().endsWith('/license')?{valid:true,required:true,kind:'owner',message:'Synthetic license',deviceId:'TEST'}:[]}));
  await page.goto(base+'/archive');
- let requested=0;
- await page.route('**/radaz-update',route=>{requested++;state('downloading','RADAZ yüklənir…',{done:25,total:100,unit:'bayt'});return route.fulfill({status:202,json:{state:'checking'}});});
- await page.getByRole('button',{name:'Yardım və lisenziya'}).click();
- await page.getByRole('menuitem',{name:'Yeniləmələri yoxla'}).click();
- await page.getByText('25%',{exact:false}).waitFor();
- assert.equal(requested,1);assert.equal(await page.getByRole('progressbar',{name:'Yenilənmə prosesi'}).getAttribute('value'),'25');
+ let checks=0,downloads=0;
+ await page.route('**/radaz-update',route=>{
+  const input=route.request().postDataJSON();
+  if(input.action==='check'){checks++;state('available','RADAZ 99.0.1 — yeni versiya mövcuddur.');}
+  else{assert.deepEqual(input,{action:'download',version:'99.0.1',confirmed:true});downloads++;state('downloading','RADAZ yüklənir…',{done:25,total:100,unit:'bayt'});}
+  return route.fulfill({status:202,json:{state:'checking'}});
+ });
+ for(const payload of [{action:'download',version:'99.0.1'},{action:'download',confirmed:true,version:'../../bad'},{action:'install'}]){
+  assert.equal((await fetch(base+'/radaz-update',{method:'POST',headers:{Origin:base,'Content-Type':'application/json'},body:JSON.stringify(payload)})).status,400);
+ }
+ await page.getByRole('button',{name:'Yardım və lisenziya'}).click();await page.getByRole('menuitem',{name:'Yeniləmələri yoxla'}).click();
+ await page.locator('.desktop-update-progress[data-state="available"]').waitFor();
+ assert.equal(checks,1);assert.equal(downloads,0,'Checking must never download');
  await page.locator('dialog footer').getByRole('button',{name:'Bağla',exact:true}).click();
- await page.locator('.update-toast').getByText(/yeni versiya/).waitFor({timeout:20000});
- await page.getByRole('button',{name:'Yenilənməyə bax',exact:true}).click();
- await page.getByRole('progressbar',{name:'Yenilənmə prosesi'}).waitFor();assert.equal(requested,1,'Opening notification must reuse current progress');
- state('installing','Komponentlər quraşdırılır…',{done:8,total:10,unit:'fayl'});
- await page.getByText('80%',{exact:true}).waitFor();
- state('ready',message); // Older staged updates may have no progress field.
- await page.getByText(message,{exact:true}).waitFor();
- await page.getByText('Yeniləmə hazırdır. Setup-ı yenidən quraşdırmaq lazım deyil.',{exact:true}).waitFor();
- assert.equal(await page.getByRole('progressbar',{name:'Yenilənmə prosesi'}).getAttribute('value'),'1');
- assert.equal(await page.getByRole('link',{name:/yüklə və yenilə/}).count(),0);
- assert.equal(await page.getByRole('button',{name:'Yenilə',exact:true}).isEnabled(),true);
- state('current','Ən yeni versiya quraşdırılıb.');
- await page.getByText('Ən yeni versiya quraşdırılıb.',{exact:true}).waitFor();
- await page.getByRole('button',{name:'Yenilə',exact:true}).click();
- await page.getByText('25%',{exact:false}).waitFor();
- assert.equal(requested,2,'Both Check updates and Update must wake the updater');
+ await page.locator('.update-toast b').filter({hasText:/yeni versiya/}).waitFor({timeout:20000});
+ await page.getByRole('button',{name:'Yenilənməyə bax',exact:true}).click();await page.getByRole('button',{name:'Yenilə',exact:true}).waitFor();
+ assert.equal(downloads,0,'Opening update notification must never download');
+ await page.getByRole('button',{name:'Yenilə',exact:true}).click();await page.getByRole('group',{name:'Yeniləməni təsdiqlə'}).waitFor();
+ assert.equal(downloads,0,'Update button requires a separate confirmation');
+ await page.getByRole('button',{name:'Ləğv et',exact:true}).click();assert.equal(downloads,0);
+ await page.getByRole('button',{name:'Yenilə',exact:true}).click();await page.getByRole('button',{name:'Təsdiq et və yenilə',exact:true}).click();
+ await page.getByText('25%',{exact:false}).waitFor();assert.equal(downloads,1);
+ assert.equal(await page.getByRole('progressbar',{name:'Yenilənmə prosesi'}).getAttribute('value'),'25');
+ state('installing','Komponentlər quraşdırılır…',{done:8,total:10,unit:'fayl'});await page.getByText('80%',{exact:true}).waitFor();
  state('error','Synthetic failed checksum');await page.getByRole('alert').filter({hasText:'Synthetic failed checksum'}).waitFor();
  assert.equal(await page.locator('.update-confirmation').count(),0,'Failure must never show success');
- state('ready',message,{done:1,total:1});await page.getByText(message,{exact:true}).waitFor();
+ state('ready',message);await page.getByText(message,{exact:true}).waitFor();
+ await page.getByText('Yeniləmə hazırdır. Setup-ı yenidən quraşdırmaq lazım deyil.',{exact:true}).waitFor();
+ assert.equal(await page.getByRole('progressbar',{name:'Yenilənmə prosesi'}).getAttribute('value'),'1');
  await page.locator('dialog footer').getByRole('button',{name:'Bağla',exact:true}).click();
  await page.locator('.update-toast').getByText(/qısayolunu yenidən açın/).waitFor({timeout:20000});
- assert.match(await page.locator('.update-toast').textContent(),/qısayolunu yenidən açın/);
- await page.getByRole('button',{name:'Bildirişi bağla'}).click();
- assert.equal(await page.locator('.update-toast').count(),0);
- console.log('Update action, byte/file progress, completion, error, ready notification and origin guards passed');
+ await page.getByRole('button',{name:'Bildirişi bağla'}).click();assert.equal(await page.locator('.update-toast').count(),0);
+ console.log('PASS: discovery-only check, available notification, no download on opening or cancel, explicit version confirmation, progress and completion, origin/approval guards');
 }finally{
  await browser.close();spawnSync('taskkill.exe',['/PID',String(server.pid),'/T','/F'],{windowsHide:true,stdio:'ignore'});
  assert.ok(root.startsWith(path.join(tmpdir(),'radaz-update-ui-')));rmSync(root,{recursive:true,force:true});

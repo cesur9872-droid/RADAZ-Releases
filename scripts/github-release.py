@@ -137,6 +137,16 @@ def publish(api, root, version, commit, release_commit=None):
             'tag_name': f'v{version}', 'target_commitish': release_commit, 'name': f'RADAZ {version} — Windows',
             'body': notes, 'draft': True, 'prerelease': False,
         })
+    # Static discovery works without the REST quota shared by multiple workstations.
+    feed = root / 'outputs/releases/radaz-update.json'
+    desktop_name = f'RADAZ-{version}-Windows-x64.zip'
+    desktop_file = next((file for file in files if file.name == desktop_name), None)
+    if desktop_file:
+        feed.write_text(json.dumps({'schema':1,'tag_name':f'v{version}','draft':False,'prerelease':False,
+            'assets':[{'name':desktop_name,'state':'uploaded','size':desktop_file.stat().st_size,
+                'digest':'sha256:'+hashlib.sha256(desktop_file.read_bytes()).hexdigest(),
+                'browser_download_url':f'https://github.com/{api.repo}/releases/download/v{version}/{desktop_name}'}]},indent=2),encoding='utf-8')
+        files = (*files, feed)
     # Publish only after every portable, offline and installer asset is verified.
     for file in files:
         digest = 'sha256:' + hashlib.sha256(file.read_bytes()).hexdigest()

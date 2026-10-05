@@ -90,7 +90,7 @@
 
 .workspace-tabs{height:43px;flex:none;display:flex;align-items:stretch;gap:4px;padding:5px 12px 0;background:#0e1b27;border-bottom:1px solid #30475a;overflow-x:auto;scrollbar-width:thin}.workspace-tabs button{min-width:118px;display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:0 15px;border:1px solid transparent;border-bottom:0;border-radius:6px 6px 0 0;color:#9bb8c9;font-size:12px;font-weight:700;white-space:nowrap}.workspace-tabs button:hover{background:#1c3445;color:#e4f6ff}.workspace-tabs button.current{background:#1b3446;border-color:#40708a;color:#b8ebff;box-shadow:inset 0 2px #6dc8ec}.workspace-tabs button:focus-visible{outline:2px solid #75d4f7;outline-offset:-3px}
 .study-modality-summary{display:flex;flex-wrap:wrap;gap:5px;margin-top:4px}.study-modality-summary>span{display:flex;align-items:center;gap:10px;padding:6px 10px;background:#213d50;border-left:3px solid #50bce0;border-radius:3px}.study-modality-summary b{color:#c9f1ff;font-size:12px}.study-modality-summary small{color:#a9c9da;font-size:11px}.study-group-heading{padding-bottom:10px}.modality-group{padding:0 0 3px}.modality-group .series-card:first-child{margin-top:3px}
-.mpr-grid.maximized{position:relative}.mpr-grid.maximized>.viewport[data-expanded=true]{position:absolute;inset:3px;z-index:20}.mpr-grid.maximized>.viewport[aria-hidden=true]{visibility:hidden;pointer-events:none}.selected-measurement .mark-label rect{stroke:#59d9ff;stroke-width:2}.selected-measurement .mark-dot{stroke:#59d9ff;stroke-width:1.8}.selected-measurement .deviation-lines{stroke:#59d9ff}.mpr-orientation-top,.mpr-orientation-bottom{position:absolute;left:50%;z-index:2;transform:translateX(-50%);color:#89deff;font-size:12px;font-weight:700;text-shadow:0 2px 4px #000;pointer-events:none}.mpr-orientation-top{top:14px}.mpr-orientation-bottom{bottom:14px}
+.mpr-grid.maximized{position:relative}.mpr-grid.maximized>.viewport[data-expanded=true]{grid-area:1/1/-1/-1!important;position:absolute;inset:0;z-index:20}.mpr-grid.maximized>.viewport[aria-hidden=true]{visibility:hidden;pointer-events:none}.selected-measurement .mark-label rect{stroke:#59d9ff;stroke-width:2}.selected-measurement .mark-dot{stroke:#59d9ff;stroke-width:1.8}.selected-measurement .deviation-lines{stroke:#59d9ff}.mpr-orientation-top,.mpr-orientation-bottom{position:absolute;left:50%;z-index:2;transform:translateX(-50%);color:#89deff;font-size:12px;font-weight:700;text-shadow:0 2px 4px #000;pointer-events:none}.mpr-orientation-top{top:14px}.mpr-orientation-bottom{bottom:14px}
 .menu-hint{padding:9px 11px 5px;color:#92b9ca;font-size:11px}
 @media(max-width:760px){.workspace-tabs{height:39px;padding:4px 6px 0}.workspace-tabs button{min-width:85px;padding:0 8px;font-size:11px}}
 .workstation.detached .body-grid{grid-template-columns:minmax(0,1fr)}
@@ -600,3 +600,19 @@
  .grouped-workstation .topbar .mpr-thickness input{width:75px}
  .grouped-records .records-unified-header{gap:8px}
 }
+
+/* Print cells own a bounded raster; image zoom never changes the sheet layout. */
+.print-output-shell .film-preview{padding:0;gap:0}
+.print-output-shell .film-cell{display:block;padding:0;border:0;border-radius:0;aspect-ratio:auto;cursor:pointer}
+.print-output-shell .film-cell canvas{position:absolute;inset:0;width:100%;height:100%;max-width:none;max-height:none;object-fit:fill}
+.print-output-shell .film-cell.is-selected{outline:2px solid #51c8f4;outline-offset:-2px;z-index:1}
+.print-edit-scope{border:1px solid #36586c;border-radius:5px;padding:9px;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:10px}
+.print-edit-scope legend{font-size:12px;color:#b7dbea;padding:0 4px}
+.print-controls .print-edit-scope label{display:flex;align-items:center;gap:7px;margin:0;font-size:14px;color:#edf7fc}
+.print-controls .print-edit-scope input{width:18px;height:18px;min-height:18px;accent-color:#51c8f4}
+.print-edit-scope small{flex-basis:100%;color:#9ec0cf;line-height:1.5}
+.print-controls output{font-variant-numeric:tabular-nums;color:#edf7fc}
+.update-approval{padding:12px;border:1px solid #36586c;border-radius:6px;margin:12px 0}
+.update-approval button+button{margin-left:8px}
+.localizer-line:hover .localizer-rotate-dot{fill:#244750;stroke-width:2}
+@media print{.print-output-shell .film-cell.is-selected{outline:none}.print-output-shell .film-preview{gap:0!important}}

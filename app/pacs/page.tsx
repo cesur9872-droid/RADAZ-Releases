@@ -1,7 +1,7 @@
 'use client';
 import { ResizableTable, ResizableHeader } from '@/components/resizable-table';
 import { SortHeader, useTableSort } from '@/components/table-sort';
-import { openStudyInViewer, openStudiesInViewer, focusViewer, notifyViewerProgress } from '@/lib/viewer-session';
+import { openStudyInViewer, openStudiesInViewer, focusViewer, notifyViewerProgress, type ViewerTarget } from '@/lib/viewer-session';
 
 import { useEffect, useRef, useState } from 'react';
 import { Activity, ExternalLink, Network, Plus, Search, Settings2, Trash2, Wifi, Download, Database, RefreshCw, X, Disc3 } from 'lucide-react';
@@ -177,7 +177,8 @@ export default function PacsPage() {
     if (openingStudy.current || (busy && !open)) return;
     const query = ++studyQuery.current;
     if (open) openingStudy.current = true;
-    const reservedViewer = open ? focusViewer() : undefined;
+    const reservedViewer = open ? await focusViewer() : undefined;
+    if(open)notifyViewerProgress(reservedViewer||null,{label:'PACS yüklənir',done:0,total:0});
     setStudy(item.uid); setSeries([]); setChecked([]); setBusy(true); setStatus('PACS seriyaları oxunur…');
     try {
       const response = location!.dicomwebUrl
@@ -188,15 +189,16 @@ export default function PacsPage() {
       setStatus(`${response.items.length} seriya tapıldı${response.truncated ? ' · ilk 200 seriya' : ''}`);
       if (open) await retrieve('viewer', undefined, item, response.items, reservedViewer);
     }
-    catch (error) { if (query === studyQuery.current) setStatus(error instanceof Error ? error.message : String(error)); }
+    catch (error) { if (query === studyQuery.current) {const message=error instanceof Error?error.message:String(error);setStatus(message);if(open)notifyViewerProgress(reservedViewer||null,null,message);} }
     finally { if (query === studyQuery.current) setBusy(false); if (open) openingStudy.current = false; }
   };
-  const retrieve = async (destination: 'viewer' | 'media' = 'viewer', onlySeries?: string, selectedStudy = activeStudy, selectedSeries?: RemoteSeries[], reservedViewer?: Window | null) => {
+  const retrieve = async (destination: 'viewer' | 'media' = 'viewer', onlySeries?: string, selectedStudy = activeStudy, selectedSeries?: RemoteSeries[], reservedViewer?: ViewerTarget | null) => {
     if(destination==='viewer'&&!onlySeries&&!selectedSeries&&selection.checked.length){await openSelectedStudies();return;}
     if ((busy && !selectedSeries) || !location || !selectedStudy || (!selectedSeries && !onlySeries && !checked.length)) return;
-    // Open synchronously so browsers allow the private viewer tab after a long download.
-    const viewer = destination === 'viewer' ? (reservedViewer === undefined ? focusViewer() : reservedViewer) : window.open('about:blank', '_blank');
-    const updateTab = preparePacsTransferTab(destination === 'media' ? viewer : null);
+    // Discover or reserve a Viewer before the long PACS transfer.
+    const mediaTab=destination==='media'?window.open('about:blank','_blank'):null;
+    const viewer = destination === 'viewer' ? (reservedViewer === undefined ? await focusViewer() : reservedViewer) : null;
+    const updateTab = preparePacsTransferTab(mediaTab);
     const report = (message: string) => { setStatus(message); updateTab(message); };
     notifyViewerProgress(destination === 'viewer' ? viewer : null, {label:'PACS yüklənir',done:0,total:0});
     const progress = (done:number,total:number,label='PACS yüklənir') => { report(`${label}: ${done} / ${total}`); if(destination === 'viewer')notifyViewerProgress(viewer,{label,done,total}); };
@@ -223,7 +225,7 @@ export default function PacsPage() {
       await recordStudyOpened(selectedStudy.uid);
       const target = destination === 'media' ? `/media?study=${encodeURIComponent(selectedStudy.uid)}` : `/#archive-study=${encodeURIComponent(selectedStudy.uid)}`;
       if (destination === 'viewer') await openStudyInViewer(selectedStudy.uid, viewer);
-      else if (viewer) viewer.location.href = target;
+      else if (mediaTab) mediaTab.location.href = target;
       setStatus(`${files.length} görüntü local arxivə saxlanıldı${viewer || destination === 'viewer' ? ' və seçilmiş modul açıldı' : '. Arxiv vərəqəsindən açın'}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -238,7 +240,7 @@ export default function PacsPage() {
     if((busy&&!fromRow)||openingStudy.current||!location||!selection.checked.length)return;
     ++studyQuery.current; // Supersede the single-click series query on double-click.
     const targets=visibleStudies.filter(item=>selection.checked.includes(item.uid));
-    const viewer=focusViewer();if(!viewer){setStatus('Viewer açıla bilmədi. Pop-up icazəsini yoxlayın.');return;}
+    const viewer=await focusViewer();if(!viewer){setStatus('Viewer açıla bilmədi. Pop-up icazəsini yoxlayın.');return;}
     setBusy(true);openingStudy.current=true;
     try{
       if(!location.dicomwebUrl&&await getDimseBridgeVersion()<3)throw Error('PACS körpüsünü yeni versiyaya yeniləyin');
