@@ -21,7 +21,8 @@ function fixture(name) {
     Buffer.from(ds.byteArray).copy(bytes);
   }
   const tag = id => ds.string('x' + id)?.trim() || '';
-  return { bytes, uid: tag('0020000d'), seriesUID: tag('0020000e'), sopUID: tag('00080018'),
+  const tags=Object.fromEntries(Object.entries(ds.elements).filter(([id])=>/^x(0008|0010|0018|0020|0028)/.test(id)).map(([id,e])=>[id,String(e.vr==='US'?ds.uint16(id):ds.string(id)||'')]));
+  return { bytes, tags, uid: tag('0020000d'), seriesUID: tag('0020000e'), sopUID: tag('00080018'),
     patient: tag('00100010').replaceAll('^', ' '), patientId: tag('00100020'), birth: tag('00100030'),
     date: tag('00080020'), modality: tag('00080060'), name: tag('0008103e'), number: tag('00200011') };
 }
@@ -60,7 +61,7 @@ try {
     localStorage.setItem('radaz-pacs-config-v1', JSON.stringify({ selected: 'test', aeTitle: 'RADAZ', listenerPort: '11112',
       locations: [{ id: 'test', host: '', port: '11112', aeTitle: 'TEST', description: 'Synthetic PACS', dicomwebUrl: location.origin + '/test-pacs' }] }));
   }, base);
-  const errors = [], mediaRequests = [], pacsRequests = [];
+  const errors = [], mediaRequests = [], pacsRequests = [], minimizeRequests=[];
   let pickers = 0;
   context.on('page', page => { page.on('pageerror', error => errors.push(error.message)); page.on('filechooser', () => pickers++); });
   context.on('request', request => {
@@ -72,12 +73,13 @@ try {
     const json = body => route.fulfill({ json: body });
     if (path === '/license') return json({ valid: true, required: true, kind: 'owner', message: 'Synthetic license', deviceId: 'TEST' });
     if (path === '/status') return json({ capabilities: [], aeTitle: 'TEST', port: 11112, enabled: false, running: false, error: '', addresses: [], databasePath: '', storagePath: '', instanceCount: 1, size: archived.bytes.length });
+    if (path === '/window/minimize') {minimizeRequests.push(JSON.parse(route.request().postData()));return json({minimized:true});}
     if (path === '/studies') return json([study,secondStudy]);
     if (path === '/instances') return json([{ uid: route.request().url().includes(disc.uid)?disc.sopUID:archived.sopUID }]);
     if (path.startsWith('/file/')) return route.fulfill({ contentType: 'application/dicom', body: path.includes(disc.sopUID)?disc.bytes:archived.bytes });
     if (path === '/opened' || path === '/import' || path === '/removable/close') return json({ ok: true });
     if (path === '/removable/watch') return json({ sessions: [{ id: 'synthetic-cd', label: 'Synthetic disc', stage: 'ready', scanned: 1, total: 1, error: '', dicomdir: false }] });
-    if (path === '/removable/entries') return json({ next: 1, items: [{ id: 'image-1', studyId: disc.uid, seriesUID: disc.seriesUID,
+    if (path === '/removable/entries') return json({ next: 1, items: [{ id: 'image-1', tags:disc.tags, studyId: disc.uid, seriesUID: disc.seriesUID,
       sopUID: disc.sopUID, name: disc.name, modality: disc.modality, patient: disc.patient, patientId: disc.patientId,
       birth: disc.birth, date: disc.date, number: disc.number, instance: 1, size: disc.bytes.length, decodedBytes: 524288 }] });
     if (path.startsWith('/removable/file/')) return route.fulfill({ contentType: 'application/dicom', body: disc.bytes });
@@ -112,8 +114,8 @@ try {
   assert.equal(await button(discViewer).getAttribute('aria-pressed'), 'true');
   assert.ok(mediaRequests.some(request => request.page === discViewer && request.url.includes('/removable/file/')));
 
-  const archivePage = await context.newPage();
-  await archivePage.goto(base + '/archive');
+  const popup=context.waitForEvent('page');await discViewer.getByRole('button',{name:'Local arxiv',exact:true}).click();const archivePage=await popup;
+  await archivePage.waitForLoadState();
   await archivePage.getByRole('checkbox', { name: 'Bu gün', exact: true }).uncheck();
   const existingCount=context.pages().length,archiveViewer=discViewer;
   await archivePage.getByRole('cell').filter({hasText:archived.patient}).click();
@@ -123,6 +125,7 @@ try {
   await noAutoImport(archiveViewer);
   assert.equal(await archiveViewer.locator('.series-card').count(),1);
   const discReads=mediaRequests.filter(r=>r.url.includes('/removable/file/')).length;
+  await archivePage.waitForTimeout(250);assert.equal(minimizeRequests.length,1);assert.match(minimizeRequests[0].token,/^RADAZ_RECORDS_[a-f0-9]{32}$/);assert.equal(await archivePage.title(),'RADAZ · Local arxiv');
   console.log('PASS: archive reuses Viewer and stops its explicit disc import.');
 
   const pacsPage = await context.newPage();
@@ -132,7 +135,9 @@ try {
   const pacsViewer=discViewer;
   await pacsPage.getByRole('cell').filter({hasText:archived.patient}).dblclick();
   await pacsViewer.getByRole('progressbar',{name:'PACS yüklənir',exact:true}).waitFor();
-  await noAutoImport(pacsViewer);releasePacs();
+  const downloaded=pacsPage.waitForResponse(response=>response.url().includes('/test-pacs/')&&response.url().includes('/instances/'));
+  await noAutoImport(pacsViewer);releasePacs();await downloaded;
+  await pacsPage.locator('.records-spinner').waitFor({state:'hidden'});
   await pacsViewer.locator('.statusbar').filter({hasText:'1 DICOM görüntüsü yükləndi'}).waitFor();
   assert.equal(context.pages().length,existingCount+1,'PACS uses the existing Viewer');
   assert.equal(await pacsViewer.locator('.series-card').count(),1);

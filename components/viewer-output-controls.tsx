@@ -120,7 +120,7 @@ export function ViewerOutputControls({ panel, imageId, series, allSeries, datase
         const entry = entries[index]; setMessage(`Hazırlanır: ${index + 1} / ${entries.length}`);
         let blob: Blob;
         if (format === 'dicom') {
-          const source = getOriginalDicom(entry.id); if (!source) throw new Error('Törəmə MPR üçün DICOM ixracı yoxdur; PNG və ya JPEG seçin');
+          const source = await getOriginalDicom(entry.id); if (!source) throw new Error('Törəmə MPR üçün DICOM ixracı yoxdur; PNG və ya JPEG seçin');
           blob = new Blob([source as BlobPart], { type: 'application/dicom' });
         } else {
           const pane = document.querySelector<HTMLElement>(`[data-panel="${panel}"]`);

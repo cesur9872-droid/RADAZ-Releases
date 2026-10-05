@@ -104,7 +104,19 @@ def image_metadata(path):
     bits, samples = int(getattr(ds, 'BitsAllocated', 0)), int(getattr(ds, 'SamplesPerPixel', 0))
     if not rows or not columns or not samples or bits not in (1, 8, 16, 32, 64) or 'PixelData' not in ds:
         return None
-    return {'studyId': text('StudyInstanceUID'), 'seriesUID': text('SeriesInstanceUID'),
+    # Only small metadata travels during discovery; pixel buffers stay on the disc.
+    tags = {}
+    for tag in (0x00080016, 0x00080018, 0x00080020, 0x00080060, 0x00081030, 0x0008103e,
+                0x00100010, 0x00100020, 0x00100030, 0x00180015, 0x00180050, 0x00180088,
+                0x0020000d, 0x0020000e, 0x00200011, 0x00200013, 0x00200032, 0x00200037, 0x00200052,
+                0x00280002, 0x00280004, 0x00280010, 0x00280011, 0x00280030, 0x00280100, 0x00280101,
+                0x00280102, 0x00280103, 0x00281050, 0x00281051, 0x00281052, 0x00281053, 0x00281055):
+        element = ds.get(tag)
+        if element is not None:
+            value = element.value
+            tags[f'x{tag:08x}'] = '\\'.join(str(v) for v in value) if element.VM > 1 else str(value)
+    tags['x00020010'] = str(getattr(ds.file_meta, 'TransferSyntaxUID', '1.2.840.10008.1.2'))
+    return {'tags': tags, 'studyId': text('StudyInstanceUID'), 'seriesUID': text('SeriesInstanceUID'),
             'sopUID': text('SOPInstanceUID'), 'name': text('SeriesDescription') or 'Adsız seriya',
             'modality': text('Modality') or 'DICOM', 'patient': text('PatientName').replace('^', ' ') or 'Naməlum pasiyent',
             'patientId': text('PatientID') or '—', 'birth': text('PatientBirthDate'),

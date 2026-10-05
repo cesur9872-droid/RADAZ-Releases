@@ -616,3 +616,24 @@
 .update-approval button+button{margin-left:8px}
 .localizer-line:hover .localizer-rotate-dot{fill:#244750;stroke-width:2}
 @media print{.print-output-shell .film-cell.is-selected{outline:none}.print-output-shell .film-preview{gap:0!important}}
+
+/* Generous screen-space targets, independent of the thin visible stroke. */
+.measurement-overlay .themed-measurement .mark-hit,.drawing-overlay .drawing-hit{stroke-width:24}
+.drawing-overlay .drawing-anchor-hit{fill:transparent;stroke:none;pointer-events:all;cursor:pointer}
+.drawing-overlay .drawing-anchor-dot{fill:var(--measure-normal);stroke:#071018;stroke-width:1;pointer-events:none;opacity:0}
+.drawing-overlay [data-drawing]:hover .drawing-anchor-dot,.drawing-overlay .selected-measurement .drawing-anchor-dot{opacity:1}
+
+/* Icon-only command headers at every desktop size; text remains in accessible labels. */
+.topbar .header-control>span,.topbar .workspace-launch button>span,.topbar .help-trigger>span,.topbar .mpr-reset>span,
+.records-header-actions .toolbar-group button>span,.records-header-actions .toolbar-group a>span,.output-page-nav a>span,
+.report-top-actions .command-group-title,.topbar .command-group-title,.records-unified-header .command-group-title{display:none!important}
+.topbar .header-control,.topbar .workspace-launch button,.records-header-actions .toolbar-group button,.records-header-actions .toolbar-group a,.report-top-actions button,.report-top-actions a,.output-page-nav a{width:clamp(32px,2.8vw,42px)!important;min-width:32px!important;padding:0 6px!important;justify-content:center}
+.topbar .header-control svg,.topbar .workspace-launch button svg,.records-header-actions svg,.report-top-actions svg,.output-page-nav svg{width:clamp(16px,1.45vw,22px);height:clamp(16px,1.45vw,22px);flex:none}
+.report-top-actions .toolbar-group{flex-wrap:nowrap}.report-top-actions button,.report-top-actions a{font-size:0!important}.report-top-actions .product-menu{font-size:13px!important}
+
+.volume-settings-menu{width:min(390px,calc(100vw - 20px))!important;max-height:calc(100dvh - 90px)!important;overflow:auto!important}.volume-settings-panel{max-height:none!important}.volume-settings-panel fieldset{border:1px solid #365466;border-radius:6px;padding:10px;margin:8px 0}.volume-settings-panel legend{color:#d6effa;font-size:13px;padding:0 5px}.volume-settings-panel small{font-size:11px;color:#a4becb;line-height:1.6;display:block}.volume-settings-panel .volume-check{display:flex;align-items:center;gap:7px}.volume-settings-panel .volume-check input{width:16px;height:16px}.volume-settings-panel button{padding:9px;border:1px solid #446a80;border-radius:5px;background:#1e465c;color:#edfaff;width:100%}.volume-settings-panel select{width:100%;max-width:100%}
+
+.records-header-actions>button>span,.records-header-actions .help-trigger>span,.records-header-actions .receiver-settings-trigger>span{display:none!important}
+.records-unified-header button:not(.modality-trigger),.output-page-nav>button{font-size:0!important}
+.records-unified-header button:not(.modality-trigger)>svg{width:clamp(16px,1.45vw,22px);height:clamp(16px,1.45vw,22px)}
+.records-header-actions>button{min-width:34px!important;width:clamp(34px,2.8vw,42px)!important;padding:0 6px!important;justify-content:center}

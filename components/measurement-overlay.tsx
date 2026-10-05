@@ -203,7 +203,7 @@ export function MeasurementOverlay({ element, viewport, imageId, modality, tool,
             <g className="arch-height-label"><rect x={heightX} y={heightY - 16} width={heightText.length * 8.5 + 16} height={27} rx={4}/><text x={heightX + 8} y={heightY + 1}>{heightText}</text></g>
           </g>}
           {canvas.map(([x, y], i) => <g key={i} className="mark-anchor" onPointerDown={e => startDrag(e, mark, i)} onPointerMove={moveDrag} onPointerUp={endDrag}>
-            <circle cx={x} cy={y} r={12} className="mark-hit-circle"/>
+            <circle cx={x} cy={y} r={16} className="mark-hit-circle"/>
             <circle cx={x} cy={y} r={4} className="mark-dot"/>
           </g>)}
           <g className={`mark-label ${mark.kind === 'deviation' ? 'deviation-label' : ''}`} onPointerDown={e => startDrag(e, mark)} onPointerMove={moveDrag} onPointerUp={endDrag}

@@ -1,10 +1,11 @@
 'use client';
+import { VolumeRenderControls } from '@/components/volume-render-controls';
 import { WorkProgress } from '@/components/work-progress';
 import { type WorkProgress as LoadingProgress, yieldToBrowser } from '@/lib/work-progress';
 import { measurementVariables } from '@/lib/measurement-theme';
 import { RadazLogo } from '@/components/radaz-logo';
 import { AppHelpMenu, useViewerLicense } from '@/components/app-product';
-import { registerViewer, requestedStudies } from '@/lib/viewer-session';
+import { openRecordsWindow, registerViewer, requestedStudies } from '@/lib/viewer-session';
 import {publishDetachedSource,readDetachedSource} from '@/lib/detached-viewer';
 import {ViewportMouseControls} from '@/components/viewport-mouse-controls';
 import {ArrowCommentEditor} from '@/components/arrow-comment-editor';
@@ -21,7 +22,7 @@ import { LocalizerOverlay } from '@/components/localizer-overlay';
 import { VolumePreview, type VolumeRenderSettings } from '@/components/volume-preview';
 import { volumeStyles, type VolumePreset, type VolumeQuality } from '@/lib/volume-presets';
 import { ArrowUpRight, Pencil, MoveVertical, Eye, EyeOff, Download, PanelLeftClose, Activity, Box, ChevronDown, CircleDot, Crosshair, Database, Disc3, Eraser, FileArchive, FileText, Focus, Grid2X2, Hand, Layers3, MoveDiagonal2, RotateCcw, Ruler, ScanLine, ScanSearch, ServerCog, Settings2, SlidersHorizontal, Trash2, FolderOpen, Triangle, Waypoints } from 'lucide-react';
-import { addLocalDicom, registerLocalDicom, shareLocalDicoms, borrowLocalDicoms, getSeriesVolume, createMprStacks, createObliqueMprStacks, getDefaultWindow, getLocalizerGeometry, getMprOrientations, getViewer, releaseLocalDicoms, rotateMprOrientation, thumbnailLocalDicom, type MprOrientations, type MprMode, type MprSettings } from '@/lib/cornerstone';
+import { addLocalDicom, registerDiskDicom, getOriginalDicom, getDiskDicomSource, registerLocalDicom, shareLocalDicoms, borrowLocalDicoms, getSeriesVolume, createMprStacks, createObliqueMprStacks, getDefaultWindow, getLocalizerGeometry, getMprOrientations, getViewer, releaseLocalDicoms, rotateMprOrientation, thumbnailLocalDicom, type MprOrientations, type MprMode, type MprSettings } from '@/lib/cornerstone';
 import { closestSlice, sameCoordinateSpace, normalOf, planeLabel, intersectPlanes, type Point3 } from '@/lib/localizer';
 import { expandSources, filesFromDrop } from '@/lib/import-sources';
 import { parseDicomFile } from '@/lib/dicom-file';
@@ -332,7 +333,7 @@ function ViewportPane({ cursor, onCursor, hideText, id, series, initialImageId, 
       onAdd={onAddMark} onUpdate={onUpdateMark} onRemove={onRemoveMark} onSelectMark={onSelectMark}/>}
     {!limited && <LocalizerOverlay element={elementRef.current} viewport={viewport} imageId={imageId} otherImages={otherImages} enabled={localizers} onMoveSource={onMoveSource} onMoveIntersection={onMoveIntersection} targetPanel={id} onRotateSource={onRotateSource} onRotateStart={onRotateStart} onPreviewRotateSource={onPreviewRotateSource}/>}
     <ViewerInteractionOverlay viewport={viewport} element={elementRef.current} imageId={imageId} tool={tool} slice={slice} count={series?.imageIds.length || 0}
-      marks={marks} selectedMarkId={selectedMarkId} onSelectMark={onSelectMark} cursor={cursor} onCursor={onCursor} onEditArrow={setEditingArrow} onAdd={mark=>{onAddMark(mark);if(mark.kind==='arrow')setEditingArrow(mark.id);}} onRemove={onRemoveMark} onSelect={onSelect} navigate={navigate}/>
+      marks={marks} selectedMarkId={selectedMarkId} onSelectMark={onSelectMark} cursor={cursor} onCursor={onCursor} onEditArrow={setEditingArrow} onUpdate={onUpdateMark} onAdd={mark=>{onAddMark(mark);if(mark.kind==='arrow')setEditingArrow(mark.id);}} onRemove={onRemoveMark} onSelect={onSelect} navigate={navigate}/>
     <ViewportMouseControls container={containerRef} element={elementRef.current} viewport={viewport} imageId={imageId} disabled={limited} marks={marks}
       onSelect={onSelect} onRemove={onRemoveMark} onClear={onClearImage} onEditArrow={setEditingArrow}/>
     {editingArrow&&marks.filter(mark=>mark.id===editingArrow&&mark.imageId===imageId&&mark.kind==='arrow').map(mark=><ArrowCommentEditor key={mark.id} mark={mark} onSave={comment=>onUpdateMark(mark.id,{comment})} onClose={()=>setEditingArrow(null)}/>)}
@@ -424,17 +425,25 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
     }
     channels.current.get(mode)?.close();
     const channel = new BroadcastChannel(`radaz-${token}`);
-    const reportSnapshot = mode === 'report' && openedFiles.current.length ? [...openedFiles.current] : null;
+    // Capture the selected series at the moment the Report button is pressed.
+    const selected = listRef.current.find(s => s.id === selectedIdRef.current);
+    const reportIds = selected ? [...selected.imageIds] : [];
+    const preferredSeriesId = selected?.id.replace(/^media:[^:]+:/, '');
     channel.onmessage = event => {
-      if (event.data?.kind === 'READY') {
-        if(mode!=='report'){channel.postMessage({kind:'SHARED_READY'});return;}
-        const selectedMedia = listRef.current.find(s => s.id === selectedIdRef.current)?.mediaSession;
-        const mediaSessions = selectedMedia ? [selectedMedia] : [];
-        const files = selectedMedia ? mediaFiles.current.get(selectedMedia) || [] : reportSnapshot || openedFiles.current;
-        try { if (mode !== 'report' && selectedMedia) channel.postMessage({ kind: 'MEDIA_LOAD', mediaSessions, preferredSeriesId: selectedIdRef.current });
-          else if (files.length) channel.postMessage({ kind: 'LOAD', files, mediaSessions, preferredSeriesId: selectedIdRef.current?.replace(/^media:[^:]+:/, '') }); }
-        catch { setStatus('Yeni vərəqəyə görüntülər ötürülə bilmədi'); }
-      }
+      if (event.data?.kind !== 'READY') return;
+      if (mode !== 'report') { channel.postMessage({kind:'SHARED_READY'}); return; }
+      void (async () => {
+        const diskSources = reportIds.map(getDiskDicomSource);
+        if (diskSources.length && diskSources.every(Boolean)) {
+          channel.postMessage({kind:'MEDIA_REPORT', sources:diskSources, preferredSeriesId, mediaSessions:[selected!.mediaSession]}); return;
+        }
+        const files: File[] = [];
+        for (const id of reportIds) {
+          const bytes = await getOriginalDicom(id);
+          if (bytes) files.push(new File([bytes as BlobPart], `${id.replace(':','-')}.dcm`, {type:'application/dicom'}));
+        }
+        channel.postMessage({kind:'LOAD', files, preferredSeriesId, mediaSessions:selected?.mediaSession?[selected.mediaSession]:[]});
+      })().catch(() => setStatus('Hesabat üçün seçilmiş seriya oxunmadı; mənbə diski yoxlayın.'));
     };
     channels.current.set(mode,channel);
     return channel;
@@ -445,6 +454,9 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
   const onClearImage = useCallback((imageId: string) => setMarks(current => current.filter(mark => mark.imageId !== imageId)), []);
   const onImageChange = useCallback((panel: string, imageId: string) => {
     setCurrentImages(current => current[panel] === imageId ? current : { ...current, [panel]: imageId });
+    const source = listRef.current.find(s => s.mediaSession && !s.thumb && s.imageIds.includes(imageId));
+    const thumb = source && thumbnailLocalDicom(imageId);
+    if (source && thumb) { const next = listRef.current.map(s => s.id === source.id ? {...s,thumb} : s); listRef.current=next; setSeriesList(next); }
   }, []);
 
   useEffect(() => {
@@ -477,10 +489,8 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
         });
 
       },
-      async image(session, item, file, signal) {
-        const bytes = new Uint8Array(await file.arrayBuffer());
-        if (signal.aborted) return;
-        const imageId = await addLocalDicom(bytes, parseDicomFile(bytes));
+      async image(session, item, url, signal) {
+        const imageId = registerDiskDicom(item.tags, url, signal);
         if (signal.aborted) { releaseLocalDicoms([imageId]); return; }
         const id = mediaId(session, item);
         if (!listRef.current.some(s => s.id === id)) { releaseLocalDicoms([imageId]); return; }
@@ -489,7 +499,7 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
         mediaOrder.current.set(id, ordered);
         const next = listRef.current.map(s => s.id === id ? { ...s, imageIds: ordered.map(i => i.id), thumb: s.thumb || thumbnailLocalDicom(imageId) } : s);
         listRef.current = next; setSeriesList(next);
-        mediaFiles.current.get(session)?.push(file);
+
       },
       removed(session) {
         mprBuildEpoch.current++; setMprProgress(null);
@@ -515,7 +525,7 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
       },
       progress(progress) {
         setMediaProgress(progress);
-        if (progress.sessions) setStatus(`CD/DVD · ${progress.loaded} / ${progress.discovered} görüntü${progress.scanning ? ' · disk skan edilir…' : progress.loaded + progress.skipped < progress.discovered ? ' · yüklənir…' : ' · müvəqqəti yaddaş'}${progress.skipped ? ` · ${progress.skipped} oxunmadı` : ''}`);
+        if (progress.sessions) setStatus(`CD/DVD · ${progress.loaded} / ${progress.discovered} görüntü${progress.scanning ? ' · disk skan edilir…' : progress.loaded + progress.skipped < progress.discovered ? ' · yüklənir…' : ' · diskdən tələb üzrə oxunur'}${progress.skipped ? ` · ${progress.skipped} oxunmadı` : ''}`);
         if (!progress.scanning && progress.loaded + progress.skipped >= progress.discovered) {
           const next = listRef.current.map(s => s.mediaSession && s.loading && s.discovered === s.imageIds.length ? { ...s, loading: false } : s);
           if (next.some((s, i) => s !== listRef.current[i])) { listRef.current = next; setSeriesList(next); }
@@ -907,7 +917,11 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
     try {
       const { core } = await getViewer();
       await getSeriesVolume(source.imageIds);
-      await Promise.all(source.imageIds.map(id => core.imageLoader.loadAndCacheImage(id)));
+      // Do not launch hundreds of optical fetches outside the streaming pool.
+      for (let start=0; start<source.imageIds.length; start+=4) {
+        if (epoch !== mprBuildEpoch.current) return;
+        await Promise.all(source.imageIds.slice(start,start+4).map(id => core.imageLoader.loadAndCacheImage(id)));
+      }
       if (epoch !== mprBuildEpoch.current) return;
       for (const [index, plane] of requested.entries()) {
         await yieldToBrowser();
@@ -1055,8 +1069,8 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
         <button type="button" disabled={limited} title="MPR rekonstruksiya" aria-label="MPR rekonstruksiya" onClick={() => openDetached('mpr')}><b className="mode-letter-icon">MPR</b></button>
         <button type="button" disabled={limited} title="3D həcm görüntüləmə" aria-label="3D həcm görüntüləmə" onClick={() => openDetached('3d')}><b className="mode-letter-icon">3D</b></button>
         <button type="button" disabled={limited} title="Radioloji hesabat" aria-label="Radioloji hesabat" onClick={openReport}><FileText size={18}/><span>Hesabat</span></button>
-        <button type="button" title="Local arxiv" aria-label="Local arxiv" onClick={() => { if (!window.open('/archive', '_blank')) setStatus('Local arxiv vərəqəsi açıla bilmədi'); }}><Database size={18}/><span>Local arxiv</span></button>
-        <button type="button" title="PACS müayinələri" aria-label="PACS müayinələri" onClick={() => { if (!window.open('/pacs', '_blank')) setStatus('PACS vərəqəsi açıla bilmədi'); }}><ServerCog size={18}/><span>PACS</span></button>
+        <button type="button" title="Local arxiv" aria-label="Local arxiv" onClick={() => { if (!openRecordsWindow('archive')) setStatus('Local arxiv vərəqəsi açıla bilmədi'); }}><Database size={18}/><span>Local arxiv</span></button>
+        <button type="button" title="PACS müayinələri" aria-label="PACS müayinələri" onClick={() => { if (!openRecordsWindow('pacs')) setStatus('PACS vərəqəsi açıla bilmədi'); }}><ServerCog size={18}/><span>PACS</span></button>
       </div>}
         {!limited && detachedMode !== '3d' && <ViewerOutputControls panes={Object.entries(currentImages).map(([panel, imageId]) => ({ panel, imageId, series: [...seriesList, ...(mprData?.planes || [])].find(item => item.imageIds.includes(imageId)) }))} panel={workspace === 'mpr' ? mprActive : active} imageId={currentImages[workspace === 'mpr' ? mprActive : active]} series={workspace === 'mpr' ? mprData?.planes.find(item => item.imageIds.includes(currentImages[mprActive])) : currentSeries} allSeries={seriesList} datasetVersion={datasetVersion} onStatus={setStatus}/>}
       </div>
@@ -1074,13 +1088,7 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
           <DropdownMenu><DropdownMenuTrigger asChild><Button variant="outline" className="header-control volume-preset-trigger" title={`3D preset: ${volumeStyles.find(style => style.key === volumePreset)?.title}`} aria-label="3D göstərmə presetləri"><SlidersHorizontal size={18}/><ChevronDown size={13}/></Button></DropdownMenuTrigger><DropdownMenuContent align="start" className="header-menu volume-preset-menu"><div className="volume-menu-heading">KLİNİK 3D PRESETLƏR</div>{availableVolumeStyles.map(style => <DropdownMenuItem key={style.key} className={volumePreset === style.key ? 'menu-selected' : ''} onSelect={() => { setVolumePreset(style.key); setVolumeThreshold(style.threshold); setVolumeOpacity(style.opacity); setVolumeSettings(current => ({...style.lighting,quality:current.quality})); }}><span className="volume-preset-swatch" style={{ background: style.tone }}/><span className="volume-preset-copy"><strong>{style.title}</strong><small>{style.subtitle}</small></span></DropdownMenuItem>)}</DropdownMenuContent></DropdownMenu>
           <label className="volume-parameter">{ctVolume ? 'HU həddi' : 'İntensivlik'} <input aria-label={ctVolume ? '3D HU həddi' : '3D intensivlik həddi'} type="range" min="-1000" max="1400" step="10" value={volumeThreshold} onChange={event => setVolumeThreshold(+event.currentTarget.value)}/><output>{ctVolume ? volumeThreshold : `${Math.round(volumeThreshold/40.95)}%`}</output></label>
           <label className="volume-parameter">Şəffaflıq <input aria-label="3D şəffaflıq" type="range" min="0.2" max="2" step="0.1" value={volumeOpacity} onChange={event => setVolumeOpacity(+event.currentTarget.value)}/><output>{Math.round(volumeOpacity * 100)}%</output></label>
-          <DropdownMenu><DropdownMenuTrigger asChild><Button variant="outline" className="header-control volume-preset-trigger" title="Professional işıq və keyfiyyət ayarları" aria-label="Professional 3D ayarları"><Settings2 size={18}/></Button></DropdownMenuTrigger><DropdownMenuContent align="end" className="header-menu volume-settings-menu"><div className="volume-menu-heading">İŞIQ VƏ RENDER</div><div className="volume-settings-panel" onPointerDown={event => event.stopPropagation()} onClick={event => event.stopPropagation()}>
-            <label><span>Ətraf işıq <output>{Math.round(volumeSettings.ambient*100)}%</output></span><input type="range" min="0.05" max="0.6" step="0.01" value={volumeSettings.ambient} onChange={event => { const value = +event.currentTarget.value; setVolumeSettings(current => ({ ...current, ambient: value })); }}/></label>
-            <label><span>Diffuz işıq <output>{Math.round(volumeSettings.diffuse*100)}%</output></span><input type="range" min="0.2" max="1" step="0.01" value={volumeSettings.diffuse} onChange={event => { const value = +event.currentTarget.value; setVolumeSettings(current => ({ ...current, diffuse: value })); }}/></label>
-            <label><span>Parlaqlıq <output>{Math.round(volumeSettings.specular*100)}%</output></span><input type="range" min="0" max="0.8" step="0.01" value={volumeSettings.specular} onChange={event => { const value = +event.currentTarget.value; setVolumeSettings(current => ({ ...current, specular: value })); }}/></label>
-            <label><span>Səth sərtliyi <output>{volumeSettings.specularPower}</output></span><input type="range" min="4" max="64" step="1" value={volumeSettings.specularPower} onChange={event => { const value = +event.currentTarget.value; setVolumeSettings(current => ({ ...current, specularPower: value })); }}/></label>
-            <label><span>3D keyfiyyəti</span><select aria-label="3D keyfiyyəti" value={volumeSettings.quality} onChange={event => { const value = event.currentTarget.value as VolumeQuality; setVolumeSettings(current => ({ ...current, quality: value })); }}>{["performance","balanced","high","ultra","auto"].map(value => <option key={value} value={value}>{value[0].toUpperCase()+value.slice(1)}</option>)}</select></label>
-          </div></DropdownMenuContent></DropdownMenu>
+          <DropdownMenu><DropdownMenuTrigger asChild><Button variant="outline" className="header-control volume-preset-trigger" title="Professional işıq və keyfiyyət ayarları" aria-label="Professional 3D ayarları"><Settings2 size={18}/></Button></DropdownMenuTrigger><DropdownMenuContent align="end" className="header-menu volume-settings-menu"><div className="volume-menu-heading">İŞIQ VƏ RENDER</div><VolumeRenderControls preset={volumePreset} settings={volumeSettings} onChange={setVolumeSettings}/></DropdownMenuContent></DropdownMenu>
           <button className="mpr-reset volume-reset" type="button" onClick={() => setVolumeResetToken(value => value+1)} title="3D görünüşün bucaq, zoom və mövqeyini sıfırla" aria-label="3D görünüşü sıfırla"><RotateCcw size={15}/><span>Görünüşü sıfırla</span></button>
         </div>
       </>}
@@ -1178,7 +1186,7 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
             })}
           </div>
         </>}
-        {workspace === '3d' && <VolumePreview series={volumeSeries} sourceProgress={sourceLoading} preset={volumePreset} threshold={volumeThreshold} opacity={volumeOpacity} settings={volumeSettings} resetToken={volumeResetToken} onThresholdChange={setVolumeThreshold} onOpacityChange={setVolumeOpacity} />}
+        {workspace === '3d' && <VolumePreview series={volumeSeries} sourceProgress={sourceLoading} preset={volumePreset} threshold={volumeThreshold} opacity={volumeOpacity} settings={volumeSettings} resetToken={volumeResetToken} onThresholdChange={setVolumeThreshold} onOpacityChange={setVolumeOpacity} onSettingsChange={setVolumeSettings} />}
         <footer className="statusbar"><div><span className="status-led"/> {ready ? 'Cornerstone3D hazırdır' : 'Görüntüləmə hazırlanır'} <span className="status-sep">/</span> <span>{workspace === 'mpr' ? `MPR · ${mprSettings[panePlane[mprActive as keyof typeof panePlane] || 'AX'].mode}` : workspace === '3d' ? '3D görünüş' : `Aktiv panel ${active}`}</span><span className="status-sep">/</span>{status}<span className="status-sep">/</span><span aria-label="Lisenziya statusu">{licenseStatus}</span></div></footer>
       </section>
     </div>

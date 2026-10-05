@@ -419,6 +419,13 @@ def handler_for(archive, removable=None):
                 if not 0 < length <= limit:
                     self.respond({'error':'Sorğu ölçüsü düzgün deyil'},413); return
                 data = self.rfile.read(length)
+                if self.path == '/window/minimize':
+                    if self.client_address[0] not in ('127.0.0.1', '::1'):
+                        self.respond({'minimized': False}); return
+                    if self.headers.get_content_type() != 'application/json':
+                        self.respond({'error': 'JSON tələb olunur'}, 415); return
+                    from radaz_windows import minimize_records
+                    self.respond(minimize_records(json.loads(data).get('token'))); return
                 if self.path in ('/removable/watch', '/removable/close'):
                     if self.headers.get_content_type() != 'application/json':
                         self.respond({'error': 'JSON tələb olunur'}, 415); return

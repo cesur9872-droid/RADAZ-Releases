@@ -7,11 +7,43 @@ import { yieldToBrowser } from './work-progress';
 import { viewerPerformance } from './viewer-performance';
 import { describeVolume } from './volume-geometry';
 import { areaWeights, resamplePlane, volumeDimensions } from './volume-resampling';
+import { parseDicomFile } from './dicom-file';
 
 type DataSet = ReturnType<typeof dicomParser.parseDicom>;
 type RecordItem = { dataSet: DataSet; pixels: Int16Array | Float32Array; rows: number; columns: number; bits: number; min: number; max: number };
 const records = new Map<string, RecordItem>();
 const pendingDicoms = new Map<string, { bytes: Uint8Array; ds: DataSet; promise?: Promise<string> }>();
+const diskDicoms = new Map<string, {url: string; signal: AbortSignal; metadata: DataSet; tags: Record<string,string>; promise?: Promise<string>; used: number}>();
+const DISK_PIXEL_BUDGET = 256 * 1024 ** 2;
+const borrowedUse = new Map<string, {used:number; promise?:Promise<void>}>();
+/** Metadata remains resident, while reloadable CD pixels use a bounded LRU. */
+export function registerDiskDicom(tags: Record<string,string>, url: string, signal: AbortSignal): string {
+  const ds = {byteArray: new Uint8Array(0), elements: {x7fe00010: {}},
+    string: (tag:string) => tags[tag], uint16: (tag:string) => tags[tag] === undefined ? undefined : Number(tags[tag])} as unknown as DataSet;
+  const rows = ds.uint16('x00280010') || 0, columns = ds.uint16('x00280011') || 0;
+  if (!rows || !columns) throw Error('Disk metadatası natamamdır. RADAZ xidmətini yeniləyin.');
+  const id = `localdicom:${serial++}`;
+  records.set(id, {dataSet: ds, pixels: new Float32Array(0), rows, columns, bits: 32, min: -1024, max: 3071});
+  diskDicoms.set(id, {url, signal, metadata: ds, tags, used: performance.now()});
+  return id;
+}
+export function getDiskDicomSource(id: string) {
+  const source = diskDicoms.get(id); return source ? {url:source.url,tags:source.tags} : null;
+}
+function trimDiskPixels(keep: string) {
+  const candidates: [string,{used:number;promise?:unknown}][] = [...diskDicoms,...borrowedUse];
+  let bytes = candidates.reduce((sum, [id]) => sum + (records.get(id)?.pixels.byteLength || 0), 0);
+  for (const [id, source] of candidates.sort((a,b) => a[1].used - b[1].used)) {
+    if (bytes <= DISK_PIXEL_BUDGET) break;
+    if (id === keep || source.promise || engine?.getViewports().some(viewport => 'getCurrentImageId' in viewport && (viewport as core.Types.IStackViewport).getCurrentImageId() === id)) continue;
+    const item = records.get(id); if (!item?.pixels.length) continue;
+    // A streaming volume owns its source slices until it is closed.
+    if (core.cache.getVolumes().some(volume => volume.imageIds?.includes(id))) continue;
+    bytes -= item.pixels.byteLength;
+    if (core.cache.getImageLoadObject(id)) core.cache.removeImageLoadObject(id, {force: true});
+    records.set(id, {...item, pixels: new Float32Array(0)});
+  }
+}
 const sourceScope = crypto.randomUUID();
 const borrowedKeys = new Map<string,string>();
 const borrowedLoads = new Map<string,()=>Promise<void>>();
@@ -32,13 +64,15 @@ export function borrowLocalDicoms(images:SharedDicom[]):string[] {
     const existing=borrowedKeys.get(image.key);
     if(existing&&records.has(existing))return existing;
     const id=`localdicom:${serial++}`;borrowedKeys.set(image.key,id);records.set(id,localRecord(image.record));
-    if(!image.record.pixels.length){
-      let pending:Promise<void>|undefined;
-      borrowedLoads.set(id,()=>pending??=image.resolve().then(record=>{
+    const source={used:performance.now(),promise:undefined as Promise<void>|undefined},resolve=image.resolve;
+    borrowedUse.set(id,source);
+    borrowedLoads.set(id,()=>source.promise??=(async()=>{
+      try {
+        const record=await resolve();
         if(!records.has(id))throw new DOMException('Source closed','AbortError');
-        records.set(id,localRecord(record));borrowedLoads.delete(id);
-      }));
-    }
+        records.set(id,localRecord(record));source.used=performance.now();trimDiskPixels(id);
+      } finally {source.promise=undefined;}
+    })());
     return id;
   });
 }
@@ -92,7 +126,13 @@ export function getDefaultWindow(imageId: string) {
 }
 
 /** Original source bytes; derived MPR frames deliberately have no source DICOM. */
-export function getOriginalDicom(imageId: string): Uint8Array | null {
+export async function getOriginalDicom(imageId: string): Promise<Uint8Array | null> {
+  const disk = diskDicoms.get(imageId);
+  if (disk) {
+    const response = await fetch(disk.url, {signal: disk.signal, cache: 'no-store'});
+    if (!response.ok) throw Error('Disk çıxarılıb və ya fayl oxunmadı');
+    return new Uint8Array(await response.arrayBuffer());
+  }
   const item = records.get(imageId);
   return item && !derived.has(imageId) ? new Uint8Array(item.dataSet.byteArray) : null;
 }
@@ -186,8 +226,12 @@ function metadata(type: string, imageId: string) {
 
 function loadImage(imageId: string): core.Types.IImageLoadObject {
   const borrowed=borrowedLoads.get(imageId);
-  if(borrowed)return {promise:borrowed().then(()=>loadImage(imageId).promise)};
+  if(borrowed){borrowedUse.get(imageId)!.used=performance.now();if(!records.get(imageId)?.pixels.length)return {promise:borrowed().then(()=>loadImage(imageId).promise)};}
   if (pendingDicoms.has(imageId)) return { promise: decodeRegisteredDicom(imageId).then(() => loadImage(imageId).promise) };
+  if (diskDicoms.has(imageId)) {
+    diskDicoms.get(imageId)!.used = performance.now();
+    if (!records.get(imageId)?.pixels.length) return {promise: decodeRegisteredDicom(imageId).then(() => loadImage(imageId).promise)};
+  }
   const item = records.get(imageId);
   if (!item) return { promise: Promise.reject(new Error('DICOM görüntüsü tapılmadı')) };
   if (derived.has(imageId) && !item.pixels.length) materialize(imageId);
@@ -222,6 +266,19 @@ export function registerLocalDicom(bytes: Uint8Array, ds: DataSet): string {
   pendingDicoms.set(id,{bytes,ds});return id;
 }
 function decodeRegisteredDicom(id:string):Promise<string> {
+  const disk = diskDicoms.get(id);
+  if (disk && !records.get(id)?.pixels.length) return disk.promise ??= (async () => {
+    try {
+      const response = await fetch(disk.url, {signal: AbortSignal.any([disk.signal, AbortSignal.timeout(60000)]), cache: 'no-store'});
+      if (!response.ok) throw Error('Disk çıxarılıb və ya görüntü oxunmadı');
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      await decodeLocalDicom(bytes, parseDicomFile(bytes), id);
+      const item = records.get(id)!;
+      // Release original pixel bytes; exporting can read the disc again.
+      records.set(id, {...item, dataSet: disk.metadata});
+      trimDiskPixels(id); return id;
+    } finally { disk.promise = undefined; }
+  })();
   const entry=pendingDicoms.get(id);
   if(!entry)return Promise.resolve(id);
   return entry.promise ??= decodeLocalDicom(entry.bytes,entry.ds,id).then(value=>{pendingDicoms.delete(id);return value;});
@@ -324,7 +381,9 @@ export function releaseLocalDicoms(imageIds: string[]) {
     derived.delete(imageId);
     geometryOverrides.delete(imageId);
     pendingDicoms.delete(imageId);
+    diskDicoms.delete(imageId);
     borrowedLoads.delete(imageId);
+    borrowedUse.delete(imageId);
     records.delete(imageId);
     if (core.cache.getImageLoadObject(imageId)) core.cache.removeImageLoadObject(imageId, { force: true });
   }
@@ -663,6 +722,15 @@ function sampleOblique(volume: ObliqueVolume, x: number, y: number, z: number): 
 export async function getViewer() {
   initialized ??= (async () => {
     await core.init();
+    // Cornerstone 5.10 starts an auxiliary cache promise without consuming its
+    // rejection. Observe that branch; callers still receive the original image
+    // rejection and IMAGE_LOAD_FAILED, including real decode/IO failures.
+    const cacheImage = core.cache.putImageLoadObject.bind(core.cache);
+    core.cache.putImageLoadObject = (id, object) => {
+      const pending = cacheImage(id, object);
+      if (id.startsWith('localdicom:')) void pending.catch(() => {});
+      return pending;
+    };
     core.imageLoader.registerImageLoader('localdicom', loadImage);
     core.imageLoader.registerImageLoader('radaz-volume', loadCachedVolumeSlice);
     core.metaData.addProvider(metadata, 1000);

@@ -74,7 +74,10 @@ def main():
     compiler = ROOT / 'outputs/inno/ISCC.exe'
     if not compiler.exists():
         subprocess.run([str(inputs['inno']), '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-','/CURRENTUSER','/NOICONS','/TASKS=',f'/DIR={compiler.parent}'], check=True, creationflags=0x08000000)
-    subprocess.run([str(compiler), f'/DProductVersion={version}', str(ROOT / 'installer/radaz.iss')], cwd=ROOT, check=True, creationflags=0x08000000)
+    compiled = subprocess.run([str(compiler), f'/DProductVersion={version}', str(ROOT / 'installer/radaz.iss')],
+                              cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, creationflags=0x08000000)
+    if compiled.returncode:
+        raise RuntimeError(compiled.stdout.decode('utf-8', errors='replace')[-5000:])
     installer = OUT / f'RADAZ-{version}-Setup.exe'; checksum(installer)
     print(f'Offline package: {archive.stat().st_size/1024**2:.1f} MiB; {len(manifest)} verified files; Setup: {installer.name}', flush=True)
 

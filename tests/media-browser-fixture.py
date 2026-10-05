@@ -45,6 +45,17 @@ archive = Archive(args.root/'archive', bind='127.0.0.1')
 Base = handler_for(archive, media)
 
 class Handler(Base):
+    def do_GET(self):
+        if self.path == '/_test/large':
+            ds = dcmread(disc/'CT/I0002')
+            ds.Rows = ds.Columns = 2048
+            ds.PixelData = b'\x00\x01' * (2048 * 2048)
+            buffer = io.BytesIO(); ds.save_as(buffer, enforce_file_format=True)
+            data = buffer.getvalue()
+            self.send_response(200); self.send_header('Content-Type', 'application/dicom')
+            self.send_header('Content-Length', str(len(data))); self.end_headers(); self.wfile.write(data); return
+        return super().do_GET()
+
     def permitted(self):
         origin = urlsplit(self.headers.get('Origin', ''))
         return super().permitted() or (origin.scheme == 'http' and origin.hostname == '127.0.0.1')

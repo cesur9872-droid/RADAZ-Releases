@@ -1,7 +1,7 @@
 'use client';
 import { ResizableTable, ResizableHeader } from '@/components/resizable-table';
 import { SortHeader, useTableSort } from '@/components/table-sort';
-import { openStudyInViewer, openStudiesInViewer, focusViewer, notifyViewerProgress, type ViewerTarget } from '@/lib/viewer-session';
+import { recordsWindowTitle, openStudyInViewer, openStudiesInViewer, focusViewer, notifyViewerProgress, type ViewerTarget } from '@/lib/viewer-session';
 
 import { useEffect, useRef, useState } from 'react';
 import { Activity, ExternalLink, Network, Plus, Search, Settings2, Trash2, Wifi, Download, Database, RefreshCw, X, Disc3 } from 'lucide-react';
@@ -57,7 +57,7 @@ export default function PacsPage() {
   const canSearch = !!location && (!!location.dicomwebUrl || !!(location.host && location.aeTitle));
 
   useEffect(() => {
-    document.title = 'RADAZ · PACS müayinələri';
+    recordsWindowTitle('PACS müayinələri');
     try {
       const saved = JSON.parse(localStorage.getItem('radaz-pacs-config-v1') || '{}');
       if (Array.isArray(saved.locations)) {
@@ -281,7 +281,7 @@ export default function PacsPage() {
         <label className="pacs-server">PACS serveri <select aria-label="PACS serveri" value={location?.id || ''} onChange={event => { const target = locations.find(item => item.id === event.currentTarget.value); if (target) choose(target); }}><option value="">{locations.length ? 'Server seçin' : 'Konfiqurasiya əlavə edin'}</option>{locations.map(item => <option key={item.id} value={item.id}>{item.description || item.host || item.aeTitle || item.dicomwebUrl}</option>)}</select></label>
         <label className="pacs-patient">Pasiyent adı <input aria-label="PACS pasiyent axtarışı" placeholder="Ad və ya soyad" value={patient} onChange={event => setPatient(event.currentTarget.value)}/></label>
         <StudyFilterControls from={dateFrom} to={dateTo} modalities={modalities} options={modalityOptions} onFromChange={setDateFrom} onToChange={setDateTo} onModalitiesChange={setModalities}/>
-        <button className="records-primary pacs-search-button" disabled={busy || !canSearch} onClick={() => { void search(); }}><Search size={16}/> Axtar</button>
+        <button className="records-primary pacs-search-button" title="Axtar" aria-label="Axtar" disabled={busy || !canSearch} onClick={() => { void search(); }}><Search size={16}/> Axtar</button>
         <button className="pacs-check-button" title="Əlaqəni yoxla" aria-label="PACS əlaqəsini yoxla" disabled={busy || !canSearch} onClick={() => { void test(); }}><RefreshCw size={16}/></button>
         <label className="pacs-token">Bearer token <input aria-label="PACS Bearer token" type="password" autoComplete="off" placeholder={location?.dicomwebUrl ? 'Yalnız bu vərəqədə istifadə edilir' : 'Yalnız DICOMweb üçün'} disabled={!location?.dicomwebUrl} value={token} onChange={event => setToken(event.currentTarget.value)}/></label>
       </div>

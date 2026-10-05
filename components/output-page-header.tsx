@@ -9,6 +9,6 @@ export function OutputPageHeader({ kind, children }: { kind: 'print' | 'media' |
   return <header className={`output-page-header ${kind === 'print' ? 'print-header' : ''}`}>
     <div className="output-page-brand"><RadazLogo size={34}/><span><strong>RADAZ</strong><small>RADIOLOGY WORKSPACE</small></span></div>
     <div className="output-page-title"><Icon size={20}/><div><h1>{title}</h1>{children && <p>{children}</p>}</div></div>
-    <nav className="toolbar-group output-page-nav" aria-label="İş sahələri"><a href="/"><ArrowLeft size={16}/><span>Viewer</span></a><a href="/archive"><Database size={16}/><span>Local arxiv</span></a>{kind !== 'settings' && <a href="/printer-settings" target="_blank" rel="noreferrer"><Settings2 size={16}/><span>Printer ayarları</span></a>}<AppHelpMenu/></nav>
+    <nav className="toolbar-group output-page-nav" aria-label="İş sahələri"><a href="/" title="Viewer" aria-label="Viewer"><ArrowLeft size={16}/><span>Viewer</span></a><a href="/archive" title="Local arxiv" aria-label="Local arxiv"><Database size={16}/><span>Local arxiv</span></a>{kind !== 'settings' && <a title="Printer ayarları" aria-label="Printer ayarları" href="/printer-settings" target="_blank" rel="noreferrer"><Settings2 size={16}/><span>Printer ayarları</span></a>}<AppHelpMenu/></nav>
   </header>;
 }

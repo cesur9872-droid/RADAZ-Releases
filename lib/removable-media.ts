@@ -1,18 +1,17 @@
 export type MediaSession = { id: string; label: string; stage: 'scanning' | 'ready' | 'error'; scanned: number; total: number; error: string; dicomdir: boolean };
 export type MediaImage = { id: string; studyId: string; seriesUID: string; sopUID: string; name: string; modality: string;
-  patient: string; patientId: string; birth: string; date: string; number: string; instance: number; size: number; decodedBytes: number };
+  patient: string; patientId: string; birth: string; date: string; number: string; instance: number; size: number; decodedBytes: number; tags: Record<string,string> };
 export type MediaProgress = { sessions: number; discovered: number; loaded: number; skipped: number; scanning: boolean; error: string };
 type SessionState = { session: MediaSession; controller: AbortController; next: number; queue: MediaImage[];
   loaded: number; skipped: number; pumping: boolean; bytes: number; error: string };
 type Callbacks = {
   discovered: (session: string, images: MediaImage[]) => void;
-  image: (session: string, metadata: MediaImage, file: File, signal: AbortSignal) => Promise<void>;
+  image: (session: string, metadata: MediaImage, url: string, signal: AbortSignal) => Promise<void>;
   removed: (session: string) => void;
   progress: (progress: MediaProgress) => void;
 };
 
 const base = '/local-archive-api/removable';
-const MAX_MEMORY = 1536 * 1024 * 1024;
 async function json<T>(path: string, signal: AbortSignal, body?: object): Promise<T> {
   const response = await fetch(base + path, { signal: AbortSignal.any([signal, AbortSignal.timeout(10000)]), cache: 'no-store', ...(body ? {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
@@ -48,22 +47,12 @@ export function watchRemovableMedia(callbacks: Callbacks, onlySessions?: string[
     try {
       while (state.queue.length && !state.controller.signal.aborted) {
         const item = state.queue.shift()!;
-        // Account for original bytes, File handoff and decoded pixels together.
-        const cost = item.size * 2 + item.decodedBytes;
-        const used = [...sessions.values()].reduce((sum, s) => sum + s.bytes, 0);
-        if (used + cost > MAX_MEMORY) {
-          state.error = 'Müvəqqəti yaddaş həddi doldu. Diskin yüklənməsi dayandırıldı.';
-          state.queue.length = 0; progress(); break;
-        }
         try {
-          const response = await fetch(`${base}/file/${state.session.id}/${item.id}`, { signal: AbortSignal.any([state.controller.signal, AbortSignal.timeout(60000)]), cache: 'no-store' });
-          if (response.status === 410) { remove(state.session.id); break; }
-          if (!response.ok) throw new Error('Diskdən görüntü oxunmadı');
-          const file = new File([await response.blob()], `${item.sopUID}.dcm`, { type: 'application/dicom' });
+          const url = `${base}/file/${state.session.id}/${item.id}`;
           if (state.controller.signal.aborted) break;
-          await callbacks.image(state.session.id, item, file, state.controller.signal);
+          await callbacks.image(state.session.id, item, url, state.controller.signal);
           if (state.controller.signal.aborted) break;
-          state.bytes += cost; state.loaded++;
+          state.loaded++;
         } catch (error) {
           if (state.controller.signal.aborted) break;
           state.skipped++;
@@ -71,7 +60,9 @@ export function watchRemovableMedia(callbacks: Callbacks, onlySessions?: string[
           state.session.error = error instanceof Error ? error.message : 'Görüntü oxunmadı';
         }
         progress();
-        await new Promise(resolve => setTimeout(resolve, 0));
+        // Metadata is small. Yield per batch: background-tab timer throttling
+        // must not turn a 700-slice disc index into a 700-second operation.
+        if ((state.loaded + state.skipped) % 64 === 0) await new Promise(resolve => setTimeout(resolve, 0));
       }
     } finally { state.pumping = false; }
   };

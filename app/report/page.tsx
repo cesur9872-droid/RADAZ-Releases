@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Activity, ArrowLeft, Check, Clipboard, Download, FileText, ImagePlus, LoaderCircle, Printer, Save, Settings2, Sparkles, Square, Trash2, X } from 'lucide-react';
 import { getArchiveFiles, listArchiveStudies, type ArchiveStudy } from '@/lib/local-archive';
-import { readReportStudies, renderReportImage, type ReportImage, type ReportStudy } from '@/lib/report-dicom';
+import { readReportMedia, readReportStudies, renderReportImage, type ReportImage, type ReportStudy } from '@/lib/report-dicom';
 import { exportReportWord, listSavedReports, loadSavedReport, reportPlainText, saveReport, type SavedReport } from '@/lib/report-store';
 import { ChatGPTTransfer } from '@/components/chatgpt-transfer';
 import { AppHelpMenu } from '@/components/app-product';
@@ -39,11 +39,12 @@ export default function ReportPage() {
     catch { setStatus('Yerli yaddaş açıla bilmədi; saxlanılan hesabatlar göstərilmir'); }
   }, []);
 
-  const openStudy = useCallback(async (next: ReportStudy) => {
+  const openStudy = useCallback(async (next: ReportStudy, preferredSeriesId?: string) => {
     const epoch = loadEpoch.current;
     setStudy(next);
     const ids = [...new Set(next.images.map(image => image.seriesUID))];
-    setSeries(ids);
+    const preferred = ids.find(id => preferredSeriesId === id || preferredSeriesId?.endsWith(`/${id}`));
+    setSeries(preferred ? [preferred] : ids);
     const existing = await loadSavedReport(next.uid).catch(() => undefined);
     if (epoch !== loadEpoch.current) return;
     const header = localStorage.getItem('radaz-report-clinic-header') || '';
@@ -62,7 +63,7 @@ export default function ReportPage() {
     if (!next.length) { setStatus('DICOM müayinəsi tapılmadı'); return; }
     setStudies(next);
     const found = next.find(item => preferredSeriesId?.startsWith(`${item.uid}/`)) || next[0];
-    await openStudy(found);
+    await openStudy(found, preferredSeriesId);
   }, [openStudy]);
 
   useEffect(() => {
@@ -80,7 +81,7 @@ export default function ReportPage() {
     setArchive([]);
     const channel = new BroadcastChannel(`radaz-${token}`);
     channel.onmessage = event => {
-      if (event.data?.kind === 'LOAD' && Array.isArray(event.data.files)) {
+      if ((event.data?.kind === 'LOAD' && Array.isArray(event.data.files)) || (event.data?.kind === 'MEDIA_REPORT' && Array.isArray(event.data.sources))) {
         mediaCleanup.current?.(); mediaCleanup.current = null;
         if (Array.isArray(event.data.mediaSessions) && event.data.mediaSessions.length) {
           mediaCleanup.current = watchMediaRemoval(event.data.mediaSessions, () => {
@@ -88,12 +89,16 @@ export default function ReportPage() {
             setStatus('CD/DVD çıxarıldı. Müvəqqəti görüntülər təmizləndi.');
           });
         }
+        if (event.data.kind === 'MEDIA_REPORT') {
+          loadEpoch.current++; const next=readReportMedia(event.data.sources);setStudies(next);
+          if(next[0])void openStudy(next[0],event.data.preferredSeriesId);return;
+        }
         void loadFiles(event.data.files as File[], event.data.preferredSeriesId).catch(() => setStatus('Viewer görüntüləri ötürə bilmədi'));
       }
     };
     channel.postMessage({ kind: 'READY' });
     return () => { loadEpoch.current++; mediaCleanup.current?.(); channel.close(); };
-  }, [loadFiles, refresh]);
+  }, [loadFiles, refresh, openStudy]);
 
   const update = (patch: Partial<SavedReport>) => setReport(current => current ? { ...current, ...patch } : current);
   const allImages = useMemo(() => study?.images.filter(image => series.includes(image.seriesUID)) || [], [study, series]);
@@ -165,7 +170,7 @@ export default function ReportPage() {
   };
 
   return <main className="report-shell">
-    <header className="report-topbar"><Link href="/" className="report-brand"><RadazLogo size={34}/><span><strong>RADAZ</strong><small>HESABAT</small></span></Link><div className="report-top-actions"><div className="record-action-group"><span className="command-group-title">İş sahəsi</span><div className="toolbar-group"><Link href="/"><ArrowLeft size={15}/> Viewer</Link><AppHelpMenu/></div></div><div className="record-action-group"><span className="command-group-title">Hesabat</span><div className="toolbar-group"><button onClick={() => void save()} disabled={!report}><Save size={15}/> Yadda saxla</button><button onClick={() => void copy()} disabled={!report}><Clipboard size={15}/> Kopyala</button></div></div><div className="record-action-group"><span className="command-group-title">İxrac və çap</span><div className="toolbar-group"><button onClick={() => { window.print(); setStatus('Çap dialoqunda “PDF kimi saxla” seçərək PDF çıxarın'); }} disabled={!report}><Download size={15}/> PDF</button><button onClick={() => { if (!report) return; setStatus('Word faylı hazırlanır…'); void exportReportWord(report).then(() => setStatus('Word faylı hazırdır')).catch(() => setStatus('Word faylı yaradılmadı')); }} disabled={!report}><FileText size={15}/> MS Word</button><button onClick={() => window.print()} disabled={!report}><Printer size={15}/> Çap et</button></div></div></div></header>
+    <header className="report-topbar"><Link href="/" className="report-brand"><RadazLogo size={34}/><span><strong>RADAZ</strong><small>HESABAT</small></span></Link><div className="report-top-actions"><div className="record-action-group"><span className="command-group-title">İş sahəsi</span><div className="toolbar-group"><Link href="/" title="Viewer" aria-label="Viewer"><ArrowLeft size={15}/> Viewer</Link><AppHelpMenu/></div></div><div className="record-action-group"><span className="command-group-title">Hesabat</span><div className="toolbar-group"><button title="Yadda saxla" onClick={() => void save()} disabled={!report}><Save size={15}/> Yadda saxla</button><button title="Kopyala" onClick={() => void copy()} disabled={!report}><Clipboard size={15}/> Kopyala</button></div></div><div className="record-action-group"><span className="command-group-title">İxrac və çap</span><div className="toolbar-group"><button title="PDF" onClick={() => { window.print(); setStatus('Çap dialoqunda “PDF kimi saxla” seçərək PDF çıxarın'); }} disabled={!report}><Download size={15}/> PDF</button><button title="MS Word" onClick={() => { if (!report) return; setStatus('Word faylı hazırlanır…'); void exportReportWord(report).then(() => setStatus('Word faylı hazırdır')).catch(() => setStatus('Word faylı yaradılmadı')); }} disabled={!report}><FileText size={15}/> MS Word</button><button title="Çap et" onClick={() => window.print()} disabled={!report}><Printer size={15}/> Çap et</button></div></div></div></header>
     <div className="report-layout">
       <aside className="report-sidebar"><div className="report-side-head"><strong>Müayinələr</strong><span>{parseProgress ? `Oxunur ${parseProgress}` : `${studies.length + archive.length} mənbə`}</span></div>
         {studies.map(item => <button key={item.uid} className={`report-study ${study?.uid === item.uid ? 'active' : ''}`} onClick={() => void openStudy(item)}><strong>{item.patient}</strong><span>{item.modality} · {item.date || 'Tarixsiz'} · {item.images.length} kəsit</span></button>)}

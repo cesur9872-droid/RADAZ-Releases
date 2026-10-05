@@ -2,6 +2,24 @@ import type { WorkProgress } from './work-progress';
 const CHANNEL = 'radaz-viewer-open-v2';
 const VIEWER_KEY = 'radaz-active-viewer';
 const randomId = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join('');
+export function openRecordsWindow(kind: 'archive' | 'pacs') {
+  const token = `RADAZ_RECORDS_${randomId()}`;
+  return window.open(`/${kind}`, token, `popup=yes,width=${Math.min(1440,screen.availWidth)},height=${Math.min(960,screen.availHeight)},resizable=yes,scrollbars=yes`);
+}
+export function recordsWindowTitle(label: string) {
+  document.title = `RADAZ · ${label}`;
+}
+async function minimizeRecordsWindow() {
+  if (!/^RADAZ_RECORDS_[a-f0-9]{32}$/.test(window.name) || !window.opener) return;
+  const title=document.title;
+  try {
+    document.title=`RADAZ [${window.name}] · ${title}`;
+    await new Promise(resolve=>setTimeout(resolve,80));
+    await fetch('/local-archive-api/window/minimize', {method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({token:window.name}), signal:AbortSignal.timeout(2000)});
+  } catch { /* The already-focused Viewer remains usable without a native bridge. */ }
+  finally {document.title=title;}
+}
 const validStudy = (v: unknown): v is string => typeof v === 'string' && v.length <= 64 && /^[0-9]+(?:\.[0-9]+)*$/.test(v);
 
 export type ViewerTarget=Window|{kind:'registered';name:string;closed:false};
@@ -76,5 +94,6 @@ export async function openStudiesInViewer(studies: string[], reserved?: ViewerTa
     if(!('kind' in tab))fallback.location.assign(url);
     fallback.focus();
   }else if(!('kind' in tab))tab.focus();
+  await minimizeRecordsWindow();
   return accepted?'reused':'new';
 }

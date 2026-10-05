@@ -1,5 +1,5 @@
 'use client';
-import { openStudiesInViewer } from '@/lib/viewer-session';
+import { recordsWindowTitle, openStudiesInViewer } from '@/lib/viewer-session';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Activity, FolderOpen, FileArchive, Search, Trash2, ExternalLink, HardDriveDownload, RefreshCw, Settings2, Disc3 } from 'lucide-react';
@@ -38,7 +38,7 @@ export default function ArchivePage() {
     return entries;
   }, []);
   useEffect(() => {
-    document.title = 'RADAZ · Local arxiv';
+    recordsWindowTitle('Local arxiv');
     folderRef.current?.setAttribute('webkitdirectory', '');
     folderRef.current?.setAttribute('directory', '');
     void refresh().then(entries => setMessage(`${entries.length} müayinə arxivdədir`)).catch(error => setMessage(`Arxiv açıla bilmədi: ${String(error)}`));

@@ -36,7 +36,7 @@ try{
   assert.match(volume.url(),/\/3d\?handoff=/);
   const host=volume.locator('.cornerstone-volume-host');assert.equal(await host.getAttribute('data-interacting'),'false');
   assert.equal(Number(await host.getAttribute('data-source-slices')),files.length,'Every source slice contributes to the displayed volume');
-  assert.equal(await host.getAttribute('data-shaded'),'true');assert.equal(await host.getAttribute('data-occlusion'),'false');
+  assert.equal(await host.getAttribute('data-shaded'),'true');
   assert.equal((await volume.evaluate(()=>window.radazPerformance())).decodeCount,0,'3D must borrow already decoded source pixels');
   const pending=context.waitForEvent('page');await viewer.getByRole('button',{name:'MPR rekonstruksiya',exact:true}).click();const mpr=await pending;
   await mpr.waitForFunction(()=>document.querySelectorAll('[data-panel][data-has-image="true"]').length===3&&!document.querySelector('.viewport-loading'));
@@ -59,6 +59,18 @@ try{
    assert.equal(shared.directShared,true);assert.equal(shared.gradient,false);assert.equal(shared.autoSampling,false);assert.equal(shared.lights,3);
    console.log('Material/shared-buffer checks',shared);
    const zoom=()=>volume.evaluate(async()=>{const {engine}=await(await import(performance.getEntriesByType('resource').find(e=>e.name.includes('/lib/cornerstone.ts')).name)).getViewer();return engine.getViewports().find(v=>v.id.startsWith('RADAZ-3D')).getCamera().parallelScale;});
+   await volume.getByRole('button',{name:'Professional 3D ayarları',exact:true}).click();
+   await volume.getByLabel('3D mouse rejimi',{exact:true}).selectOption('tissue');
+   await volume.getByLabel('HU keçid eni',{exact:true}).fill('1.4');
+   await volume.getByLabel('Optik məsafə',{exact:true}).fill('1.2');
+   await volume.getByLabel('İşıq gücü',{exact:true}).fill('1.15');
+   await volume.keyboard.press('Escape');await volume.waitForTimeout(500);
+   const hu=volume.getByLabel('3D HU həddi',{exact:true}),startHU=Number(await hu.inputValue());
+   const zr=await zoom();await volume.mouse.move(box.x+box.width*.5,box.y+box.height*.5);await volume.mouse.down();await volume.mouse.move(box.x+box.width*.5+40,box.y+box.height*.5+15,{steps:8});await volume.mouse.up();
+   assert.equal(Number(await hu.inputValue()),startHU+80);assert.equal(await zoom(),zr,'Tissue adjustment does not rotate/zoom camera');
+   await volume.waitForTimeout(250);assert.equal(await host.getAttribute('data-interacting'),'false');
+   const material=await volume.evaluate(async()=>{const {engine}=await(await import(performance.getEntriesByType('resource').find(e=>e.name.includes('/lib/cornerstone.ts')).name)).getViewer();const actor=engine.getViewports().find(v=>v.id.startsWith('RADAZ-3D')).getDefaultActor().actor;return {distance:actor.getProperty().getScalarOpacityUnitDistance(0),interpolation:actor.getProperty().getInterpolationType()};});
+   assert.equal(material.distance,1.2);assert.equal(material.interpolation,1);
    const beforeZoom=await zoom();await volume.bringToFront();await volume.mouse.move(box.x+box.width*.5,box.y+box.height*.5);await volume.mouse.down({button:'right'});
    await volume.mouse.move(box.x+box.width*.5,box.y+box.height*.5+45,{steps:8});await volume.mouse.up({button:'right'});
    assert.notEqual(await zoom(),beforeZoom,'3D right-button drag changes zoom');

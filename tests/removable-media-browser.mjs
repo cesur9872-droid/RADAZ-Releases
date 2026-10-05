@@ -28,7 +28,7 @@ try {
   const context=await browser.newContext({viewport:{width:1366,height:768}});
   await context.route('**/local-archive-api/license',route=>route.fulfill({json:{valid:true,required:true,kind:'owner',message:'Synthetic license',deviceId:'TEST'}}));
   page=await context.newPage();page.setDefaultTimeout(20000);const errors=[];let pickers=0,imports=0;
-  context.on('page',p=>{p.on('pageerror',e=>errors.push(e.message));});page.on('pageerror',e=>errors.push(e.message));
+  context.on('page',p=>{p.on('pageerror',e=>errors.push(e.stack || e.message));});page.on('pageerror',e=>errors.push(e.stack || e.message));
   page.on('filechooser',()=>pickers++);
   context.on('request',r=>{if(r.url().endsWith('/local-archive-api/import'))imports++;});
   await page.goto(base);
@@ -40,19 +40,19 @@ try {
   console.log('Inserted synthetic CD');
   await page.locator('.series-card').filter({hasText:'CD progressive CT'}).waitFor();
   await page.locator('.series-card').filter({hasText:'CD progressive CT'}).click();
-  await page.waitForFunction(()=>document.querySelector('[data-panel="A"] .overlay.bottom-right')?.textContent.includes('/ 19'));
-  assert.match(await page.locator('.media-import-progress').textContent(),/20 \/ \d+/);
+  await page.waitForFunction(()=>document.querySelector('[data-panel="A"] .overlay.bottom-right')?.textContent.includes('/ 700'));
+  assert.ok(!(await page.locator('.media-import-progress').textContent()).includes('həddi doldu'));
   assert.equal(await page.locator('.series-card').filter({hasText:'CD progressive CT'}).locator('img').count(),1);
   const before = await page.locator('[data-panel="A"] .overlay.bottom-right').textContent();
   const panel=page.locator('[data-panel="A"]');await panel.hover();await page.mouse.wheel(0,120);await delay(300);
   const scrolled=await page.locator('[data-panel="A"] .overlay.bottom-right').textContent();assert.notEqual(scrolled,before);
   await page.screenshot({path:'outputs/media/progressive-first-images.png'});
-  console.log('First 19 slices are usable before remaining files load');
+  console.log('All slice metadata is available before pixel loading');
   const volumePromise=context.waitForEvent('page');await page.getByRole('button',{name:'3D həcm görüntüləmə',exact:true}).click();const volume=await volumePromise;
   await volume.locator('.cornerstone-volume-stage[data-ready="true"]').waitFor({timeout:90000});
   assert.ok(await volume.locator('.volume-stream-progress').count(),'3D is usable while the CD transfer is blocked');
   assert.equal(context.pages().length,2,'3D opens separately and preserves Viewer');
-  console.log('Partial 3D renders with only 19/700 slices available');
+  console.log('Streaming 3D renders before all disc pixels arrive');
   const mprPromise=context.waitForEvent('page');await page.getByRole('button',{name:'MPR rekonstruksiya',exact:true}).click();const mpr=await mprPromise;
   await mpr.locator('[data-panel="MA"][data-has-image="true"]').waitFor();
   await mpr.locator('[data-panel="MC"] progress').waitFor();
@@ -124,7 +124,7 @@ try {
   await page.screenshot({path:'outputs/media/ejected-clean.png'});
   // Reinsert, then eject during the deliberately blocked transfer.
   await page.getByRole('button',{name:'2D Viewer',exact:true}).click();
-  await control('insert');await page.locator('.series-card').filter({hasText:'CD progressive CT'}).waitFor();await page.locator('.series-card').filter({hasText:'CD progressive CT'}).click();await page.waitForFunction(()=>document.querySelector('[data-panel="A"] .overlay.bottom-right')?.textContent.includes('/ 19'));
+  await page.bringToFront();await control('insert');await page.locator('.series-card').filter({hasText:'CD progressive CT'}).waitFor();await page.locator('.series-card').filter({hasText:'CD progressive CT'}).click();await page.waitForFunction(()=>document.querySelector('[data-panel="A"] .overlay.bottom-right')?.textContent.includes('/ 700'));
   await control('eject');await page.waitForFunction(()=>document.querySelectorAll('.series-card').length===0);await delay(1000);
   assert.equal(await page.locator('.series-card').count(),0);
   }

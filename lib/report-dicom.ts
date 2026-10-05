@@ -1,7 +1,8 @@
 import { parseDicomFile } from './dicom-file';
 
 export type ReportImage = {
-  file: File;
+  file?: File;
+  sourceUrl?: string;
   studyUID: string;
   seriesUID: string;
   sopUID: string;
@@ -61,10 +62,27 @@ export async function readReportStudies(files: File[], onProgress?: (done: numbe
   }));
 }
 
+/** Optical reports retain metadata, and read one image at a time during export. */
+export function readReportMedia(sources: {url:string;tags:Record<string,string>}[]): ReportStudy[] {
+  const studies = new Map<string,ReportStudy>();
+  for (const source of sources) {
+    if (!/^\/local-archive-api\/removable\/file\/[a-zA-Z0-9-]+\/[a-zA-Z0-9-]+$/.test(source.url)) continue;
+    const tag=(key:string)=>source.tags[key]||'',uid=tag('x0020000d'),seriesUID=tag('x0020000e');
+    let study=studies.get(uid);
+    if(!study){study={uid,patient:tag('x00100010').replaceAll('^',' '),birth:dateInput(tag('x00100030')),date:dateInput(tag('x00080020')),modality:tag('x00080060'),description:tag('x00081030'),images:[]};studies.set(uid,study);}
+    const rows=Number(tag('x00280010')),columns=Number(tag('x00280011'));
+    study.images.push({sourceUrl:source.url,studyUID:uid,seriesUID,sopUID:tag('x00080018'),seriesName:tag('x0008103e'),modality:tag('x00080060'),instance:Number(tag('x00200013')),rows,columns,
+      supported:rows>0&&columns>0&&Number(tag('x00280002'))===1&&[8,16].includes(Number(tag('x00280100')))&&['1.2.840.10008.1.2','1.2.840.10008.1.2.1'].includes(tag('x00020010'))});
+  }
+  return [...studies.values()].map(study=>({...study,images:study.images.sort((a,b)=>a.instance-b.instance)}));
+}
+
 /** Render the diagnostic pixel matrix only; patient tags are never painted into the image. */
 export async function renderReportImage(image: ReportImage, windowMode: 'metadata' | 'lung' | 'soft' | 'bone'): Promise<string> {
   if (!image.supported) throw new Error('Bu kəsitin piksel formatı analiz üçün dəstəklənmir');
-  const bytes = new Uint8Array(await image.file.arrayBuffer());
+  const response = image.sourceUrl ? await fetch(image.sourceUrl,{cache:'no-store'}) : null;
+  if (response && !response.ok) throw new Error('Mənbə disk çıxarılıb və ya görüntü oxunmadı');
+  const bytes = new Uint8Array(await (response || image.file!).arrayBuffer());
   const ds = parseDicomFile(bytes);
   const pixel = ds.elements.x7fe00010;
   const bits = ds.uint16('x00280100') || 0;

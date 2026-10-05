@@ -1,4 +1,4 @@
-"""Seven-day local trial; Windows DPAPI seals records outside the program folder."""
+"""Thirty-day local trial; preserve the original start across upgrades."""
 import base64
 import ctypes
 import json
@@ -8,7 +8,7 @@ import time
 import uuid
 from pathlib import Path
 
-TRIAL_SECONDS = 7 * 86400
+TRIAL_SECONDS = 30 * 86400
 
 def protect(raw, decrypt=False):
     if os.name != 'nt':
@@ -93,6 +93,6 @@ class TrialStore:
             remaining = max(0, expires - now)
             return dict(valid=remaining > 0, startedAt=started, expiresAt=expires,
                         daysRemaining=math.ceil(remaining/86400),
-                        message='7 günlük pulsuz demo aktivdir.' if remaining else '7 günlük pulsuz demo bitib. Davam etmək üçün lisenziyanı aktivləşdirin.')
+                        message='30 günlük pulsuz demo aktivdir.' if remaining else '30 günlük pulsuz demo bitib. Davam etmək üçün lisenziyanı aktivləşdirin.')
         except (ValueError, OSError, TypeError, KeyError) as error:
             return dict(valid=False, daysRemaining=0, message=str(error) if isinstance(error, ValueError) else 'Demo məlumatı oxunmadı. Satıcı ilə əlaqə saxlayın.')

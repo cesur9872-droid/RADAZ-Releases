@@ -37,20 +37,22 @@ export function useStackNavigation(viewport: Core.Types.IStackViewport | null, i
   };
 }
 
-export function ViewerInteractionOverlay({ viewport, element, imageId, tool, slice, count, marks, selectedMarkId, onSelectMark, cursor, onCursor, onAdd, onRemove, onSelect, onEditArrow, navigate }: {
+export function ViewerInteractionOverlay({ viewport, element, imageId, tool, slice, count, marks, selectedMarkId, onSelectMark, cursor, onCursor, onAdd, onUpdate, onRemove, onSelect, onEditArrow, navigate }: {
   viewport: Core.Types.IStackViewport | null; element: HTMLDivElement | null; imageId: string;
   tool: string; slice: number; count: number; marks: LocalMark[]; cursor: CursorPosition | null;
   onCursor: (position: CursorPosition) => void; onAdd: (mark: LocalMark) => void;
   onEditArrow: (id:string)=>void;
+  onUpdate: (id: string, patch: Partial<LocalMark>) => void;
   onRemove: (id: string) => void; onSelect: () => void; navigate: (index: number, relative?: boolean) => void;
   selectedMarkId?: string | null; onSelectMark?: (id: string) => void;
 }) {
   const [draft, setDraft] = useState<Point3[]>([]);
   const [, repaint] = useState(0);
   const gesture = useRef<{ id: number; y: number; points: Point3[]; last: [number, number] } | null>(null);
+  const edit = useRef<{ pointer: number; mark: LocalMark; start: Point3; point?: number } | null>(null);
   const active = ['scroll', 'arrow', 'pencil', 'cursor3d'].includes(tool);
   const geometry = imageId ? getLocalizerGeometry(imageId) : null;
-  useEffect(() => { gesture.current = null; setDraft([]); }, [tool, viewport]);
+  useEffect(() => { gesture.current = null; edit.current = null; setDraft([]); }, [tool, viewport, imageId]);
   useEffect(() => { if (tool !== 'scroll' && tool !== 'cursor3d') { gesture.current = null; setDraft([]); } }, [tool, imageId]);
   useEffect(() => {
     if (!element) return;
@@ -60,11 +62,19 @@ export function ViewerInteractionOverlay({ viewport, element, imageId, tool, sli
     element.addEventListener('CORNERSTONE_IMAGE_RENDERED', update);
     return () => {element.removeEventListener('radaz-clear-measurements',clear);element.removeEventListener('CORNERSTONE_IMAGE_RENDERED', update);};
   }, [element]);
-  const world = (event: PointerEvent<SVGSVGElement>) => {
+  const world = (event: PointerEvent<SVGElement>) => {
     const rect = element!.getBoundingClientRect();
     return viewport!.canvasToWorld([event.clientX - rect.left, event.clientY - rect.top]) as Point3;
   };
   const updateGesture = (event: PointerEvent<SVGSVGElement>) => {
+    const editing = edit.current;
+    if (editing && editing.pointer === event.pointerId && viewport && element) {
+      event.preventDefault(); event.stopPropagation();
+      const current = world(event), delta = current.map((n, i) => n - editing.start[i]);
+      onUpdate(editing.mark.id, {points: editing.mark.points.map((p, i) => editing.point === undefined
+        ? p.map((n, axis) => n + delta[axis]) as Point3 : i === editing.point ? current : p)});
+      return;
+    }
     const current = gesture.current;
     if (!current || current.id !== event.pointerId || !viewport || !element) return;
     if (tool === 'scroll') {
@@ -79,6 +89,14 @@ export function ViewerInteractionOverlay({ viewport, element, imageId, tool, sli
       current.last = [event.clientX, event.clientY]; setDraft(current.points);
     }
   };
+  const startEdit = (event: PointerEvent<SVGElement>, mark: LocalMark, point?: number) => {
+    if (event.button !== 0 || !element) return;
+    event.preventDefault(); event.stopPropagation(); onSelect();
+    if (tool === 'erase') { onRemove(mark.id); return; }
+    onSelectMark?.(mark.id);
+    edit.current = {pointer: event.pointerId, mark, start: world(event), point};
+    event.currentTarget.ownerSVGElement!.setPointerCapture(event.pointerId);
+  };
   const points = (values: Point3[]) => values.map(point => viewport!.worldToCanvas(point).join(',')).join(' ');
   const arrowHead = (values: Point3[]) => {
     const a = viewport!.worldToCanvas(values[0]), b = viewport!.worldToCanvas(values[values.length - 1]);
@@ -92,7 +110,7 @@ export function ViewerInteractionOverlay({ viewport, element, imageId, tool, sli
       onWheel={event => { event.stopPropagation(); if (event.deltaY) navigate(Math.sign(event.deltaY), true); }}
       onDoubleClick={event => event.stopPropagation()}
       onPointerDown={event => {
-        if (!active || event.button !== 0 || gesture.current || !element) return;
+        if (!active || event.button !== 0 || gesture.current || edit.current || !element) return;
         event.preventDefault(); event.stopPropagation(); onSelect();
         event.currentTarget.setPointerCapture(event.pointerId);
         const point = world(event);
@@ -101,6 +119,9 @@ export function ViewerInteractionOverlay({ viewport, element, imageId, tool, sli
         if (tool === 'arrow' || tool === 'pencil') setDraft([point]);
       }} onPointerMove={updateGesture} onPointerUp={event => {
         updateGesture(event);
+        if (edit.current?.pointer === event.pointerId) {
+          edit.current = null; event.currentTarget.releasePointerCapture(event.pointerId); return;
+        }
         const current = gesture.current;
         if (!current || current.id !== event.pointerId) return;
         if ((tool === 'arrow' || tool === 'pencil') && current.points.length > 1) {
@@ -108,13 +129,19 @@ export function ViewerInteractionOverlay({ viewport, element, imageId, tool, sli
         }
         gesture.current = null; setDraft([]);
         event.currentTarget.releasePointerCapture(event.pointerId);
-      }} onPointerCancel={() => { gesture.current = null; setDraft([]); }} onLostPointerCapture={() => { gesture.current = null; setDraft([]); }}>
+      }} onPointerCancel={() => { edit.current = null; gesture.current = null; setDraft([]); }} onLostPointerCapture={() => { edit.current = null; gesture.current = null; setDraft([]); }}>
       {marks.filter(mark => mark.imageId === imageId && (mark.kind === 'arrow' || mark.kind === 'pencil')).map(mark => <g key={mark.id} data-drawing={mark.kind} data-mark-id={mark.id} className={selectedMarkId === mark.id ? 'selected-measurement' : undefined}
         onClick={event=>event.stopPropagation()} onDoubleClick={event=>{event.stopPropagation();if(mark.kind==='arrow')onEditArrow(mark.id);}}
-        onPointerDown={event=>{if(event.button!==0)return;event.preventDefault();event.stopPropagation();if(tool==='erase')onRemove(mark.id);else onSelectMark?.(mark.id);}}>
+        onPointerDown={event=>startEdit(event, mark)}>
         <polyline points={points(mark.points)} />
         {mark.kind === 'arrow' && <polyline points={arrowHead(mark.points)} />}
         <polyline className="drawing-hit" points={points(mark.points)} />
+        {mark.kind === 'arrow' && [0, mark.points.length - 1].map(index => {
+          const [cx, cy] = viewport.worldToCanvas(mark.points[index]);
+          return <g key={index} className="drawing-anchor" onPointerDown={event => startEdit(event, mark, index)}>
+            <circle className="drawing-anchor-hit" cx={cx} cy={cy} r={16}/><circle className="drawing-anchor-dot" cx={cx} cy={cy} r={4}/>
+          </g>;
+        })}
         {mark.kind==='arrow'&&mark.comment&&(()=>{
           const [x,y]=viewport.worldToCanvas(mark.points[0]);
           const lines=mark.comment.split('\n').flatMap(line=>line.match(/.{1,32}(?:\s|$)|.{1,32}/g)||['']);

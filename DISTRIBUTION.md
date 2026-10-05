@@ -125,9 +125,9 @@ Paket `outputs/releases` içində yaranır. İmza public açarı və `billingUrl
 Setup.exe bütün runtime-ları daxil edir və offline quraşdırılır; Authenticode imzası yoxdur. Portable preview ZIP ayrıca asılılıq quraşdırılması üçündür. İstifadəçinin tam idarə etdiyi lokal proqramda lisenziya nəzarəti dəyişdirilməyə qarşı mütləq DRM təmin etmir.
 
 
-## 7 günlük demo və sahib kompüteri
+## 30 günlük demo və sahib kompüteri
 
-0.2.3 paketində `licenseRequired=true`, `trialDays=7` saxlanır. Demo ilk istifadədən 7 × 24 saatdır; bütün lisenziyalı funksiyalar bu vaxt açıqdır. Demo bitdikdə əvvəlki PACS/arxiv və yalnız listələmə qaydası tətbiq edilir. Yeniləmə, brauzer keşini silmək və adi yenidən quraşdırma demo müddətini sıfırlamır.
+0.2.16 paketində `licenseRequired=true`, `trialDays=30` saxlanır. Demo ilk istifadədən 30 × 24 saatdır; bütün lisenziyalı funksiyalar bu vaxt açıqdır. Demo bitdikdə əvvəlki PACS/arxiv və yalnız listələmə qaydası tətbiq edilir. Yeniləmə, brauzer keşini silmək və adi yenidən quraşdırma demo müddətini sıfırlamır.
 
 Windows-da demo qeydi `%LOCALAPPDATA%/RADAZ/Licensing` və `HKCU/Software/RADAZ/Licensing` içində saxlanır, DPAPI ilə həmin Windows istifadəçisinə bağlanır. Qeyd MachineGuid əsasında alınan kompüter kodunu daşıyır. Bir nüsxə itərsə qalan qeyddən ilkin tarix bərpa olunur; korlanmış qeyd və saatın geriyə çəkilməsi yeni demo yaratmır. Offline demo yerli administratorun müdaxiləsinə, yeni Windows profilinə və əməliyyat sisteminin tam yenidən qurulmasına qarşı mütləq müdafiə deyil; bu səviyyədə nəzarət üçün internetdə cihaz qeydiyyatı xidməti lazımdır.
 

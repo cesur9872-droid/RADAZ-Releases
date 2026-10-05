@@ -83,7 +83,7 @@ class ProductService:
     def status(self):
         with self.lock:
             result = dict(valid=False,required=bool(self.config.get('licenseRequired',True)),deviceId=self.device,message='Lisenziya açarını daxil edin.')
-            trial = self.trial.status() if self.config.get('trialDays') == 7 else None
+            trial = self.trial.status() if self.config.get('trialDays') in (7, 30) else None
             path = self.root/'license.json'
             if path.exists():
                 try:

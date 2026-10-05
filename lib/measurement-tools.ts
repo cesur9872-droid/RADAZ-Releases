@@ -8,6 +8,13 @@ export function themedMeasurement(Base: any) {
   return class extends Base {
     constructor(...args: any[]) {
       super(...args);
+      // Screen-pixel hit targets stay easy to catch regardless of image zoom.
+      const near = this.isPointNearTool.bind(this);
+      this.isPointNearTool = (element:any, annotation:any, point:any, proximity:number, ...rest:any[]) =>
+        near(element, annotation, point, Math.max(proximity, 12), ...rest);
+      const handle = this.getHandleNearImagePoint.bind(this);
+      this.getHandleNearImagePoint = (element:any, annotation:any, point:any, proximity:number) =>
+        handle(element, annotation, point, Math.max(proximity, 14));
       const move=this.mouseMoveCallback.bind(this);
       this.mouseMoveCallback=(event:any,annotations:any[])=>{
         let redraw=move(event,annotations);
