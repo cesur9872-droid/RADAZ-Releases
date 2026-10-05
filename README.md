@@ -6,7 +6,7 @@ Azərbaycan dilində DICOM görüntüləmə və radiologiya iş sahəsi — Wind
 
 ## Quraşdırma
 
-1. Son buraxılışın **Assets** bölməsindən **RADAZ-0.2.16-Setup.exe** endirin.
+1. Son buraxılışın **Assets** bölməsindən **RADAZ-0.2.17-Setup.exe** endirin.
 2. Setup-ı açıb quraşdırın. Node.js, Python və lazım olan komponentlər paketə daxildir.
 3. İş masasındakı **RADAZ** qısayolunu açın. Proqram lokal brauzer pəncərəsində işləyir.
 
