@@ -1,19 +1,66 @@
-# RADAZ for Windows
+# RADAZ
 
-RADAZ Windows quraşdırıcıları və avtomatik yenilənmə paketləri.
+Azərbaycan dilində DICOM görüntüləmə və radiologiya iş sahəsi — Windows 10/11, 64 bit.
 
-## Endirmək
+[**Son Setup-ı endir**](https://github.com/cesur9872-droid/RADAZ-Releases/releases/latest) · [Buraxılışlar](https://github.com/cesur9872-droid/RADAZ-Releases/releases)
 
-[Son versiyanı endir](https://github.com/cesur9872-droid/RADAZ-Releases/releases/latest) və Assets bölməsində **RADAZ-0.2.15-Setup.exe** seçin.
+## Quraşdırma
 
-Windows 10/11, 64 bit. Setup Node.js, Python və digər lazım olan komponentləri daxil edir.
+1. Son buraxılışın **Assets** bölməsindən **RADAZ-0.2.16-Setup.exe** endirin.
+2. Setup-ı açıb quraşdırın. Node.js, Python və lazım olan komponentlər paketə daxildir.
+3. İş masasındakı **RADAZ** qısayolunu açın. Proqram lokal brauzer pəncərəsində işləyir.
 
-## Yenilənmə
+Əlavə proqramlaşdırma mühiti tələb olunmur. **Source code (zip)** quraşdırıcı deyil. Alternativ **Windows-x64.zip** tam oflayn paketdir; **Windows-preview.zip** isə texniki istifadə üçündür və ayrıca runtime tələb edir.
 
-RADAZ daxilində **Yardım → Yeniləmələri yoxla → Yenilə → Təsdiq et və yenilə**. Yoxlama və pəncərəni açmaq yükləməni başlatmır. Endirmə və quraşdırma gedişi göstərilir; yeni versiya növbəti açılışda tətbiq olunur. Lokal arxiv saxlanılır.
+## 30 günlük demo
 
-0.2.9 və daha köhnə versiyalar üçün bu Setup-ı bir dəfə açın: əvvəlki yenilənmə ünvanı artıq əlçatan deyil. 0.2.10-dan sonra yeni kanal avtomatik istifadə olunur.
+İlk istifadədən **30 gün** bütün funksiyalar açıqdır. Demo üçün kart və açar lazım deyil. Əvvəlki 7 günlük demo yeni versiyada **ilk açılış tarixindən 30 günə** uzanır; yenidən quraşdırmaq tarixi sıfırlamır. Qalan vaxt **Yardım → Lisenziya** bölməsində görünür.
 
-Bu repo quraşdırıcılar və yenilənmə faylları üçündür. GitHub-un **Source code** arxivləri quraşdırıcı deyil.
+Aylıq lisenziya: **10 AZN**. Demo bitdikdə arxiv və PACS əlçatan qalır, Viewer-in qabaqcıl alətləri üçün lisenziya tələb olunur. Saxlanmış müayinələr silinmir. Onlayn ödəniş xidməti qoşulmayıbsa, aktivləşdirmə üçün məhsul sahibi ilə əlaqə saxlayın.
 
-İlkin sınaq buraxılışıdır. Bütün hüquqlar məhsul sahibinə məxsusdur; daxil edilmiş üçüncü tərəf komponentləri öz lisenziyalarına tabedir.
+## Proqramı yeniləmək
+
+**Yardım → Yeniləmələri yoxla → Yenilə → Təsdiq et və yenilə**.
+
+Yeni versiya mövcud olduqda bildiriş göstərilir. Yoxlama və yenilənmə pəncərəsinin açılması endirməni başlatmır. Təsdiqdən sonra paket endirilir, yoxlanılır və hazırlanır; gediş progressbar-da görünür. Hazır olduqda təsdiq mesajı çıxır. Yeni versiya növbəti açılışda tətbiq olunur; davam edən müayinə kəsilmir.
+
+**Digər kompüterdə 0.2.9 qalırsa:** həmin versiyanın köhnə yenilənmə ünvanı artıq əlçatan deyil. Son Setup-ı o kompüterdə **bir dəfə** açın. Sonrakı yenilənmələr yeni açıq kanaldan görünəcək.
+
+Arxiv proqramın versiya qovluqlarından ayrıdır. Standart yer `Documents\RADAZ-Archive`-dır; dəyişdirilmiş arxiv yolu yenilənərkən saxlanılır.
+
+## İş axını
+
+- **Local arxiv və PACS:** müayinələri checkbox ilə seçin və açın. Mövcud Viewer istifadə olunur. Viewer-dən açılmış ayrıca arxiv/PACS pəncərəsi müayinə açıldıqda Windows-da minimallaşır; adi brauzer tablarında Viewer-ə fokus keçidi istifadə olunur.
+- **CD/DVD:** diskdəki seriyalar siyahıya alınır, piksellər baxıldıqca oxunur. Yenidən oxuna bilən piksel keşinin həddi 256 MB-dır; aktiv həcm/görüntülər ayrıca yaddaş tələb edir. Disk çıxarılanda müvəqqəti görüntülər bağlanır. Disk öz-özünə daimi arxivə yazılmır.
+- **Ölçmələr:** xəttin üzərindən tutub daşıyın. Oxun uclarından tutub istiqamətini və uzunluğunu dəyişin. Ox üzərində iki klik və ya sağ klik menyusu şərhi dəyişir. Sağ klik → **Sil**, **Ctrl+D** → cari kəsitdə hamısını sil.
+- **2D mouse:** sol düymə WW/WL, orta düymə daşıma, sağ düyməni sürükləmə zoom, təkər kəsitləri dəyişir. Seçilmiş alət sol düymənin davranışını dəyişir.
+- **Hesabat:** Viewer siyahısında seçilmiş seriya açılır. Hesabat redaktoru, Word/PDF çıxışı və seçilmiş görüntülərin ZIP hazırlanması mövcuddur.
+- **Çap önbaxışı:** **Tək / Hamısı** seçimi ilə zoom, parlaqlıq və kontrastı dəyişin.
+
+## MPR və 3D
+
+MPR və 3D ayrıca iş sahəsində açılır. DICOM-un fiziki koordinatları, istiqaməti və piksel aralığı istifadə olunur. CT üçün RescaleSlope və RescaleIntercept tətbiq edilərək HU ilə render edilir. Eyni seriyanın dekodlanmış pikselləri iş sahələri arasında paylaşılır.
+
+3D presetləri: **Bone, Angio, Soft Tissue, Lung, Airway, Skin, Transparent, MIP, MinIP**; MRT üçün ayrıca siqnal preseti.
+
+**Ayarlar** ikonunda HU keçid eni, optik məsafə, gradient, səth normalı, interpolyasiya, ətraf/diffuz işıq, parlaqlıq, işıq gücü, yumşaq kölgə, həcm daxilində işıq səpilməsi və render addımı var. **Performance / Balanced / High / Ultra / Auto** profillərindən Balanced standartdır. Ağır kölgələr zəif GPU-da məhdudlaşdırılır.
+
+| 3D mouse əməliyyatı | Nəticə |
+| --- | --- |
+| Sol düymə | Fırlatma; ayarlarda HU/şəffaflıq rejimi də seçilə bilər |
+| Shift + sol | Üfüqi: HU həddi; şaquli: şəffaflıq |
+| Ctrl + sol | HU keçid enini dəyiş |
+| Orta düymə | Daşıma |
+| Sağ düymə / təkər | Zoom |
+
+Sürükləmə zamanı render yüngülləşir, buraxıldıqda final keyfiyyət bərpa olunur. GPU-ya sığmayan həcm bütün mənbə kəsitlərindən istifadə edilməklə kiçildilir və bu barədə məlumat göstərilir. Qalın və ya aralıqlı CT kəsitlərindən incə rekonstruksiya detalını yaratmaq mümkün deyil; belə seriyalarda pillələnmə qala bilər.
+
+Render ayarları [Kitware cinematic volume rendering](https://www.kitware.com/cinematic-volume-rendering/) və [vtk.js VolumeProperty sənədləri](https://kitware.github.io/vtk-js/api/Rendering_Core_VolumeProperty.html) əsasında təşkil olunub. Bunlar tənzimlənən görüntüləmə presetləridir; klinik protokol və cihaz kalibrasiyasını əvəz etmir.
+
+## Dəstək
+
+Məhsul sahibi: **Radioloq Rövşən Nağıyev** · [E-poçt](mailto:drnaghiyev@gmail.com)
+
+Xəta bildirərkən RADAZ versiyasını, Windows versiyasını və xəta mətnini qeyd edin. Açıq GitHub yazışmasına pasiyentin DICOM fayllarını və şəxsi məlumatlarını əlavə etməyin.
+
+İlkin sınaq buraxılışıdır. Bütün hüquqlar məhsul sahibinə məxsusdur. Üçüncü tərəf komponentləri öz lisenziyalarına tabedir. Açıq RADAZ-Releases deposu quraşdırıcılar və yenilənmə faylları üçündür.
