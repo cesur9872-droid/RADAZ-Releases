@@ -136,12 +136,12 @@ try {
   for(let i=1;i<=3;i++){
     await archivePage.bringToFront();
     const cell=archivePage.getByRole('cell').filter({hasText:`TEST PATIENT ${i}`});
-    await cell.waitFor();await cell.click();
+    await cell.waitFor();await cell.dblclick();
     await page.waitForFunction(expected=>document.querySelector('[data-panel="A"] .top-left')?.textContent.includes(expected),`TEST PATIENT ${i}`);
     assert.equal(context.pages().length,count,'Archive reuses existing Viewer');
   }
   for(const i of [1,2])await archivePage.getByRole('checkbox',{name:`TEST PATIENT ${i} müayinəsini seç`,exact:true}).check();
-  await archivePage.getByRole('cell').filter({hasText:'TEST PATIENT 1'}).click();
+  await archivePage.getByRole('cell').filter({hasText:'TEST PATIENT 1'}).dblclick();
   await page.waitForFunction(()=>document.querySelectorAll('.series-card').length===2);
   assert.equal(context.pages().length,count,'Checkbox selection still reuses Viewer');
   assert.match(await page.locator('.series-rail').textContent(),/TEST PATIENT 1/);

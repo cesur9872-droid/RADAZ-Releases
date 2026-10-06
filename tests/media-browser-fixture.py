@@ -30,7 +30,7 @@ ds.PixelData = encapsulate([buffer.getvalue()]); ds['PixelData'].is_undefined_le
 ds.file_meta.TransferSyntaxUID = JPEGBaseline8Bit; ds.save_as(disc/'JPEG_NO_EXTENSION', enforce_file_format=True)
 (disc/'README.txt').write_text('Unrelated text file' * 100)
 present = {}; released = Event()
-media = RemovableMedia(lambda: dict(present), interval=.05)
+media = RemovableMedia(lambda: dict(present), interval=.05, cache_parent=args.root)
 open_file = media.open_file
 
 def gated_file(sid, fid):

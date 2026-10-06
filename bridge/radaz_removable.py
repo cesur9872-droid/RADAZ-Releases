@@ -1,11 +1,13 @@
-"""Optical media sessions. Read from the disc; never copy into the archive or TEMP.
+"""Optical media sessions with disposable local copies, separate from the archive.
 
 Only the Windows drive enumerator can introduce roots. HTTP callers receive opaque
-session/file IDs, never a filesystem path. All state is disposable RAM metadata.
+session/file IDs, never a filesystem path. Eject cancels copying and removes the cache.
 """
 import ctypes
 import os
 import re
+import shutil
+import tempfile
 import time
 import uuid
 import warnings
@@ -17,6 +19,34 @@ import pydicom
 UID = re.compile(r'\d+(?:\.\d+)+\Z')
 MAX_FILE = 256 * 1024 * 1024
 MAX_FILES = 20000
+CACHE_MARKER = b'RADAZ disposable CD cache v1\n'
+
+
+def cache_lock(stream):
+    stream.seek(0)
+    if os.name == 'nt':
+        import msvcrt
+        msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+    else:
+        import fcntl
+        fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+def remove_abandoned_caches(parent, current):
+    # A process lock protects caches owned by another running RADAZ service.
+    # On crash/update Windows releases it; the next service removes old copies.
+    for folder in parent.glob('radaz-cd-cache-*'):
+        if folder == current or folder.is_symlink() or folder.resolve().parent != parent:
+            continue
+        marker = folder / '.owner'
+        if marker.is_symlink(): continue
+        try:
+            with marker.open('r+b') as lease:
+                if lease.read() != CACHE_MARKER: continue
+                cache_lock(lease)
+            shutil.rmtree(folder)
+        except OSError:
+            pass
 
 
 def optical_drives():
@@ -93,7 +123,7 @@ def image_metadata(path):
         return None
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
-        # Pixel values stay on the CD. force=True also accepts raw/no-preamble DICOM.
+        # Inspect without decoding pixels. Raw/no-preamble DICOM is supported.
         ds = pydicom.dcmread(path, force=True, defer_size=1024)
     def text(key):
         return str(getattr(ds, key, '')).strip()
@@ -104,7 +134,7 @@ def image_metadata(path):
     bits, samples = int(getattr(ds, 'BitsAllocated', 0)), int(getattr(ds, 'SamplesPerPixel', 0))
     if not rows or not columns or not samples or bits not in (1, 8, 16, 32, 64) or 'PixelData' not in ds:
         return None
-    # Only small metadata travels during discovery; pixel buffers stay on the disc.
+    # Only small metadata travels during discovery; pixels are served from local copies.
     tags = {}
     for tag in (0x00080016, 0x00080018, 0x00080020, 0x00080060, 0x00081030, 0x0008103e,
                 0x00100010, 0x00100020, 0x00100030, 0x00180015, 0x00180050, 0x00180088,
@@ -126,11 +156,42 @@ def image_metadata(path):
 
 
 class RemovableMedia:
-    def __init__(self, drives=optical_drives, interval=1, lease_seconds=120):
+    def __init__(self, drives=optical_drives, interval=1, lease_seconds=120, cache_parent=None):
         self.drives, self.interval, self.lease_seconds = drives, interval, lease_seconds
         self.lock, self.stop = RLock(), Event()
         self.clients, self.sessions = {}, {}
         self.thread = None
+        parent = Path(cache_parent or Path(tempfile.gettempdir()) / 'RADAZ-MediaCache').resolve()
+        parent.mkdir(parents=True, exist_ok=True)
+        self.cache_root = Path(tempfile.mkdtemp(prefix='radaz-cd-cache-', dir=parent)).resolve()
+        self.cache_lease = (self.cache_root / '.owner').open('w+b')
+        self.cache_lease.write(CACHE_MARKER); self.cache_lease.flush()
+        cache_lock(self.cache_lease)
+        remove_abandoned_caches(parent, self.cache_root)
+        self.retired = set()
+        self.workers = []
+
+    def _cleanup(self):
+        # Windows may hold a cached file until an in-flight HTTP response finishes.
+        # Retry on every poll, including after the final viewer lease has closed.
+        for folder in list(self.retired):
+            if folder.parent != self.cache_root or not re.fullmatch(r'[a-f0-9]{32}', folder.name):
+                raise ValueError('Invalid media cache directory')
+            if folder.is_symlink() or folder.resolve() != folder:
+                raise ValueError('Media cache path escapes temporary directory')
+            try:
+                shutil.rmtree(folder)
+            except FileNotFoundError:
+                pass
+            except OSError:
+                continue
+            self.retired.discard(folder)
+
+    def _retire(self, session):
+        session['cancel'].set()
+        session['files'].clear()
+        session['paths'].clear()
+        self.retired.add(session['cache'])
 
     def watch(self, client):
         if not isinstance(client, str) or not re.fullmatch(r'[a-zA-Z0-9-]{16,80}', client):
@@ -150,10 +211,9 @@ class RemovableMedia:
 
     def _clear(self):
         for session in self.sessions.values():
-            session['cancel'].set()
-            session['files'].clear()
-            session['paths'].clear()
+            self._retire(session)
         self.sessions.clear()
+        self._cleanup()
 
     def close(self):
         self.stop.set()
@@ -162,6 +222,16 @@ class RemovableMedia:
             self.clients.clear()
         if self.thread:
             self.thread.join(timeout=3)
+        for worker in self.workers:
+            worker.join(timeout=3)
+        with self.lock:
+            self._cleanup()
+            self.cache_lease.close()
+            try:
+                if not self.retired and not any(worker.is_alive() for worker in self.workers):
+                    (self.cache_root / '.owner').unlink(missing_ok=True)
+                    self.cache_root.rmdir()
+            except OSError: pass
 
     def _watch(self):
         while not self.stop.is_set():
@@ -173,6 +243,8 @@ class RemovableMedia:
 
     def poll(self):
         with self.lock:
+            self._cleanup()
+            self.workers = [worker for worker in self.workers if worker.is_alive()]
             now = time.monotonic()
             self.clients = {key: seen for key, seen in self.clients.items() if now - seen < self.lease_seconds}
             if not self.clients:
@@ -184,20 +256,42 @@ class RemovableMedia:
                 return
             for sid, session in list(self.sessions.items()):
                 if drives.get(str(session['root'])) != session['identity']:
-                    session['cancel'].set()
-                    session['files'].clear()
-                    session['paths'].clear()
+                    self._retire(session)
                     del self.sessions[sid]
+            self._cleanup()
             existing = {str(s['root']) for s in self.sessions.values()}
             for root, identity in drives.items():
                 if root in existing:
                     continue
                 sid = uuid.uuid4().hex
+                cache = self.cache_root / sid
+                cache.mkdir()
                 session = {'id': sid, 'root': root, 'identity': identity, 'label': identity[1],
                            'stage': 'scanning', 'scanned': 0, 'files': [], 'paths': {},
-                           'cancel': Event(), 'error': '', 'dicomdir': False}
+                           'cancel': Event(), 'error': '', 'dicomdir': False, 'cache': cache}
                 self.sessions[sid] = session
-                Thread(target=self._scan, args=(session,), daemon=True).start()
+                worker = Thread(target=self._scan, args=(session,), daemon=True)
+                self.workers.append(worker)
+                worker.start()
+
+    def _copy(self, session, source, fid, expected_size):
+        destination = session['cache'] / (fid + '.dcm')
+        partial = destination.with_suffix('.part')
+        try:
+            with source.open('rb') as src, partial.open('xb') as dst:
+                copied = 0
+                while not session['cancel'].is_set():
+                    block = src.read(1024 * 1024)
+                    if not block: break
+                    copied += len(block)
+                    if copied > expected_size: raise ValueError('CD/DVD faylının ölçüsü dəyişdi')
+                    dst.write(block)
+            if session['cancel'].is_set(): return None
+            if copied != expected_size: raise OSError('CD/DVD faylı tam köçürülmədi')
+            os.replace(partial, destination)
+            return destination
+        finally:
+            partial.unlink(missing_ok=True)
 
     def _scan(self, session):
         root = Path(session['root'])
@@ -221,9 +315,14 @@ class RemovableMedia:
                     return
                 if len(session['files']) >= MAX_FILES:
                     raise ValueError('Diskdə 20000-dən çox görüntü var')
+            fid = uuid.uuid4().hex
+            # A single sequential copy avoids random optical seeks while scrolling.
+            # Publish only complete local files; never fall back to slow disc reads.
+            cached = self._copy(session, path, fid, item['size'])
+            with self.lock:
+                if cached is None or session['cancel'].is_set(): return
                 seen_sops.add(item['sopUID'])
-                fid = uuid.uuid4().hex
-                session['paths'][fid] = path
+                session['paths'][fid] = cached
                 session['files'].append({'id': fid, **item})
         try:
             # Standard discs place DICOMDIR at their root. Also support nested media sets.
@@ -238,13 +337,13 @@ class RemovableMedia:
                     add(path)  # First images are published even during fallback discovery.
             for directory in directories:
                 try:
-                    for path in dicomdir_files(root, directory):
-                        if session['cancel'].is_set():
-                            return
-                        session['dicomdir'] = True
-                        add(path)
+                    references = list(dicomdir_files(root, directory))
                 except (OSError, ValueError, AttributeError):
                     continue
+                for path in references:
+                    if session['cancel'].is_set(): return
+                    session['dicomdir'] = True
+                    add(path)
             # Also recover unindexed files or broken references; never rely on suffixes.
             for path in walk_files(root):
                 if session['cancel'].is_set():
@@ -262,6 +361,8 @@ class RemovableMedia:
         finally:
             seen_paths.clear()
             seen_sops.clear()
+            with self.lock:
+                if session['cancel'].is_set(): self._cleanup()
 
     def snapshot(self):
         with self.lock:
@@ -282,11 +383,11 @@ class RemovableMedia:
             s = self.sessions.get(sid)
             if not s or fid not in s['paths'] or s['cancel'].is_set():
                 raise FileNotFoundError('CD/DVD çıxarılıb')
-            root, path, identity = s['root'], s['paths'][fid], s['identity']
+            root, path, identity, cache = s['root'], s['paths'][fid], s['identity'], s['cache']
         if self.drives().get(root) != identity:
             self.poll()
             raise FileNotFoundError('CD/DVD çıxarılıb')
-        path = inside(Path(root), path)
+        path = inside(cache, path)
         stream = path.open('rb')
         size = os.fstat(stream.fileno()).st_size
         if size > MAX_FILE:

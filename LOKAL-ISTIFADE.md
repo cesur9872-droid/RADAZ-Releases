@@ -20,7 +20,7 @@ AI analizi üçün **Hesabat → Ayarlar** bölməsində şəxsi OpenAI API aça
 
 Daimi DICOM arxivi `Documents\RADAZ-Archive` qovluğundadır: `archive.sqlite3` indeks bazası, `instances` orijinal DICOM faylları, `config.json` isə qəbul ayarlarıdır. Bu qovluğu birlikdə ehtiyat nüsxələyin. Brauzer məlumatlarını təmizləmək disk arxivini silmir.
 
-Köhnə brauzer arxivi saxlanılır və siyahıda “Brauzer” kimi göstərilir. Onu daimi arxivə köçürmək üçün müayinəni seçib **Diskə saxla** basın. Əl ilə fayl/qovluq idxalı arxiv xidməti işləyirsə həm brauzerə, həm diskə yazılır. Xidmət işləmirsə brauzer arxivi qalır. **CD/DVD import bu arxivə yazmır**, yalnız müvəqqəti yaddaşdan istifadə edir. Hesabat qaralamaları, klinika ayarları və açarlar həmin brauzerin yerli yaddaşındadır.
+Köhnə brauzer arxivi saxlanılır və siyahıda “Brauzer” kimi göstərilir. Onu daimi arxivə köçürmək üçün müayinəni seçib **Diskə saxla** basın. Əl ilə fayl/qovluq idxalı arxiv xidməti işləyirsə həm brauzerə, həm diskə yazılır. Xidmət işləmirsə brauzer arxivi qalır. **CD/DVD import bu arxivə yazmır**, yalnız ayrıca müvəqqəti disk keşindən istifadə edir; disk çıxarılanda bu nüsxələr silinir. Hesabat qaralamaları, klinika ayarları və açarlar həmin brauzerin yerli yaddaşındadır.
 
 ## Cihazdan görüntü göndərmək
 
@@ -88,7 +88,7 @@ Fırlat menyusu: 90° sola/sağa, 180°, üfüqi/şaquli çevir və sıfırla. Q
 
 **Oxumaq:** Viewer başlığında ayrıca **CD/DVD import** düyməsini aktiv edin. Seçim yadda saxlanır; RADAZ açıq olduqda Windows optik qurğuları yoxlanır. Taxılmış disk üçün DICOMDIR əvvəl oxunur, sonra bütün alt qovluqlardakı əlavə DICOM görüntüləri tapılır. DICOMDIR yoxdursa və ya xarabdırsa avtomatik skan davam edir. `.dcm` uzantısı və `DICM` başlığı məcburi deyil; faylın DICOM teqləri və piksel məlumatı yoxlanır. Upload, qovluq seçimi və təsdiq göstərilmir.
 
-Seriya aşkarlanan kimi siyahıya çıxır, ilk görüntü oxunanda thumbnail və Viewer açılır. Qalan kəsitlər arxa planda gəlir və seçilmiş görüntü yerində qalır. MPR-də hazır aksial görüntü seriya yüklənərkən açılır, rekonstruksiya müstəviləri hazır olduqca göstərilir. 3D tam seriyadan volume qurur; kəsitlərin hazırlanması, GPU və ilk render mərhələləri progressbar ilə göstərilir. Oxunmayan görüntülərin sayı ayrıca göstərilir. Müvəqqəti RAM büdcəsi 1.5 GiB-dır; hədd dolarsa yükləmə bildirişlə dayanır.
+Seriya aşkarlanan kimi siyahıya çıxır, ilk görüntü oxunanda thumbnail və Viewer açılır. Qalan kəsitlər arxa planda gəlir və seçilmiş görüntü yerində qalır. MPR-də hazır aksial görüntü seriya yüklənərkən açılır, rekonstruksiya müstəviləri hazır olduqca göstərilir. 3D tam seriyadan volume qurur; kəsitlərin hazırlanması, GPU və ilk render mərhələləri progressbar ilə göstərilir. Oxunmayan görüntülərin sayı ayrıca göstərilir. DICOM faylları fon rejimində müvəqqəti qovluğa köçürülür və yalnız tam köçmüş fayllar Viewer-ə təqdim edilir. Təkrar listələmə CD-yə müraciət etmir. Disk çıxarılanda, CD izləməsi bağlananda və ya son Viewer sessiyası bitəndə bu keş silinir.
 
 Optik görüntülər disk və brauzer Local Archive-a yazılmır, backend fayl nüsxəsi yaratmır. Disk çıxarılanda oxuma ləğv olunur; onun seriya, piksel, thumbnail, ölçmə, MPR/3D volume və hesabat mənbələri təmizlənir. Yenidən taxma yeni sessiya yaradır. Açıq vərəqələr disk çıxarılmasını ayrıca yoxlayır. Oxunan qurğu RADAZ serverinin işlədiyi Windows kompüterdəki CD/DVD qurğusudur.
 

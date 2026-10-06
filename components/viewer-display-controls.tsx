@@ -55,8 +55,9 @@ export function ViewerDisplayControls({ panel, imageId, onStatus }: { panel: str
   }, [panel, imageId]);
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
-      if (['INPUT','TEXTAREA','SELECT'].includes((event.target as HTMLElement).tagName) || (event.target as HTMLElement).isContentEditable || document.querySelector('[role="dialog"]')) return;
+      if (event.repeat || ['INPUT','TEXTAREA','SELECT'].includes((event.target as HTMLElement).tagName) || (event.target as HTMLElement).isContentEditable || document.querySelector('[role="dialog"], dialog[open]')) return;
       let kind = '';
+      if (!event.ctrlKey && !event.altKey && !event.metaKey && event.key.toLowerCase() === 'n') kind = 'negative';
       if (event.ctrlKey && event.code === 'BracketLeft') kind = event.shiftKey ? 'horizontal' : 'left';
       if (event.ctrlKey && event.code === 'BracketRight') kind = event.shiftKey ? 'vertical' : 'right';
       if (event.ctrlKey && event.shiftKey && event.code === 'Backslash') kind = 'reset';
@@ -78,7 +79,7 @@ export function ViewerDisplayControls({ panel, imageId, onStatus }: { panel: str
       <DropdownMenuItem onSelect={() => void action('default')}>DICOM standart pəncərə</DropdownMenuItem>
       <DropdownMenuItem onSelect={() => void action('full')}>Tam dinamik diapazon</DropdownMenuItem><div className="menu-separator"/>
       {[20,40,80,160,320,640,1280,2560].map(wl => <DropdownMenuItem key={wl} onSelect={() => void action('window', wl, wl * 2)}>WL {wl} / WW {wl * 2}</DropdownMenuItem>)}<div className="menu-separator"/>
-      <DropdownMenuItem onSelect={() => void action('negative')}>{negative ? '✓ ' : ''}Neqativ / pozitiv</DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => void action('negative')}>{negative ? '✓ ' : ''}Neqativ / pozitiv <kbd>N</kbd></DropdownMenuItem>
       <DropdownMenuItem onSelect={() => void action('custom')}>Xüsusi pəncərə</DropdownMenuItem>
     </DropdownMenuContent></DropdownMenu>
     <Dialog open={custom} onOpenChange={setCustom}><DialogContent className="output-dialog"><DialogHeader><DialogTitle>Xüsusi window</DialogTitle><DialogDescription>Aktiv görüntü üçün parlaqlıq və kontrast.</DialogDescription></DialogHeader>

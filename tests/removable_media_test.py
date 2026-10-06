@@ -56,7 +56,7 @@ class MediaTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.disc = self.root / 'disc'; self.disc.mkdir()
         self.present = {str(self.disc): ('disc-serial', 'Synthetic CT')}
-        self.media = RemovableMedia(lambda: dict(self.present), interval=.02)
+        self.media = RemovableMedia(lambda: dict(self.present), interval=.02, cache_parent=self.root)
 
     def tearDown(self):
         self.media.close(); self.temp.cleanup()
@@ -70,7 +70,7 @@ class MediaTests(unittest.TestCase):
         wait_for(lambda: self.media.snapshot()['sessions'][0]['stage'] != 'scanning')
         return self.media.snapshot()['sessions'][0]
 
-    def test_extensionless_raw_nested_duplicates_junk_and_no_disk_cache(self):
+    def test_extensionless_raw_nested_duplicates_junk_and_local_cache(self):
         write_image(self.disc/'nested'/'IMAGE0001', 1)
         write_image(self.disc/'nested'/'raw.noextension', 2, raw=True)
         write_image(self.disc/'duplicate.dcm', 1)
@@ -82,7 +82,40 @@ class MediaTests(unittest.TestCase):
         self.assertNotIn('path', items[0]); self.assertNotIn('root', state)
         stream, size = self.media.open_file(sid, items[0]['id'])
         with stream: self.assertEqual(len(stream.read()), size)
-        self.assertEqual(list(self.root.iterdir()), [self.disc])
+        cached = list(self.media.cache_root.rglob('*.dcm'))
+        self.assertEqual(len(cached), 2)
+        self.assertFalse(list(self.media.cache_root.rglob('*.part')))
+        # Scrolling still succeeds without reading source bytes a second time.
+        for source in self.disc.rglob('*'):
+            if source.is_file(): source.write_bytes(b'no longer readable DICOM')
+        stream, size = self.media.open_file(sid, items[0]['id'])
+        with stream: self.assertEqual(len(stream.read()), size)
+        self.present.clear(); self.media.poll()
+        wait_for(lambda: list(self.media.cache_root.iterdir()) == [self.media.cache_root/'.owner'])
+
+    def test_eject_during_copy_never_publishes_partial_and_removes_files(self):
+        write_image(self.disc/'I0001')
+        started, resume = Event(), Event()
+        original = self.media._copy
+        def blocked(session, source, fid, size):
+            (session['cache']/'blocked.part').write_bytes(b'partial')
+            started.set(); resume.wait(5)
+            if session['cancel'].is_set(): return None
+            return original(session, source, fid, size)
+        with patch.object(self.media, '_copy', side_effect=blocked):
+            sid = self.start(); self.assertTrue(started.wait(5))
+            self.assertEqual(self.media.entries(sid)['items'], [])
+            self.present.clear(); self.media.poll(); resume.set()
+            wait_for(lambda: list(self.media.cache_root.iterdir()) == [self.media.cache_root/'.owner'])
+            self.assertEqual(self.media.snapshot()['sessions'], [])
+
+    def test_copy_error_is_visible_and_does_not_publish_unreadable_image(self):
+        write_image(self.disc/'I0001')
+        with patch.object(self.media, '_copy', side_effect=OSError('Temporary disk is full')):
+            sid = self.start(); state = self.ready()
+            self.assertEqual(state['stage'], 'error')
+            self.assertIn('disk is full', state['error'])
+            self.assertEqual(self.media.entries(sid)['items'], [])
 
     def test_dicomdir_references_first_and_path_escape_ignored(self):
         write_image(self.disc/'images'/'first', 2)
@@ -128,6 +161,19 @@ class MediaTests(unittest.TestCase):
         self.ready(); self.assertNotEqual(self.media.snapshot()['sessions'][0]['id'], sid)
         self.media.unwatch('test-client-0123456789')
         self.assertEqual(self.media.snapshot()['sessions'], [])
+        wait_for(lambda: list(self.media.cache_root.iterdir()) == [self.media.cache_root/'.owner'])
+
+    def test_restart_cleans_abandoned_cache_but_preserves_other_live_service(self):
+        from radaz_removable import CACHE_MARKER
+        abandoned = self.root/'radaz-cd-cache-abandoned'; abandoned.mkdir()
+        (abandoned/'.owner').write_bytes(CACHE_MARKER)
+        (abandoned/'old.dcm').write_bytes(b'disposable')
+        live = self.media.cache_root
+        other = RemovableMedia(lambda: {}, cache_parent=self.root)
+        try:
+            self.assertFalse(abandoned.exists())
+            self.assertTrue(live.exists())
+        finally: other.close()
 
     def test_http_import_does_not_write_archive_and_enforces_origin(self):
         write_image(self.disc/'FILE_WITHOUT_EXTENSION')

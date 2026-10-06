@@ -25,7 +25,7 @@ class WindowTests(unittest.TestCase):
         token='RADAZ_RECORDS_'+uuid.uuid4().hex
         handles=[]
         try:
-            for title in (f'RADAZ [{token}] · Test', 'RADAZ · Unrelated test window'):
+            for title in (f'(1) RADAZ [{token}] · Test - Microsoft Edge', 'RADAZ · Unrelated test window'):
                 hwnd=user.CreateWindowExW(0x80,'STATIC',title,0xcf0000,-30000,-30000,200,100,None,None,None,None)
                 self.assertTrue(hwnd);handles.append(hwnd);user.ShowWindow(hwnd,4)
             self.assertTrue(minimize_records(token)['minimized'])

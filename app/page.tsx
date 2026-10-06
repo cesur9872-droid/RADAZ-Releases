@@ -41,9 +41,9 @@ const newMprSettings = (): MprSettings => ({ SAG: { mode: 'MPR', thickness: 1 },
 const panePlane = { MS: 'SAG', MC: 'COR', MA: 'AX' } as const;
 const toolItems: { id: Tool; label: string; icon: typeof Ruler; hint: string }[] = [
   { id: 'scroll', label: 'Listələ', icon: MoveVertical, hint: 'S' },
-  { id: 'arrow', label: 'Ox (Arrow)', icon: ArrowUpRight, hint: '' },
-  { id: 'pencil', label: 'Qələm (Pencil)', icon: Pencil, hint: '' },
-  { id: 'cursor3d', label: '3D kursor', icon: Crosshair, hint: '' },
+  { id: 'arrow', label: 'Ox (Arrow)', icon: ArrowUpRight, hint: 'O' },
+  { id: 'pencil', label: 'Qələm (Pencil)', icon: Pencil, hint: 'Q' },
+  { id: 'cursor3d', label: '3D kursor', icon: Crosshair, hint: 'K' },
   { id: 'wl', label: 'WL / WW', icon: SlidersHorizontal, hint: 'W / Ü' },
   { id: 'pan', label: 'Pan', icon: Hand, hint: 'P' },
   { id: 'zoom', label: 'Zoom', icon: MoveDiagonal2, hint: 'Z' },
@@ -525,7 +525,7 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
       },
       progress(progress) {
         setMediaProgress(progress);
-        if (progress.sessions) setStatus(`CD/DVD · ${progress.loaded} / ${progress.discovered} görüntü${progress.scanning ? ' · disk skan edilir…' : progress.loaded + progress.skipped < progress.discovered ? ' · yüklənir…' : ' · diskdən tələb üzrə oxunur'}${progress.skipped ? ` · ${progress.skipped} oxunmadı` : ''}`);
+        if (progress.sessions) setStatus(`CD/DVD · ${progress.loaded} / ${progress.discovered} görüntü${progress.scanning ? ' · müvəqqəti diskə köçürülür…' : progress.loaded + progress.skipped < progress.discovered ? ' · yüklənir…' : ' · sürətli müvəqqəti nüsxədən oxunur'}${progress.skipped ? ` · ${progress.skipped} oxunmadı` : ''}`);
         if (!progress.scanning && progress.loaded + progress.skipped >= progress.discovered) {
           const next = listRef.current.map(s => s.mediaSession && s.loading && s.discovered === s.imageIds.length ? { ...s, loading: false } : s);
           if (next.some((s, i) => s !== listRef.current[i])) { listRef.current = next; setSeriesList(next); }
@@ -1165,7 +1165,7 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
           {mediaProgress?.error ? <small role="alert">{mediaProgress.error} <a href="/RADAZ-Qurasdirma.html" target="_blank" rel="noreferrer">Quraşdırma təlimatı</a></small> : !mediaProgress?.sessions ? <small>CD/DVD gözlənilir…</small> : null}
           <WorkProgress progress={mediaProgress && (mediaProgress.scanning || mediaProgress.loaded + mediaProgress.skipped < mediaProgress.discovered) && !mediaProgress.error ? {
             label:'CD/DVD yüklənir',done:mediaProgress.loaded,total:mediaProgress.discovered,indeterminate:mediaProgress.scanning,
-            phase:mediaProgress.scanning?'Disk skan edilir; görüntülərə artıq baxa bilərsiniz':mediaProgress.skipped ? `${mediaProgress.skipped} görüntü oxunmadı` : undefined,
+            phase:mediaProgress.scanning?'Müvəqqəti diskə köçürülür; hazır görüntülərə baxa bilərsiniz':mediaProgress.skipped ? `${mediaProgress.skipped} görüntü oxunmadı` : undefined,
           } : null}/>
         </div>}
       </aside>}
