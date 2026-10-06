@@ -134,6 +134,8 @@ class MediaTests(unittest.TestCase):
 
     def test_first_instance_visible_before_700_image_scan_finishes_and_eject_cancels(self):
         for index in range(1, 701): write_image(self.disc/f'I{index:04}', index)
+        archive = Archive(self.root/'archive', bind='127.0.0.1')
+        handler_for(archive, self.media); self.addCleanup(archive.stop)
         first = Event(); resume = Event()
         def slow(path):
             result = image_metadata(path)
@@ -145,10 +147,12 @@ class MediaTests(unittest.TestCase):
             state = self.media.snapshot()['sessions'][0]
             self.assertEqual(state['total'], 1); self.assertEqual(state['stage'], 'scanning')
             item = self.media.entries(sid)['items'][0]
+            self.assertTrue(item['archived']); self.assertEqual(archive.status()['instanceCount'], 1)
             self.present.clear(); self.media.poll()
             self.assertEqual(self.media.snapshot()['sessions'], [])
             resume.set(); time.sleep(.05)
             with self.assertRaises(FileNotFoundError): self.media.open_file(sid, item['id'])
+            self.assertEqual(archive.status()['instanceCount'], 1)
             self.assertEqual(self.media.snapshot()['sessions'], [])
 
     def test_eject_reinsert_same_letter_has_new_session_and_stale_ids_fail(self):
@@ -175,7 +179,30 @@ class MediaTests(unittest.TestCase):
             self.assertTrue(live.exists())
         finally: other.close()
 
-    def test_http_import_does_not_write_archive_and_enforces_origin(self):
+    def test_archive_commit_is_required_before_publication_and_eject_preserves_committed(self):
+        for index in (1, 2): write_image(self.disc/f'I{index:04}', index)
+        archive = Archive(self.root/'archive', bind='127.0.0.1')
+        handler_for(archive, self.media)
+        persist = self.media.persist
+        entered, resume = Event(), Event()
+        def gated(path):
+            if archive.status()['instanceCount'] == 1:
+                entered.set(); resume.wait(5)
+                raise OSError('Archive disk is full')
+            persist(path)
+        self.media.persist = gated
+        try:
+            sid = self.start(); self.assertTrue(entered.wait(5))
+            self.assertEqual(len(self.media.entries(sid)['items']), 1)
+            self.assertEqual(archive.status()['instanceCount'], 1)
+            resume.set(); state = self.ready()
+            self.assertEqual(state['stage'], 'error'); self.assertIn('disk is full', state['error'])
+            self.assertEqual(state['total'], 1)
+            self.present.clear(); self.media.poll()
+            self.assertEqual(archive.status()['instanceCount'], 1)
+        finally: resume.set(); archive.stop()
+
+    def test_http_import_persists_before_publish_survives_eject_and_deduplicates(self):
         write_image(self.disc/'FILE_WITHOUT_EXTENSION')
         archive = Archive(self.root/'archive', bind='127.0.0.1')
         http = ThreadingHTTPServer(('127.0.0.1', 0), handler_for(archive, self.media))
@@ -191,10 +218,15 @@ class MediaTests(unittest.TestCase):
             with urlopen(url+f'/removable/entries?session={sid}') as response: item = json.load(response)['items'][0]
             with urlopen(url+f'/removable/file/{sid}/{item["id"]}') as response:
                 self.assertEqual(response.headers['Cache-Control'], 'no-store'); self.assertTrue(response.read())
-            self.assertEqual(archive.status()['instanceCount'], 0)
+            self.assertTrue(item['archived'])
+            self.assertEqual(archive.status()['instanceCount'], 1)
             self.present.clear(); self.media.poll()
             with self.assertRaises(HTTPError) as caught: urlopen(url+f'/removable/file/{sid}/{item["id"]}')
             self.assertEqual(caught.exception.code, 410)
+            with urlopen(url+'/file/'+item['sopUID']) as response: self.assertTrue(response.read())
+            self.assertEqual(archive.status()['instanceCount'], 1)
+            self.present[str(self.disc)] = ('disc-serial', 'Synthetic CT'); self.media.poll(); self.ready()
+            self.assertEqual(archive.status()['instanceCount'], 1)
         finally:
             http.shutdown(); http.server_close(); thread.join(); archive.stop()
 

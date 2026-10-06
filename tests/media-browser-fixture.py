@@ -46,6 +46,9 @@ Base = handler_for(archive, media)
 
 class Handler(Base):
     def do_GET(self):
+        if self.path == '/file/2.25.101.20': released.wait(60)
+        if self.path == '/_test/cache':
+            self.respond({'files': len(list(media.cache_root.rglob('*.dcm')))}); return
         if self.path == '/_test/large':
             ds = dcmread(disc/'CT/I0002')
             ds.Rows = ds.Columns = 2048

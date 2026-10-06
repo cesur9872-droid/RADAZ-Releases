@@ -1,13 +1,26 @@
-"""Minimize only RADAZ record popups, never the main browser/Viewer window."""
+"""Native actions target only a temporary, unguessable RADAZ window caption."""
 import os
 import re
 import time
 
+_viewers = {}
+
 def minimize_records(token):
-    if not isinstance(token, str) or not re.fullmatch(r'RADAZ_RECORDS_[a-f0-9]{32}', token):
+    return _activate(token, False)
+
+def maximize_viewer(token):
+    return _activate(token, True)
+
+def register_viewer(token):
+    return _activate(token, True, register=True)
+
+def _activate(token, maximize, register=False):
+    prefix = "RADAZ_VIEWER_" if maximize else "RADAZ_RECORDS_"
+    result = "registered" if register else "maximized" if maximize else "minimized"
+    if not isinstance(token, str) or not re.fullmatch(prefix + r'[a-f0-9]{32}', token):
         raise ValueError('Pəncərə identifikatoru düzgün deyil')
     if os.name != 'nt':
-        return {'minimized': False}
+        return {result: False}
     import ctypes
     from ctypes import wintypes
     user = ctypes.WinDLL('user32', use_last_error=True)
@@ -15,6 +28,11 @@ def minimize_records(token):
     user.GetWindowTextLengthW.argtypes = [wintypes.HWND]
     user.ShowWindowAsync.argtypes = [wintypes.HWND, ctypes.c_int]
     user.IsWindowVisible.argtypes = [wintypes.HWND]
+    user.SetForegroundWindow.argtypes = [wintypes.HWND]
+    user.GetPropW.argtypes = [wintypes.HWND, wintypes.LPCWSTR]
+    user.GetPropW.restype = wintypes.HANDLE
+    user.SetPropW.argtypes = [wintypes.HWND, wintypes.LPCWSTR, wintypes.HANDLE]
+    user.IsZoomed.argtypes = [wintypes.HWND]
     user.IsIconic.argtypes = [wintypes.HWND]
     callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
     user.EnumWindows.argtypes = [callback_type, wintypes.LPARAM]
@@ -30,10 +48,24 @@ def minimize_records(token):
     deadline = time.monotonic() + 1.5
     while True:
         found.clear()
-        user.EnumWindows(visit, 0)
+        # Chromium can postpone caption updates while minimized. Register a
+        # native window property while visible; Windows clears it on destruction,
+        # so a reused HWND can never select an unrelated browser window.
+        cached = _viewers.get(token)
+        if maximize and cached and user.GetPropW(cached, 'RADAZ:' + token) == 1:
+            found.append(cached)
+        else:
+            _viewers.pop(token, None)
+            user.EnumWindows(visit, 0)
         if found:
             for hwnd in found:
-                if not user.IsIconic(hwnd): user.ShowWindowAsync(hwnd, 6)  # SW_MINIMIZE
-            return {'minimized': True}
-        if time.monotonic() >= deadline: return {'minimized': False}
+                if maximize:
+                    if user.SetPropW(hwnd, 'RADAZ:' + token, 1): _viewers[token] = hwnd
+                    if register: continue
+                    user.ShowWindowAsync(hwnd, 3)  # SW_MAXIMIZE also restores an iconic Viewer
+                    user.SetForegroundWindow(hwnd)
+                elif not user.IsIconic(hwnd):
+                    user.ShowWindowAsync(hwnd, 6)  # Legacy clients only
+            return {result: True}
+        if time.monotonic() >= deadline: return {result: False}
         time.sleep(.05)

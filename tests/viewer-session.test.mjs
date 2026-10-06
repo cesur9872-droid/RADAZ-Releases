@@ -4,7 +4,8 @@ import {registerViewer,openStudyInViewer,openStudiesInViewer,requestedStudies,fo
 let opened=[],navigated=[];
 const storage=new Map();globalThis.localStorage={getItem:k=>storage.get(k),setItem:(k,v)=>storage.set(k,v)};
 const open=(url,name)=>{opened.push([url,name]);return {name,closed:false,focus(){},location:{href:'http://localhost/',assign:url=>navigated.push(url),replace:url=>navigated.push(url)}};};
-globalThis.window={name:'',open,focus(){},addEventListener(){},removeEventListener(){}};
+globalThis.document={title:'RADAZ'};
+globalThis.window={location:{hash:'',search:''},name:'',open,focus(){},addEventListener(){},removeEventListener(){}};
 test('reuses the registered Viewer and loads each selection in place',async()=>{
  const loaded=[],stop=registerViewer(async ids=>loaded.push(ids));
  try{
@@ -31,12 +32,19 @@ test('records popup survives a severed Edge opener and keeps a stable native tit
  const token='RADAZ_RECORDS_'+'a'.repeat(32),originalFetch=globalThis.fetch;
  const calls=[],titles=[];
  globalThis.document={title:''};window.name='';window.opener=null;window.location={search:'?records='+token};
- globalThis.fetch=async(url,options)=>{calls.push([url,JSON.parse(options.body)]);titles.push(document.title);return {ok:true};};
+ globalThis.fetch=async(url,options)=>{calls.push([url,JSON.parse(options.body)]);titles.push(document.title);return {ok:true,json:async()=>({})};};
  try{
   recordsWindowTitle('Local arxiv');assert.equal(window.name,token);assert.equal(document.title,'RADAZ · Local arxiv');
   await openStudyInViewer('1.2.3');
-  assert.deepEqual(calls,[['/local-archive-api/window/minimize',{token}]]);
-  assert.equal(titles[0],`RADAZ [${token}] · RADAZ · Local arxiv`);
+  assert.deepEqual(calls,[], 'Records window never minimizes itself');
   assert.equal(document.title,'RADAZ · Local arxiv');
- }finally{globalThis.fetch=originalFetch;window.name='';delete globalThis.document;}
+ }finally{globalThis.fetch=originalFetch;window.name='';globalThis.document={title:'RADAZ'};window.location={hash:'',search:''};}
+});
+
+test('registered Viewer requests native maximize with its own token',async()=>{
+ const previous=globalThis.fetch,calls=[];
+ globalThis.fetch=async(url,options)=>{calls.push([url,JSON.parse(options.body)]);return {ok:true,json:async()=>({})};};
+ const stop=registerViewer(async()=>{});
+ try{await openStudyInViewer('1.2.9');assert.ok(calls.length);assert.ok(calls.every(([url,data])=>['/local-archive-api/window/register','/local-archive-api/window/maximize'].includes(url)&&data.token===window.name));}
+ finally{stop();globalThis.fetch=previous;}
 });

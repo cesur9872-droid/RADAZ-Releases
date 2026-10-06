@@ -1,6 +1,6 @@
 export type MediaSession = { id: string; label: string; stage: 'scanning' | 'ready' | 'error'; scanned: number; total: number; error: string; dicomdir: boolean };
 export type MediaImage = { id: string; studyId: string; seriesUID: string; sopUID: string; name: string; modality: string;
-  patient: string; patientId: string; birth: string; date: string; number: string; instance: number; size: number; decodedBytes: number; tags: Record<string,string> };
+  patient: string; patientId: string; birth: string; date: string; number: string; instance: number; size: number; decodedBytes: number; archived?: boolean; tags: Record<string,string> };
 export type MediaProgress = { sessions: number; discovered: number; loaded: number; skipped: number; scanning: boolean; error: string };
 type SessionState = { session: MediaSession; controller: AbortController; next: number; queue: MediaImage[];
   loaded: number; skipped: number; pumping: boolean; bytes: number; error: string };
@@ -48,7 +48,7 @@ export function watchRemovableMedia(callbacks: Callbacks, onlySessions?: string[
       while (state.queue.length && !state.controller.signal.aborted) {
         const item = state.queue.shift()!;
         try {
-          const url = `${base}/file/${state.session.id}/${item.id}`;
+          const url = item.archived ? `/local-archive-api/file/${encodeURIComponent(item.sopUID)}` : `${base}/file/${state.session.id}/${item.id}`;
           if (state.controller.signal.aborted) break;
           await callbacks.image(state.session.id, item, url, state.controller.signal);
           if (state.controller.signal.aborted) break;

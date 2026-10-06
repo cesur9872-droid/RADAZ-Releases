@@ -277,6 +277,11 @@ class Archive:
 def handler_for(archive, removable=None):
     from radaz_removable import RemovableMedia
     removable = removable or RemovableMedia()
+    def persist_media(path):
+        data = path.read_bytes()
+        ds = pydicom.dcmread(io.BytesIO(data), force=True)
+        archive.store(data, ds)
+    removable.persist = persist_media
     output = OutputService(archive.root)
     product = ProductService(archive.root)
     lifecycle = {'posts': 0, 'stopping': False}
@@ -419,13 +424,14 @@ def handler_for(archive, removable=None):
                 if not 0 < length <= limit:
                     self.respond({'error':'Sorğu ölçüsü düzgün deyil'},413); return
                 data = self.rfile.read(length)
-                if self.path == '/window/minimize':
+                if self.path in ('/window/minimize', '/window/maximize', '/window/register'):
                     if self.client_address[0] not in ('127.0.0.1', '::1'):
                         self.respond({'minimized': False}); return
                     if self.headers.get_content_type() != 'application/json':
                         self.respond({'error': 'JSON tələb olunur'}, 415); return
-                    from radaz_windows import minimize_records
-                    self.respond(minimize_records(json.loads(data).get('token'))); return
+                    from radaz_windows import minimize_records, maximize_viewer, register_viewer
+                    action = {'/window/maximize': maximize_viewer, '/window/register': register_viewer, '/window/minimize': minimize_records}[self.path]
+                    self.respond(action(json.loads(data).get('token'))); return
                 if self.path in ('/removable/watch', '/removable/close'):
                     if self.headers.get_content_type() != 'application/json':
                         self.respond({'error': 'JSON tələb olunur'}, 415); return

@@ -31,7 +31,7 @@ Arxiv proqramın versiya qovluqlarından ayrıdır. Standart yer `Documents\RADA
 ## İş axını
 
 - **Local arxiv və PACS:** müayinələri checkbox ilə seçin və açın. Mövcud Viewer istifadə olunur. Viewer-dən açılmış ayrıca arxiv/PACS pəncərəsi müayinə açıldıqda Windows-da minimallaşır; adi brauzer tablarında Viewer-ə fokus keçidi istifadə olunur.
-- **CD/DVD:** diskdəki DICOM faylları arxa planda müvəqqəti disk qovluğuna köçürülür; siyahı və piksellər hazır lokal nüsxələrdən oxunur. Yenidən oxuna bilən piksel keşinin həddi 256 MB-dır; aktiv həcm/görüntülər ayrıca yaddaş tələb edir. Disk çıxarılanda müvəqqəti görüntülər bağlanır və lokal nüsxələr silinir. Disk öz-özünə daimi arxivə yazılmır.
+- **CD/DVD:** DICOM faylları ardıcıl köçürülüb daimi Local arxivə yazılır; hər hazır görüntü eyni vaxtda Viewer-də görünür. Piksellər lokal diskdən oxunur. CD çıxarılanda yalnız müvəqqəti köçürmə nüsxəsi silinir; arxiv və açıq görüntülər saxlanılır. Təkrar import eyni SOP faylını çoxaltmır.
 - **Ölçmələr:** xəttin üzərindən tutub daşıyın. Oxun uclarından tutub istiqamətini və uzunluğunu dəyişin. Ox üzərində iki klik və ya sağ klik menyusu şərhi dəyişir. Sağ klik → **Sil**, **Ctrl+D** → cari kəsitdə hamısını sil.
 - **2D mouse:** sol düymə WW/WL, orta düymə daşıma, sağ düyməni sürükləmə zoom, təkər kəsitləri dəyişir. Seçilmiş alət sol düymənin davranışını dəyişir.
 - **Hesabat:** Viewer siyahısında seçilmiş seriya açılır. Hesabat redaktoru, Word/PDF çıxışı və seçilmiş görüntülərin ZIP hazırlanması mövcuddur.

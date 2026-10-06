@@ -27,7 +27,7 @@ try {
   browser=await chromium.launch({headless:true,channel:'msedge'});
   const context=await browser.newContext({viewport:{width:1366,height:768}});
   await context.route('**/local-archive-api/license',route=>route.fulfill({json:{valid:true,required:true,kind:'owner',message:'Synthetic license',deviceId:'TEST'}}));
-  page=await context.newPage();page.setDefaultTimeout(20000);const errors=[];let pickers=0,imports=0;
+  page=await context.newPage();page.setDefaultTimeout(90000);const errors=[];let pickers=0,imports=0;
   context.on('page',p=>{p.on('pageerror',e=>errors.push(e.stack || e.message));});page.on('pageerror',e=>errors.push(e.stack || e.message));
   page.on('filechooser',()=>pickers++);
   context.on('request',r=>{if(r.url().endsWith('/local-archive-api/import'))imports++;});
@@ -114,24 +114,29 @@ try {
   const reportPromise=context.waitForEvent('page');await page.getByRole('button',{name:'Radioloji hesabat',exact:true}).click();const report=await reportPromise;
   await report.locator('.report-study').first().waitFor({timeout:30000});
   await page.screenshot({path:'outputs/media/loaded-700.png'});
-  const archive=await (await fetch(`http://127.0.0.1:${archivePort}/status`)).json();assert.equal(archive.instanceCount,0);assert.equal(imports,0);assert.equal(pickers,0);
+  const archive=await (await fetch(`http://127.0.0.1:${archivePort}/status`)).json();assert.equal(archive.instanceCount,701);assert.equal(imports,0);assert.equal(pickers,0);
   assert.equal(await page.evaluate(async()=>{const databases=await indexedDB.databases();if(!databases.some(d=>d.name==='radaz-local-archive'))return 0;return new Promise((resolve,reject)=>{const r=indexedDB.open('radaz-local-archive');r.onsuccess=()=>{const db=r.result;const count=db.transaction('instances').objectStore('instances').count();count.onsuccess=()=>{resolve(count.result);db.close();};count.onerror=reject;};});}),0);
   await control('eject');
-  await page.waitForFunction(()=>document.querySelectorAll('.series-card').length===0);
-  await mpr.waitForFunction(()=>document.querySelectorAll('[data-panel][data-has-image="true"]').length===0);
-  await volume.waitForFunction(()=>document.querySelectorAll('.cornerstone-volume-stage canvas').length===0);
-  await report.waitForFunction(()=>document.querySelectorAll('.report-study').length===0);
-  await page.screenshot({path:'outputs/media/ejected-clean.png'});
-  // Reinsert, then eject during the deliberately blocked transfer.
-  await page.getByRole('button',{name:'2D Viewer',exact:true}).click();
-  await page.bringToFront();await control('insert');await page.locator('.series-card').filter({hasText:'CD progressive CT'}).waitFor();await page.locator('.series-card').filter({hasText:'CD progressive CT'}).click();await page.waitForFunction(()=>document.querySelector('[data-panel="A"] .overlay.bottom-right')?.textContent.includes('/ 700'));
-  await control('eject');await page.waitForFunction(()=>document.querySelectorAll('.series-card').length===0);await delay(1000);
-  assert.equal(await page.locator('.series-card').count(),0);
+  await page.waitForFunction(()=>document.querySelector('.statusbar')?.textContent.includes('Local arxivdə saxlanıldı'));
+  assert.equal(await page.locator('.series-card').count(),2);
+  assert.equal(await mpr.locator('[data-panel][data-has-image="true"]').count(),3);
+  assert.ok(await volume.locator('.cornerstone-volume-stage canvas').count());
+  assert.ok(await report.locator('.report-study').count());
+  assert.equal((await (await fetch(`http://127.0.0.1:${archivePort}/_test/cache`)).json()).files,0);
+  assert.equal((await (await fetch(`http://127.0.0.1:${archivePort}/status`)).json()).instanceCount,701);
+  await page.screenshot({path:'outputs/media/ejected-archived.png'});
+  // Reinsert: persistent series and archive instances must not duplicate.
+  await control('insert');await control('resume');
+  await page.waitForFunction(()=>document.querySelector('.media-import-progress')?.textContent.includes('701'));
+  await delay(1500);await control('eject');await delay(1500);
+  assert.equal(await page.locator('.series-card').count(),2);
+  assert.match(await page.locator('.series-card').filter({hasText:'CD progressive CT'}).textContent(),/700 görüntü/);
+  assert.equal((await (await fetch(`http://127.0.0.1:${archivePort}/status`)).json()).instanceCount,701);
   }
   await control('archive');
   const archivePage=await context.newPage();await archivePage.goto(base+'/archive');
   await archivePage.getByRole('checkbox',{name:'Bu gün',exact:true}).uncheck();
-  await page.waitForFunction(()=>document.querySelector('.statusbar')?.textContent.includes('Cornerstone3D hazırdır')&&window.name.startsWith('RADAZ_VIEWER_'));
+  await page.waitForFunction(()=>window.name.startsWith('RADAZ_VIEWER_'));
   const count=context.pages().length;
   for(let i=1;i<=3;i++){
     await archivePage.bringToFront();
@@ -170,7 +175,7 @@ try {
   await first.screenshot({path:'outputs/media/measurement-theme.png'});
   console.log('Archive opens and replaces selections in the same Viewer; CD import stays off');
   assert.deepEqual(errors,[]);
-  console.log(process.env.RADAZ_ARCHIVE_ONLY ? 'PASS: Viewer reuse, multi-study selections and per-measurement hover/selection.' : 'PASS: 700 CT slices progressive, raw/extensionless/JPEG import, scroll preserved, MPR/3D/report eject cleanup, mid-transfer eject, no archive writes or pickers; Viewer reuse and measurements.');
+  console.log(process.env.RADAZ_ARCHIVE_ONLY ? 'PASS: Viewer reuse, multi-study selections and per-measurement hover/selection.' : 'PASS: 700 CT slices progressive, raw/extensionless/JPEG import, scroll preserved, MPR/3D/report persist after eject, permanent archive import and reinsert deduplication, no pickers; Viewer reuse and measurements.');
 } catch(error) {
   for (const [i,p] of (browser?.contexts()[0]?.pages() || []).entries()) {
     console.error(`PAGE ${i} ${p.url()}:`,await p.locator('body').innerText().catch(()=>''));

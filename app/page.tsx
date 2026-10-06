@@ -31,7 +31,7 @@ import { watchRemovableMedia, type MediaImage, type MediaProgress } from '@/lib/
 import type * as Core from '@cornerstonejs/core';
 
 type Tool = 'scroll' | 'arrow' | 'pencil' | 'cursor3d' | 'wl' | 'pan' | 'zoom' | 'length' | 'angle' | 'arch' | 'cobb' | 'ellipse' | 'hu' | 'deviation' | 'erase';
-type Series = { id: string; studyId: string; name: string; modality: string; patient: string; patientId: string; birth: string; date: string; number: string; imageIds: string[]; initialImageId?:string; thumb?: string; mediaSession?: string; discovered?: number; loading?: boolean };
+type Series = { id: string; studyId: string; name: string; modality: string; patient: string; patientId: string; birth: string; date: string; number: string; imageIds: string[]; initialImageId?:string; thumb?: string; mediaSession?: string; archived?: boolean; discovered?: number; loading?: boolean };
 type Preset = { ww: number; wl: number; token: number; panel: string; seriesId: string } | null;
 type ImportSource = { id: number; label: string; files: File[] };
 type MprData = { sourceId: string; stacks: Record<'SAG' | 'COR' | 'AX', string[]>; planes: Series[]; owned: string[]; orientations: MprOrientations | null; pivot?: Point3 | null };
@@ -399,7 +399,7 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
   const sourceSerial = useRef(0);
   const openedFiles = useRef<File[]>([]);
   const mediaFiles = useRef(new Map<string, File[]>());
-  const mediaOrder = useRef(new Map<string, { id: string; n: number }[]>());
+  const mediaOrder = useRef(new Map<string, { id: string; n: number; sop: string }[]>());
   const preferredMediaSeries = useRef<string | undefined>(undefined);
   // Disc watching belongs to this Viewer; archive/PACS tabs must start with it off.
   const [mediaEnabled, setMediaEnabled] = useState(false);
@@ -408,7 +408,7 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
   const [loadProgress, setLoadProgress] = useState<LoadingProgress | null>(null);
   const [mprProgress, setMprProgress] = useState<LoadingProgress | null>(null);
   const mprBuildEpoch = useRef(0);
-  const mediaId = (session: string, item: MediaImage) => `media:${session}:${item.studyId}/${item.seriesUID}`;
+  const mediaId = (session: string, item: MediaImage) => `media:${item.archived ? "archive" : session}:${item.studyId}/${item.seriesUID}`;
   const channels = useRef<Map<DetachedMode | 'report', BroadcastChannel>>(new Map());
   const detachedWindows=useRef(new Map<DetachedMode,Window>());
   const detachedSources=useRef(new Map<DetachedMode,()=>void>());
@@ -435,14 +435,14 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
       void (async () => {
         const diskSources = reportIds.map(getDiskDicomSource);
         if (diskSources.length && diskSources.every(Boolean)) {
-          channel.postMessage({kind:'MEDIA_REPORT', sources:diskSources, preferredSeriesId, mediaSessions:[selected!.mediaSession]}); return;
+          channel.postMessage({kind:'MEDIA_REPORT', sources:diskSources, preferredSeriesId, mediaSessions:selected?.mediaSession && !selected.archived ? [selected.mediaSession] : []}); return;
         }
         const files: File[] = [];
         for (const id of reportIds) {
           const bytes = await getOriginalDicom(id);
           if (bytes) files.push(new File([bytes as BlobPart], `${id.replace(':','-')}.dcm`, {type:'application/dicom'}));
         }
-        channel.postMessage({kind:'LOAD', files, preferredSeriesId, mediaSessions:selected?.mediaSession?[selected.mediaSession]:[]});
+        channel.postMessage({kind:'LOAD', files, preferredSeriesId, mediaSessions:selected?.mediaSession && !selected.archived ? [selected.mediaSession] : []});
       })().catch(() => setStatus('Hesabat üçün seçilmiş seriya oxunmadı; mənbə diski yoxlayın.'));
     };
     channels.current.set(mode,channel);
@@ -478,7 +478,7 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
         let next = [...listRef.current];
         for (const item of images) {
           const id = mediaId(session, item), existing = next.find(s => s.id === id);
-          if (existing) next = next.map(s => s.id === id ? { ...s, discovered: (s.discovered || 0) + 1 } : s);
+          if (existing) next = next.map(s => s.id === id ? { ...s, mediaSession: session, discovered: (s.mediaSession === session ? s.discovered || 0 : 0) + 1, loading: true } : s);
           else next.push({ ...item, id, imageIds: [], mediaSession: session, discovered: 1, loading: true });
         }
         listRef.current = next; setSeriesList(next);
@@ -490,24 +490,28 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
 
       },
       async image(session, item, url, signal) {
-        const imageId = registerDiskDicom(item.tags, url, signal);
+        const imageId = registerDiskDicom(item.tags, url, item.archived ? new AbortController().signal : signal);
         if (signal.aborted) { releaseLocalDicoms([imageId]); return; }
         const id = mediaId(session, item);
         if (!listRef.current.some(s => s.id === id)) { releaseLocalDicoms([imageId]); return; }
-        const ordered = mediaOrder.current.get(id) || [];
-        ordered.push({ id: imageId, n: item.instance }); ordered.sort((a, b) => a.n - b.n);
+        const existing = listRef.current.find(s => s.id === id)!;
+        const ordered = (mediaOrder.current.get(id) || []).filter(i => existing.imageIds.includes(i.id));
+        if (ordered.some(i => i.sop === item.sopUID)) { releaseLocalDicoms([imageId]); return; }
+        ordered.push({ id: imageId, n: item.instance, sop: item.sopUID }); ordered.sort((a, b) => a.n - b.n);
         mediaOrder.current.set(id, ordered);
         const next = listRef.current.map(s => s.id === id ? { ...s, imageIds: ordered.map(i => i.id), thumb: s.thumb || thumbnailLocalDicom(imageId) } : s);
         listRef.current = next; setSeriesList(next);
 
       },
       removed(session) {
-        mprBuildEpoch.current++; setMprProgress(null);
-        const removed = listRef.current.filter(s => s.mediaSession === session);
+        const removed = listRef.current.filter(s => s.mediaSession === session && !s.archived);
         const ids = new Set(removed.flatMap(s => s.imageIds));
-        const next = listRef.current.filter(s => s.mediaSession !== session);
+        const next = listRef.current.filter(s => s.mediaSession !== session || s.archived).map(s => s.mediaSession === session ? {...s, mediaSession: undefined, discovered: s.imageIds.length, loading: false} : s);
         removed.forEach(s => mediaOrder.current.delete(s.id)); mediaFiles.current.delete(session);
         listRef.current = next; setSeriesList(next);
+        setStatus('CD/DVD izləməsi bitdi. Köçürülmüş görüntülər Local arxivdə saxlanıldı.');
+        if (!removed.length) return;
+        mprBuildEpoch.current++; setMprProgress(null);
         setAssigned(current => Object.fromEntries(Object.entries(current).filter(([, id]) => next.some(s => s.id === id))));
         setCurrentImages(current => Object.fromEntries(Object.entries(current).filter(([, id]) => !ids.has(id))));
         setMarks(current => current.filter(mark => !ids.has(mark.imageId))); setSelectedMarkId(null);
@@ -515,7 +519,7 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
         if (mpr && removed.some(s => s.id === mpr.sourceId)) {
           mpr.owned.forEach(id => ids.add(id)); mprDataRef.current = null; setMprData(null); gestureRef.current = null;
         }
-        setDatasetVersion(v => v + 1); setStatus('CD/DVD çıxarıldı. Müvəqqəti görüntülər təmizləndi.');
+        setDatasetVersion(v => v + 1);
         void getViewer().then(({ tools }) => {
           tools.annotation.state.getAllAnnotations().filter(a => ids.has(a.metadata?.referencedImageId || ''))
             .forEach(a => tools.annotation.state.removeAnnotation(a.annotationUID!));
@@ -525,7 +529,7 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
       },
       progress(progress) {
         setMediaProgress(progress);
-        if (progress.sessions) setStatus(`CD/DVD · ${progress.loaded} / ${progress.discovered} görüntü${progress.scanning ? ' · müvəqqəti diskə köçürülür…' : progress.loaded + progress.skipped < progress.discovered ? ' · yüklənir…' : ' · sürətli müvəqqəti nüsxədən oxunur'}${progress.skipped ? ` · ${progress.skipped} oxunmadı` : ''}`);
+        if (progress.sessions) setStatus(`CD/DVD · ${progress.loaded} / ${progress.discovered} görüntü${progress.scanning ? ' · Local arxivə köçürülür…' : progress.loaded + progress.skipped < progress.discovered ? ' · yüklənir…' : ' · Local arxivdən oxunur'}${progress.skipped ? ` · ${progress.skipped} oxunmadı` : ''}`);
         if (!progress.scanning && progress.loaded + progress.skipped >= progress.discovered) {
           const next = listRef.current.map(s => s.mediaSession && s.loading && s.discovered === s.imageIds.length ? { ...s, loading: false } : s);
           if (next.some((s, i) => s !== listRef.current[i])) { listRef.current = next; setSeriesList(next); }
@@ -657,7 +661,7 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
       if(cancelled)return;
       let snapshot=readDetachedSource(handoff);
       if(!snapshot){
-        if(!listRef.current.some(series=>series.mediaSession)){
+        if(!listRef.current.some(series=>series.mediaSession && !series.archived)){
           if(wasConnected)setStatus('Mənbə Viewer bağlıdır. Açılmış görüntü yaddaşda saxlanılır.');
           return;
         }
@@ -1060,7 +1064,7 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
           </DropdownMenuContent>
         </DropdownMenu></div>}
         {!detachedMode && <Button variant="outline" className={`header-control cd-import-command ${mediaEnabled ? 'active' : ''}`} aria-label="CD/DVD import" aria-pressed={mediaEnabled}
-          title={mediaEnabled ? 'Disk izləməsini dayandır və müvəqqəti görüntüləri bağla' : 'CD/DVD-ni avtomatik aşkar et və aç'} disabled={limited}
+          title={mediaEnabled ? 'CD/DVD importunu dayandır; köçürülmüş görüntülər arxivdə qalır' : 'CD/DVD-ni avtomatik aşkar et və aç'} disabled={limited}
           onClick={() => { setMediaEnabled(enabled => !enabled); setRailHidden(false); }}>
           <Disc3 size={18}/><span>CD/DVD import</span>{mediaEnabled && <span className="status-led"/>}
         </Button>}
@@ -1153,7 +1157,7 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
                 {modality.series.map(({ item: s, index }) => <button key={s.id} draggable onDragStart={e => e.dataTransfer.setData('application/x-series-id', s.id)}
                   className={`series-card ${assigned[active] === s.id ? 'chosen' : ''}`} onClick={() => place(s.id, active)} title={`${s.name} — panel ${active}`}>
                   <div className="series-thumb">{s.thumb ? <img src={s.thumb} alt=""/> : <ScanSearch size={30} strokeWidth={1}/>}<span>{String(index + 1).padStart(2, '0')}</span></div>
-                  <div className="series-info"><strong>{s.name}</strong><span>{s.imageIds.length}{s.discovered && s.discovered > s.imageIds.length ? ` / ${s.discovered}` : ''} görüntü</span><span>{s.mediaSession ? 'CD/DVD · müvəqqəti' : `Seriya ${s.number}`}</span></div><span className="drag-handle" aria-hidden="true">⋮⋮</span>
+                  <div className="series-info"><strong>{s.name}</strong><span>{s.imageIds.length}{s.discovered && s.discovered > s.imageIds.length ? ` / ${s.discovered}` : ''} görüntü</span><span>{s.archived ? 'Local arxiv · CD/DVD' : s.mediaSession ? 'CD/DVD · müvəqqəti' : `Seriya ${s.number}`}</span></div><span className="drag-handle" aria-hidden="true">⋮⋮</span>
                 </button>)}
               </div>)}
             </div>)}

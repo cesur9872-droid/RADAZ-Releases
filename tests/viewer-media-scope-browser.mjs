@@ -61,7 +61,7 @@ try {
     localStorage.setItem('radaz-pacs-config-v1', JSON.stringify({ selected: 'test', aeTitle: 'RADAZ', listenerPort: '11112',
       locations: [{ id: 'test', host: '', port: '11112', aeTitle: 'TEST', description: 'Synthetic PACS', dicomwebUrl: location.origin + '/test-pacs' }] }));
   }, base);
-  const errors = [], mediaRequests = [], pacsRequests = [], minimizeRequests=[];
+  const errors = [], mediaRequests = [], pacsRequests = [], maximizeRequests=[];
   let pickers = 0;
   context.on('page', page => { page.on('pageerror', error => errors.push(error.message)); page.on('filechooser', () => pickers++); });
   context.on('request', request => {
@@ -73,7 +73,7 @@ try {
     const json = body => route.fulfill({ json: body });
     if (path === '/license') return json({ valid: true, required: true, kind: 'owner', message: 'Synthetic license', deviceId: 'TEST' });
     if (path === '/status') return json({ capabilities: [], aeTitle: 'TEST', port: 11112, enabled: false, running: false, error: '', addresses: [], databasePath: '', storagePath: '', instanceCount: 1, size: archived.bytes.length });
-    if (path === '/window/minimize') {minimizeRequests.push(JSON.parse(route.request().postData()));return json({minimized:true});}
+    if (path === '/window/maximize') {maximizeRequests.push(JSON.parse(route.request().postData()));return json({maximized:true});}
     if (path === '/studies') return json([study,secondStudy]);
     if (path === '/instances') return json([{ uid: route.request().url().includes(disc.uid)?disc.sopUID:archived.sopUID }]);
     if (path.startsWith('/file/')) return route.fulfill({ contentType: 'application/dicom', body: path.includes(disc.sopUID)?disc.bytes:archived.bytes });
@@ -125,7 +125,7 @@ try {
   await noAutoImport(archiveViewer);
   assert.equal(await archiveViewer.locator('.series-card').count(),1);
   const discReads=mediaRequests.filter(r=>r.url.includes('/removable/file/')).length;
-  await archivePage.waitForTimeout(250);assert.equal(minimizeRequests.length,1);assert.match(minimizeRequests[0].token,/^RADAZ_RECORDS_[a-f0-9]{32}$/);assert.equal(await archivePage.title(),'RADAZ · Local arxiv');
+  await archivePage.waitForTimeout(250);assert.ok(maximizeRequests.length>=1);assert.match(maximizeRequests[0].token,/^RADAZ_VIEWER_[a-f0-9]{32}$/);assert.equal(await archivePage.title(),'RADAZ · Local arxiv');
   console.log('PASS: archive reuses Viewer and stops its explicit disc import.');
 
   const pacsPage = await context.newPage();

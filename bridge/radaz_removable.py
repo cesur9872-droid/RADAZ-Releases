@@ -1,4 +1,4 @@
-"""Optical media sessions with disposable local copies, separate from the archive.
+"""Optical media sessions with disposable staging and optional durable archive import.
 
 Only the Windows drive enumerator can introduce roots. HTTP callers receive opaque
 session/file IDs, never a filesystem path. Eject cancels copying and removes the cache.
@@ -156,8 +156,9 @@ def image_metadata(path):
 
 
 class RemovableMedia:
-    def __init__(self, drives=optical_drives, interval=1, lease_seconds=120, cache_parent=None):
+    def __init__(self, drives=optical_drives, interval=1, lease_seconds=120, cache_parent=None, persist=None):
         self.drives, self.interval, self.lease_seconds = drives, interval, lease_seconds
+        self.persist = persist
         self.lock, self.stop = RLock(), Event()
         self.clients, self.sessions = {}, {}
         self.thread = None
@@ -319,6 +320,12 @@ class RemovableMedia:
             # A single sequential copy avoids random optical seeks while scrolling.
             # Publish only complete local files; never fall back to slow disc reads.
             cached = self._copy(session, path, fid, item['size'])
+            if cached is None or session['cancel'].is_set(): return
+            # Commit each complete image before announcing it. The Viewer can read
+            # this durable copy immediately while the next image is still copying.
+            if self.persist:
+                self.persist(cached)
+                item['archived'] = True
             with self.lock:
                 if cached is None or session['cancel'].is_set(): return
                 seen_sops.add(item['sopUID'])
@@ -353,7 +360,7 @@ class RemovableMedia:
             with self.lock:
                 if not session['cancel'].is_set():
                     session['stage'] = 'ready'
-        except (OSError, ValueError) as error:
+        except Exception as error:
             with self.lock:
                 if not session['cancel'].is_set():
                     session['stage'] = 'error'

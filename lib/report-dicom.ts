@@ -66,7 +66,9 @@ export async function readReportStudies(files: File[], onProgress?: (done: numbe
 export function readReportMedia(sources: {url:string;tags:Record<string,string>}[]): ReportStudy[] {
   const studies = new Map<string,ReportStudy>();
   for (const source of sources) {
-    if (!/^\/local-archive-api\/removable\/file\/[a-zA-Z0-9-]+\/[a-zA-Z0-9-]+$/.test(source.url)) continue;
+    const optical = /^\/local-archive-api\/removable\/file\/[a-zA-Z0-9-]+\/[a-zA-Z0-9-]+$/.test(source.url);
+    const archived = /^\/local-archive-api\/file\/[0-9]+(?:\.[0-9]+)+$/.test(source.url);
+    if (!optical && !archived) continue;
     const tag=(key:string)=>source.tags[key]||'',uid=tag('x0020000d'),seriesUID=tag('x0020000e');
     let study=studies.get(uid);
     if(!study){study={uid,patient:tag('x00100010').replaceAll('^',' '),birth:dateInput(tag('x00100030')),date:dateInput(tag('x00080020')),modality:tag('x00080060'),description:tag('x00081030'),images:[]};studies.set(uid,study);}

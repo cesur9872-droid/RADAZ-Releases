@@ -13,15 +13,24 @@ export function recordsWindowTitle(label: string) {
   if (recordsToken(token)) window.name = token;
   document.title = `RADAZ · ${label}`;
 }
-async function minimizeRecordsWindow() {
-  if (!recordsToken(window.name)) return;
+let maximizing: Promise<void> | undefined;
+let nativeRegistration: Promise<void> | undefined;
+function maximizeViewerWindow() {
+  window.focus();
+  if (maximizing) return maximizing;
+  maximizing = Promise.resolve(nativeRegistration).then(() => nativeViewerAction('maximize')).finally(() => { maximizing = undefined; });
+  return maximizing;
+}
+async function nativeViewerAction(action: 'register' | 'maximize') {
+  if (!/^RADAZ_VIEWER_[a-f0-9]{32}$/.test(window.name)) return;
   const title = document.title;
   try {
     // Keep the token until the bridge locates the native window. Edge may take
     // longer than a single frame to update its caption after Viewer activation.
     document.title = `RADAZ [${window.name}] · ${title}`;
-    await fetch('/local-archive-api/window/minimize', {method:'POST', headers:{'Content-Type':'application/json'},
+    const response = await fetch(`/local-archive-api/window/${action}`, {method:'POST', headers:{'Content-Type':'application/json'},
       body:JSON.stringify({token:window.name}), signal:AbortSignal.timeout(3500)});
+    await response.json();
   } catch { /* The already-focused Viewer remains usable without a native bridge. */ }
   finally { document.title = title; }
 }
@@ -48,19 +57,21 @@ export async function focusViewer(): Promise<ViewerTarget|null> {
   return tab;
 }
 export function registerViewer(load: (studies: string[]) => Promise<void>, progress?: (value: WorkProgress | null, error?: string) => void) {
-  if (!window.name.startsWith('RADAZ_VIEWER_')) window.name = `RADAZ_VIEWER_${randomId()}`;
+  if (!/^RADAZ_VIEWER_[a-f0-9]{32}$/.test(window.name)) window.name = `RADAZ_VIEWER_${randomId()}`;
   const register=()=>{try{localStorage.setItem(VIEWER_KEY,window.name);}catch{}};
   register();window.addEventListener('focus',register);
+  nativeRegistration = nativeViewerAction('register');
+  if (window.location.hash.includes('archive-stud') || new URLSearchParams(window.location.search).has('pending')) void maximizeViewerWindow();
   const channel = new BroadcastChannel(CHANNEL);
   channel.onmessage = event => {
     const data = event.data;
     if(data?.kind==='FIND'){channel.postMessage({kind:'PRESENT',request:data.request,name:window.name});return;}
     if(data?.target!==window.name)return;
-    if(data.kind==='FOCUS')window.focus();
+    if(data.kind==='FOCUS')void maximizeViewerWindow();
     if(data.kind==='PROGRESS')progress?.(data.progress,data.error);
     if(data.kind==='OPEN'&&Array.isArray(data.studies)&&data.studies.length>0&&data.studies.length<=200&&data.studies.every(validStudy)){
       channel.postMessage({kind:'ACCEPTED',request:data.request});
-      window.focus();void load([...new Set<string>(data.studies)]).catch(error=>progress?.(null,String(error)));
+      void maximizeViewerWindow();void load([...new Set<string>(data.studies)]).catch(error=>progress?.(null,String(error)));
     }
   };
   return () => {window.removeEventListener('focus',register);channel.close();};
@@ -99,6 +110,5 @@ export async function openStudiesInViewer(studies: string[], reserved?: ViewerTa
     if(!('kind' in tab))fallback.location.assign(url);
     fallback.focus();
   }else if(!('kind' in tab))tab.focus();
-  await minimizeRecordsWindow();
   return accepted?'reused':'new';
 }
