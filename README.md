@@ -6,9 +6,11 @@ Azərbaycan dilində DICOM görüntüləmə və radiologiya iş sahəsi — Wind
 
 ## Quraşdırma
 
-1. Son buraxılışın **Assets** bölməsindən **RADAZ-0.2.18-Setup.exe** endirin.
+1. Son buraxılışın **Assets** bölməsindən **RADAZ-0.2.21-Setup.exe** endirin.
 2. Setup-ı açıb quraşdırın. Node.js, Python və lazım olan komponentlər paketə daxildir.
 3. İş masasındakı **RADAZ** qısayolunu açın. Proqram lokal brauzer pəncərəsində işləyir.
+
+Setup Windows-a daxil olanda serveri, Local arxivi və RADAZ pəncərəsini avtomatik başladır. Windows-un Startup bölməsindən bunu söndürmək olar. CD/DVD görüntüləri əvvəlcə Local arxivə saxlanılır və Viewer həmin nüsxədən oxuyur. DICOM, qovluq, ZIP və RAR fayllarını Viewer və ya Local arxiv üzərinə sürükləyib import etmək olar.
 
 Əlavə proqramlaşdırma mühiti tələb olunmur. **Source code (zip)** quraşdırıcı deyil. Alternativ **Windows-x64.zip** tam oflayn paketdir; **Windows-preview.zip** isə texniki istifadə üçündür və ayrıca runtime tələb edir.
 

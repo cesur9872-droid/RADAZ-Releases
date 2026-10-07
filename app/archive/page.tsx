@@ -1,8 +1,8 @@
 'use client';
-import { recordsWindowTitle, openStudiesInViewer } from '@/lib/viewer-session';
+import { recordsWindowTitle, registerRecordsWindow, openStudiesInViewer } from '@/lib/viewer-session';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Activity, FolderOpen, FileArchive, Search, Trash2, ExternalLink, HardDriveDownload, RefreshCw, Settings2, Disc3 } from 'lucide-react';
+import { Activity, FolderOpen, FileArchive, Search, Trash2, ExternalLink, HardDriveDownload, RefreshCw, Settings2, Disc3, X } from 'lucide-react';
 import { deleteLocalStudies, getArchiveFiles, listArchiveStudies, recordStudyOpened, saveArchiveFiles, type ArchiveStudy } from '@/lib/local-archive';
 import { expandSources, filesFromDrop } from '@/lib/import-sources';
 import { ResizableTable, ResizableHeader } from '@/components/resizable-table';
@@ -39,11 +39,12 @@ export default function ArchivePage() {
   }, []);
   useEffect(() => {
     recordsWindowTitle('Local arxiv');
+    const stopWindow = registerRecordsWindow('archive');
     folderRef.current?.setAttribute('webkitdirectory', '');
     folderRef.current?.setAttribute('directory', '');
     void refresh().then(entries => setMessage(`${entries.length} müayinə arxivdədir`)).catch(error => setMessage(`Arxiv açıla bilmədi: ${String(error)}`));
     const timer = setInterval(() => { void refresh().catch(() => undefined); }, 5000);
-    return () => clearInterval(timer);
+    return () => { clearInterval(timer); stopWindow(); };
   }, [refresh]);
 
   const addFiles = async (sources: File[]) => {
@@ -90,22 +91,22 @@ export default function ArchivePage() {
 
   return <main className="archive-shell grouped-records" onDragOver={event => { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; }} onDrop={event => { event.preventDefault(); void filesFromDrop(event.dataTransfer.items, event.dataTransfer.files).then(addFiles).catch(error => setMessage(String(error))); }}>
     <header className="records-header records-unified-header archive-unified-header">
-      <div className="records-summary records-filterbar records-header-filters"><StudyFilterControls from={dateFrom} to={dateTo} modalities={modalities} options={modalityOptions} onFromChange={setDateFrom} onToChange={setDateTo} onModalitiesChange={setModalities}/><label className="records-search"><Search size={16}/><input aria-label="Bütün müayinələrdə axtar" placeholder="Pasiyent, ID, təsvir…" value={search} onChange={event => setSearch(event.currentTarget.value)}/></label></div>
+      <div className="records-summary records-filterbar records-header-filters"><StudyFilterControls from={dateFrom} to={dateTo} modalities={modalities} options={modalityOptions} onFromChange={setDateFrom} onToChange={setDateTo} onModalitiesChange={setModalities}/><label className="records-search"><Search size={16}/><input aria-label="Bütün müayinələrdə axtar" placeholder="Pasiyent, ID, təsvir…" value={search} onChange={event => setSearch(event.currentTarget.value)}/>{search && <button type="button" className="search-clear" aria-label="Arxiv axtarışını təmizlə" title="Təmizlə" onClick={() => setSearch('')}><X size={16}/></button>}</label></div>
       <div className="records-header-actions labeled-header-actions">
         <button className="records-primary" title={`Seçilmişləri aç (${selection.checked.length})`} aria-label={`Seçilmişləri aç (${selection.checked.length})`} disabled={!selection.checked.length||busy} onClick={()=>void openStudy(selection.checked[0])}><ExternalLink size={18}/><span>Seçilmişləri aç ({selection.checked.length})</span></button>
-        <div className="record-action-group"><div className="toolbar-group" role="group" aria-label="DICOM import">        <button title="DICOM qovluğu əlavə et" aria-label="DICOM qovluğu əlavə et" disabled={busy} onClick={() => folderRef.current?.click()}><FolderOpen size={18}/><span>Qovluq</span></button>        <button title="ZIP arxivi əlavə et" aria-label="ZIP arxivi əlavə et" disabled={busy} onClick={() => zipRef.current?.click()}><FileArchive size={18}/><span>ZIP</span></button>        <button title="DICOM faylları əlavə et" aria-label="DICOM faylları əlavə et" disabled={busy} onClick={() => filesRef.current?.click()}><HardDriveDownload size={18}/><span>DICOM</span></button></div></div>
+        <div className="record-action-group"><div className="toolbar-group" role="group" aria-label="DICOM import">        <button title="DICOM qovluğu əlavə et" aria-label="DICOM qovluğu əlavə et" disabled={busy} onClick={() => folderRef.current?.click()}><FolderOpen size={18}/><span>Qovluq</span></button>        <button title="ZIP / RAR arxivi əlavə et" aria-label="ZIP / RAR arxivi əlavə et" disabled={busy} onClick={() => zipRef.current?.click()}><FileArchive size={18}/><span>ZIP / RAR</span></button>        <button title="DICOM faylları əlavə et" aria-label="DICOM faylları əlavə et" disabled={busy} onClick={() => filesRef.current?.click()}><HardDriveDownload size={18}/><span>DICOM</span></button></div></div>
         <div className="record-action-group"><div className="toolbar-group" role="group" aria-label="Müayinə">        <button title="Siyahını yenilə" aria-label="Siyahını yenilə" onClick={() => { void refresh(); }}><RefreshCw size={18}/><span>Yenilə</span></button>        <button title="Seçilmiş müayinəni CD üçün hazırla" aria-label="CD üçün hazırla" disabled={!current || busy} onClick={() => current && window.open(`/media?study=${encodeURIComponent(current.uid)}`, '_blank')}><Disc3 size={18}/><span>CD / DVD</span></button>                <button title="Seçilmiş müayinəni sil" aria-label="Seçilmiş müayinəni sil" disabled={(!current && !selection.checked.length) || busy} onClick={() => { void remove(); }}><Trash2 size={18}/><span>Sil{selection.checked.length ? ` (${selection.checked.length})` : ''}</span></button></div></div>
         <ArchiveReceiverPanel/><AppHelpMenu/>
       </div>
       <input hidden ref={folderRef} type="file" multiple onChange={event => { const files=Array.from(event.currentTarget.files||[]); event.currentTarget.value=''; void addFiles(files); }}/>
-      <input hidden ref={zipRef} type="file" multiple accept=".zip,application/zip" onChange={event => { const files=Array.from(event.currentTarget.files||[]); event.currentTarget.value=''; void addFiles(files); }}/>
+      <input hidden ref={zipRef} type="file" multiple accept=".zip,.rar,application/vnd.rar,application/x-rar-compressed,application/zip" onChange={event => { const files=Array.from(event.currentTarget.files||[]); event.currentTarget.value=''; void addFiles(files); }}/>
       <input hidden ref={filesRef} type="file" multiple onChange={event => { const files=Array.from(event.currentTarget.files||[]); event.currentTarget.value=''; void addFiles(files); }}/>
     </header>
     <div className="records-upper">
       <ResizableTable storageKey="archive-studies" className="records-table" aria-label="Arxiv müayinələri"><thead><tr><ResizableHeader column="select" label="Seç" minimum={24} className="study-check-column">{selection.all}</ResizableHeader><ResizableHeader column="open" label="Aç" className="study-open-column">Aç</ResizableHeader><SortHeader column="date" label="Müayinə tarixi" {...studySort}/><SortHeader column="patient" label="Pasiyent" {...studySort}/><SortHeader column="birth" label="Doğum tarixi" {...studySort}/><SortHeader column="patientId" label="Pasiyent ID" {...studySort}/><SortHeader column="modality" label="Müayinə" {...studySort}/><SortHeader column="description" label="Təsvir" {...studySort}/><SortHeader column="accession" label="Accession" {...studySort}/><SortHeader column="series" label="Seriya" {...studySort}/><SortHeader column="imageCount" label="Görüntü" {...studySort}/><SortHeader column="referring" label="Göndərən həkim" {...studySort}/></tr></thead><tbody>
         {studySort.rows.map(study => <tr key={study.uid} className={current?.uid === study.uid ? 'selected' : ''} onClick={() => setSelected(study.uid)} onDoubleClick={() => void openStudy(study.uid)} title="İki dəfə klikləyib Viewer-də açın"><td onClick={event => event.stopPropagation()} onDoubleClick={event => event.stopPropagation()}><input type="checkbox" aria-label={`${study.patient} müayinəsini seç`} checked={selection.checked.includes(study.uid)} onChange={event => selection.toggle(study.uid, event.currentTarget.checked)}/></td><td><button className="record-open-button" aria-label="Müayinəni viewer-də aç" onClick={event => { event.stopPropagation(); setSelected(study.uid); void openStudy(study.uid); }}><ExternalLink size={16}/></button></td><td>{date(study.date)} {study.time && `${study.time.slice(0,2)}:${study.time.slice(2,4)}`}</td><td>{study.patient}<small className="archive-storage-label">{study.storage === 'disk' ? 'Disk / SQLite' : 'Brauzer'}</small></td><td>{date(study.birth)}</td><td title={study.patientId}>{study.patientId || '—'}</td><td>{study.modality}</td><td title={study.description}>{study.description || '—'}</td><td>{study.accession || '—'}</td><td>{study.series.length}</td><td>{study.imageCount}</td><td>{study.referring || '—'}</td></tr>)}
       </tbody></ResizableTable>
-      {!filtered.length && <div className="records-empty">{studies.length ? 'Seçilmiş tarix və müayinə filtrlərinə uyğun nəticə tapılmadı' : 'Arxiv boşdur. Qovluq, ZIP və ya DICOM faylları əlavə edin.'}</div>}
+      {!filtered.length && <div className="records-empty">{studies.length ? 'Seçilmiş tarix və müayinə filtrlərinə uyğun nəticə tapılmadı' : 'Arxiv boşdur. Qovluq, ZIP, RAR və ya DICOM faylları əlavə edin.'}</div>}
     </div>
     <div className="records-lower"><div className="records-section-title"><strong>Seriyalar</strong><span>{current?.patient || 'Müayinə seçin'}</span><div className="records-section-actions"><button disabled={!current || busy || current.storage === 'disk'} onClick={() => {
         if (!current) return; setBusy(true);

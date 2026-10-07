@@ -3,9 +3,55 @@ const CHANNEL = 'radaz-viewer-open-v2';
 const VIEWER_KEY = 'radaz-active-viewer';
 const randomId = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join('');
 const recordsToken = (value: string) => /^RADAZ_RECORDS_[a-f0-9]{32}$/.test(value);
-export function openRecordsWindow(kind: 'archive' | 'pacs') {
-  const token = `RADAZ_RECORDS_${randomId()}`;
-  return window.open(`/${kind}?records=${token}`, token, `popup=yes,width=${Math.min(1440,screen.availWidth)},height=${Math.min(960,screen.availHeight)},resizable=yes,scrollbars=yes`);
+const RECORDS_CHANNEL = 'radaz-records-windows-v1';
+type RecordsKind = 'archive' | 'pacs';
+const recordsOpening = new Map<RecordsKind, Promise<boolean>>();
+const recordsWindows = new Map<RecordsKind, Window>();
+export function openRecordsWindow(kind: RecordsKind): Promise<boolean> {
+  const pending = recordsOpening.get(kind);
+  if (pending) return pending;
+  const opening = (async () => {
+    const found = typeof BroadcastChannel !== 'undefined' && await new Promise<boolean>(resolve => {
+      const channel = new BroadcastChannel(RECORDS_CHANNEL), request = randomId();
+      const finish = (value: boolean) => { clearTimeout(timer); channel.close(); resolve(value); };
+      const timer = setTimeout(() => finish(false), 180);
+      channel.onmessage = event => {
+        if (event.data?.kind === 'FOCUSED' && event.data.request === request) finish(true);
+      };
+      channel.postMessage({ kind: 'FOCUS', page: kind, request });
+    });
+    if (found) return true;
+    const existing = recordsWindows.get(kind);
+    if (existing && !existing.closed) { existing.focus(); return true; }
+    const token = `RADAZ_RECORDS_${randomId()}`;
+    const tab = window.open(`/${kind}?records=${token}`, token, `popup=yes,width=${Math.min(1440,screen.availWidth)},height=${Math.min(960,screen.availHeight)},resizable=yes,scrollbars=yes`);
+    if (tab) recordsWindows.set(kind, tab);
+    return !!tab;
+  })().finally(() => recordsOpening.delete(kind));
+  recordsOpening.set(kind, opening);
+  return opening;
+}
+async function nativeRecordsAction(action: 'register-records' | 'focus-records', token: string) {
+  const title = document.title, caption = `RADAZ [${token}] · ${title}`;
+  try {
+    document.title = caption;
+    await fetch(`/local-archive-api/window/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token }), signal: AbortSignal.timeout(3500) });
+  } catch { /* Browser focus still works without the desktop bridge. */ }
+  finally { if (document.title === caption) document.title = title; }
+}
+/** Broadcast discovery also reaches windows opened independently from the Viewer. */
+export function registerRecordsWindow(kind: RecordsKind) {
+  if (!recordsToken(window.name)) window.name = `RADAZ_RECORDS_${randomId()}`;
+  const token = window.name, registration = nativeRecordsAction('register-records', token);
+  const channel = new BroadcastChannel(RECORDS_CHANNEL);
+  channel.onmessage = event => {
+    if (event.data?.kind !== 'FOCUS' || event.data.page !== kind) return;
+    window.focus();
+    channel.postMessage({ kind: 'FOCUSED', request: event.data.request });
+    void registration.then(() => nativeRecordsAction('focus-records', token));
+  };
+  return () => channel.close();
 }
 export function recordsWindowTitle(label: string) {
   // Edge/PWA may sever window.opener or reset window.name across window groups.

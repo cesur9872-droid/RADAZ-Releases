@@ -424,13 +424,14 @@ def handler_for(archive, removable=None):
                 if not 0 < length <= limit:
                     self.respond({'error':'Sorğu ölçüsü düzgün deyil'},413); return
                 data = self.rfile.read(length)
-                if self.path in ('/window/minimize', '/window/maximize', '/window/register'):
+                if self.path in ('/window/minimize', '/window/maximize', '/window/register', '/window/register-records', '/window/focus-records'):
                     if self.client_address[0] not in ('127.0.0.1', '::1'):
                         self.respond({'minimized': False}); return
                     if self.headers.get_content_type() != 'application/json':
                         self.respond({'error': 'JSON tələb olunur'}, 415); return
-                    from radaz_windows import minimize_records, maximize_viewer, register_viewer
-                    action = {'/window/maximize': maximize_viewer, '/window/register': register_viewer, '/window/minimize': minimize_records}[self.path]
+                    from radaz_windows import minimize_records, maximize_viewer, register_viewer, register_records, focus_records
+                    action = {'/window/maximize': maximize_viewer, '/window/register': register_viewer, '/window/minimize': minimize_records,
+                              '/window/register-records': register_records, '/window/focus-records': focus_records}[self.path]
                     self.respond(action(json.loads(data).get('token'))); return
                 if self.path in ('/removable/watch', '/removable/close'):
                     if self.headers.get_content_type() != 'application/json':

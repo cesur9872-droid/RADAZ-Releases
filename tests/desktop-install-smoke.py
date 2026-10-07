@@ -51,8 +51,8 @@ web,worker,archive,dicom=port(),port(),port(),port()
 env=dict(os.environ,PATH=str(SYSTEM)+';'+str(PS.parent),RADAZ_PORT=str(web),RADAZ_WORKER_PORT=str(worker),RADAZ_ARCHIVE_PORT=str(archive),RADAZ_ARCHIVE_DATA=str(data),HTTPS_PROXY='http://127.0.0.1:9',NO_PROXY='localhost,127.0.0.1')
 base=f'http://127.0.0.1:{web}'
 try:
-    if os.environ.get('GITHUB_ACTIONS')=='true':
-        run([ROOT/f'outputs/releases/RADAZ-{VERSION}-Setup.exe','/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-','/NoShortcuts=1',f'/DIR={install}'])
+    if os.environ.get('GITHUB_ACTIONS')=='true' or os.environ.get('RADAZ_TEST_SETUP')=='1':
+        run([ROOT/f'outputs/releases/RADAZ-{VERSION}-Setup.exe','/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-','/NoShortcuts=1','/NoStartup=1',f'/DIR={install}'])
     else:
         run([STAGE/'runtime/python/python.exe',STAGE/'bridge/radaz_desktop.py','install','--install-root',install,'--no-shortcuts'])
     folder=install/'versions'/VERSION

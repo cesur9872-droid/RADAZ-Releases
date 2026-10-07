@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {registerViewer,openStudyInViewer,openStudiesInViewer,requestedStudies,focusViewer,notifyViewerProgress,recordsWindowTitle} from '../lib/viewer-session.ts';
+import {registerViewer,openStudyInViewer,openStudiesInViewer,requestedStudies,focusViewer,notifyViewerProgress,recordsWindowTitle,registerRecordsWindow,openRecordsWindow} from '../lib/viewer-session.ts';
 let opened=[],navigated=[];
 const storage=new Map();globalThis.localStorage={getItem:k=>storage.get(k),setItem:(k,v)=>storage.set(k,v)};
 const open=(url,name)=>{opened.push([url,name]);return {name,closed:false,focus(){},location:{href:'http://localhost/',assign:url=>navigated.push(url),replace:url=>navigated.push(url)}};};
@@ -47,4 +47,17 @@ test('registered Viewer requests native maximize with its own token',async()=>{
  const stop=registerViewer(async()=>{});
  try{await openStudyInViewer('1.2.9');assert.ok(calls.length);assert.ok(calls.every(([url,data])=>['/local-archive-api/window/register','/local-archive-api/window/maximize'].includes(url)&&data.token===window.name));}
  finally{stop();globalThis.fetch=previous;}
+});
+
+test('an independently opened records window is focused without reopening or navigating',async()=>{
+ const previous=globalThis.fetch,calls=[];opened=[];navigated=[];
+ globalThis.fetch=async(url,options)=>{calls.push([url,JSON.parse(options.body)]);return {ok:true};};
+ const stop=registerRecordsWindow('archive');
+ try {
+  assert.equal(await openRecordsWindow('archive'),true);
+  assert.equal(await openRecordsWindow('archive'),true);
+  await new Promise(resolve=>setTimeout(resolve,20));
+  assert.deepEqual(opened,[]);assert.deepEqual(navigated,[]);
+  assert.ok(calls.some(([url])=>url.endsWith('/focus-records')));
+ } finally {stop();globalThis.fetch=previous;window.name='';}
 });

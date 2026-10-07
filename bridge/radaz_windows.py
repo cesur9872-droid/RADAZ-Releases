@@ -14,9 +14,15 @@ def maximize_viewer(token):
 def register_viewer(token):
     return _activate(token, True, register=True)
 
-def _activate(token, maximize, register=False):
+def register_records(token):
+    return _activate(token, False, register=True)
+
+def focus_records(token):
+    return _activate(token, False, focus=True)
+
+def _activate(token, maximize, register=False, focus=False):
     prefix = "RADAZ_VIEWER_" if maximize else "RADAZ_RECORDS_"
-    result = "registered" if register else "maximized" if maximize else "minimized"
+    result = "registered" if register else "focused" if focus else "maximized" if maximize else "minimized"
     if not isinstance(token, str) or not re.fullmatch(prefix + r'[a-f0-9]{32}', token):
         raise ValueError('Pəncərə identifikatoru düzgün deyil')
     if os.name != 'nt':
@@ -52,17 +58,20 @@ def _activate(token, maximize, register=False):
         # native window property while visible; Windows clears it on destruction,
         # so a reused HWND can never select an unrelated browser window.
         cached = _viewers.get(token)
-        if maximize and cached and user.GetPropW(cached, 'RADAZ:' + token) == 1:
+        if cached and user.GetPropW(cached, 'RADAZ:' + token) == 1:
             found.append(cached)
         else:
             _viewers.pop(token, None)
             user.EnumWindows(visit, 0)
         if found:
             for hwnd in found:
+                if user.SetPropW(hwnd, 'RADAZ:' + token, 1): _viewers[token] = hwnd
+                if register: continue
                 if maximize:
-                    if user.SetPropW(hwnd, 'RADAZ:' + token, 1): _viewers[token] = hwnd
-                    if register: continue
                     user.ShowWindowAsync(hwnd, 3)  # SW_MAXIMIZE also restores an iconic Viewer
+                    user.SetForegroundWindow(hwnd)
+                elif focus:
+                    if user.IsIconic(hwnd): user.ShowWindowAsync(hwnd, 9)  # SW_RESTORE
                     user.SetForegroundWindow(hwnd)
                 elif not user.IsIconic(hwnd):
                     user.ShowWindowAsync(hwnd, 6)  # Legacy clients only

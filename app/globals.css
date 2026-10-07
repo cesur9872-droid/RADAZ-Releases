@@ -487,6 +487,13 @@
 .grouped-records .records-header-filters .study-filter-controls{flex:0 1 auto;max-width:100%}
 .grouped-records .pacs-query{overflow:visible}
 .grouped-records .records-search{max-width:100%}
+.grouped-records .records-filterbar .records-search{flex:0 1 300px;width:300px;min-width:220px;max-width:360px}
+.grouped-records .pacs-query .pacs-patient{flex:0 1 280px;width:280px;min-width:220px}
+.search-field{position:relative;display:flex;align-items:center;width:100%;min-width:0}
+.search-field input{width:100%;min-width:0;padding-right:32px!important}
+.search-clear{display:inline-flex;flex:none;align-items:center;justify-content:center;width:24px;height:24px;padding:0;border:0;border-radius:4px;background:transparent;color:#b9d5e5;cursor:pointer}
+.search-field .search-clear{position:absolute;right:5px;top:50%;transform:translateY(-50%)}
+.search-clear:hover,.search-clear:focus-visible{background:#294f68;color:#fff;outline:1px solid #8cc5e8}
 .records-section-title{flex:none;flex-wrap:wrap;padding-top:5px;padding-bottom:5px}
 .records-section-actions{display:flex;flex-wrap:wrap;gap:6px;max-width:100%;margin-left:auto}
 .records-status{height:auto;min-height:32px;white-space:normal;overflow-wrap:anywhere;padding-top:5px;padding-bottom:5px}

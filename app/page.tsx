@@ -471,9 +471,13 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
     if (!ready || !mediaEnabled) return;
     return watchRemovableMedia({
       discovered(session, images) {
-        if (!mediaFiles.current.has(session)) {
+        const first = !mediaFiles.current.has(session);
+        if (first) {
           mediaFiles.current.set(session, []);
           importEpoch.current++; setImportBusy(false);
+          setLayout({ rows: 1, columns: 1 }); setLayoutOpen(false); setMaximizedPane(null); setMaximizedMprPane(null);
+          setActive('A'); setCurrentImages({}); setSelectedMarkId(null); setPreset(null);
+          setWorkspace(detachedMode || 'viewer'); setDatasetVersion(v => v + 1);
         }
         let next = [...listRef.current];
         for (const item of images) {
@@ -485,6 +489,7 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
         setAssigned(current => {
           const preferred = next.find(s => s.id === preferredMediaSeries.current);
           if (preferred) { preferredMediaSeries.current = undefined; return { A: preferred.id }; }
+          if (first && images.length) return { A: mediaId(session, images[0]) };
           return next.some(s => s.id === current.A) ? current : next[0] ? { A: next[0].id } : {};
         });
 
@@ -568,6 +573,7 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
         const previousIds = listRef.current.flatMap(s => s.imageIds);
         viewer.tools.annotation.state.removeAllAnnotations();
         setMarks([]); setSelectedMarkId(null); setMaximizedPane(null); setMaximizedMprPane(null);
+        setLayout({ rows: 1, columns: 1 }); setLayoutOpen(false);
         const preferred = imported.find(item => item.id === preferredSeriesId) || imported[0];
         setAssigned({ A: preferred.id }); setCurrentImages({}); setActive('A'); setPreset(null);
         const oldMpr = mprDataRef.current;
@@ -846,7 +852,19 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
       } });
     return () => controller.abort();
   }, [seriesList, layout, limited]);
-  const place = (seriesId: string, panel: string) => { const target = workspace === 'viewer' ? panel : 'A'; setAssigned(current => ({ ...current, [target]: seriesId })); setCurrentImages(current => ({ ...current, [target]: '' })); setActive(target); setPreset(null); setWorkspace('viewer'); };
+  const place = (seriesId: string, panel: string) => {
+    const next = seriesList.find(series => series.id === seriesId);
+    const previous = seriesList.find(series => series.id === assigned[active]);
+    const changedStudy = !!next && next.studyId !== previous?.studyId;
+    const target = changedStudy || workspace !== 'viewer' ? 'A' : panel;
+    if (changedStudy) {
+      setLayout({ rows: 1, columns: 1 }); setLayoutOpen(false); setMaximizedPane(null); setMaximizedMprPane(null);
+      setSelectedMarkId(null); setDatasetVersion(v => v + 1);
+    }
+    setAssigned(current => ({ ...(changedStudy ? {} : current), [target]: seriesId }));
+    setCurrentImages(current => ({ ...(changedStudy ? {} : current), [target]: '' }));
+    setActive(target); setPreset(null); setWorkspace('viewer');
+  };
   const onMoveSource = useCallback((panel: string, world: Point3) => {
     const source = seriesList.find(item => item.id === assigned[panel]);
     if (!source) return;
@@ -1051,14 +1069,20 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
 
   const mprPreview = currentSeries?.imageIds.length && ['CT','MR'].includes(currentSeries.modality) ? currentSeries : seriesList.find(item=>item.imageIds.length && ['CT','MR'].includes(item.modality));
   const sourceLoading: LoadingProgress | null = loadProgress || (mediaProgress?.sessions && (mediaProgress.scanning || mediaProgress.loaded + mediaProgress.skipped < mediaProgress.discovered) ? {label:detachedMode === '3d'?'3D görüntü hazırlanır':'MPR hazırlanır',done:mediaProgress.loaded,total:mediaProgress.discovered,indeterminate:mediaProgress.scanning,phase:'DICOM görüntüləri oxunur'} : null);
-  return <main className={`workstation grouped-workstation ${railHidden ? 'rail-hidden' : ''} ${detachedMode ? 'detached' : ''}`} data-mode={detachedMode || 'viewer'} style={measurementVariables as React.CSSProperties}>
+  return <main className={`workstation grouped-workstation ${railHidden ? 'rail-hidden' : ''} ${detachedMode ? 'detached' : ''}`} data-mode={detachedMode || 'viewer'} style={measurementVariables as React.CSSProperties}
+    onDragOverCapture={event => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; } }}
+    onDropCapture={event => {
+      if (!event.dataTransfer.types.includes('Files') || (event.target as HTMLElement).closest('.source-list')) return;
+      event.preventDefault(); event.stopPropagation();
+      if (!limited) void dropSources(event.dataTransfer.items, event.dataTransfer.files);
+    }}>
     <header className="topbar">
       {!detachedMode && <div className="brand"><RadazLogo size={34}/><span><strong>RADAZ</strong><small>RADIOLOGY, CONNECTED</small></span></div>}
       <div className="primary-command-row">
         {!detachedMode && <div className="toolbar-group import-command" role="group" aria-label="DICOM idxalı"><DropdownMenu><DropdownMenuTrigger asChild><Button variant="outline" className="header-control" title="DICOM import" aria-label="DICOM import" disabled={importBusy || limited}><FolderOpen size={17}/><span>DICOM import</span><ChevronDown size={14}/></Button></DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="header-menu">
             <DropdownMenuItem onSelect={() => { setImportOpen(true); folderRef.current?.click(); }}><FolderOpen size={16}/> Qovluq aç</DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => { setImportOpen(true); zipRef.current?.click(); }}><FileArchive size={16}/> ZIP aç</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => { setImportOpen(true); zipRef.current?.click(); }}><FileArchive size={16}/> ZIP / RAR aç</DropdownMenuItem>
             <DropdownMenuItem onSelect={() => fileRef.current?.click()}><ScanSearch size={16}/> DICOM faylları</DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setImportOpen(true)}><Grid2X2 size={16}/> Bir neçə mənbə seç</DropdownMenuItem>
           </DropdownMenuContent>
@@ -1073,8 +1097,8 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
         <button type="button" disabled={limited} title="MPR rekonstruksiya" aria-label="MPR rekonstruksiya" onClick={() => openDetached('mpr')}><b className="mode-letter-icon">MPR</b></button>
         <button type="button" disabled={limited} title="3D həcm görüntüləmə" aria-label="3D həcm görüntüləmə" onClick={() => openDetached('3d')}><b className="mode-letter-icon">3D</b></button>
         <button type="button" disabled={limited} title="Radioloji hesabat" aria-label="Radioloji hesabat" onClick={openReport}><FileText size={18}/><span>Hesabat</span></button>
-        <button type="button" title="Local arxiv" aria-label="Local arxiv" onClick={() => { if (!openRecordsWindow('archive')) setStatus('Local arxiv vərəqəsi açıla bilmədi'); }}><Database size={18}/><span>Local arxiv</span></button>
-        <button type="button" title="PACS müayinələri" aria-label="PACS müayinələri" onClick={() => { if (!openRecordsWindow('pacs')) setStatus('PACS vərəqəsi açıla bilmədi'); }}><ServerCog size={18}/><span>PACS</span></button>
+        <button type="button" title="Local arxiv" aria-label="Local arxiv" onClick={async () => { if (!await openRecordsWindow('archive')) setStatus('Local arxiv vərəqəsi açıla bilmədi'); }}><Database size={18}/><span>Local arxiv</span></button>
+        <button type="button" title="PACS müayinələri" aria-label="PACS müayinələri" onClick={async () => { if (!await openRecordsWindow('pacs')) setStatus('PACS vərəqəsi açıla bilmədi'); }}><ServerCog size={18}/><span>PACS</span></button>
       </div>}
         {!limited && detachedMode !== '3d' && <ViewerOutputControls panes={Object.entries(currentImages).map(([panel, imageId]) => ({ panel, imageId, series: [...seriesList, ...(mprData?.planes || [])].find(item => item.imageIds.includes(imageId)) }))} panel={workspace === 'mpr' ? mprActive : active} imageId={currentImages[workspace === 'mpr' ? mprActive : active]} series={workspace === 'mpr' ? mprData?.planes.find(item => item.imageIds.includes(currentImages[mprActive])) : currentSeries} allSeries={seriesList} datasetVersion={datasetVersion} onStatus={setStatus}/>}
       </div>
@@ -1124,16 +1148,16 @@ export default function Home({ detachedMode }: { detachedMode?: DetachedMode }) 
         {limited&&<div className="toolbar-group limited-viewer-tools" title="Lisenziyanı aktivləşdirin"><span>Yalnız listələmə</span>{['Pəncərə','Yaxınlaşdır','Ölçmə','Çap','İxrac'].map(label=><Button key={label} disabled className="header-control">{label}</Button>)}</div>}
         <input hidden ref={fileRef} type="file" multiple onChange={e => { const files = Array.from(e.currentTarget.files || []); e.currentTarget.value = ''; void openSources(files); }}/>
         <input hidden ref={folderRef} type="file" multiple onChange={e => { const files = Array.from(e.currentTarget.files || []); e.currentTarget.value = ''; queueFiles(files, 'Qovluq'); }}/>
-        <input hidden ref={zipRef} type="file" multiple accept=".zip,application/zip,application/x-zip-compressed" onChange={e => { const files = Array.from(e.currentTarget.files || []); e.currentTarget.value = ''; queueFiles(files, 'ZIP'); }}/>
+        <input hidden ref={zipRef} type="file" multiple accept=".zip,.rar,application/vnd.rar,application/x-rar-compressed,application/zip,application/x-zip-compressed" onChange={e => { const files = Array.from(e.currentTarget.files || []); e.currentTarget.value = ''; queueFiles(files, 'ZIP'); }}/>
       </div>
       <div className="toolbar-group help-command"><AppHelpMenu/></div>
     </header>
     <Dialog open={importOpen} onOpenChange={open => { if (!importBusy) setImportOpen(open); }}>
       <DialogContent className="import-dialog" showCloseButton={false}>
-        <DialogHeader><DialogTitle>Qovluq və ZIP import</DialogTitle><DialogDescription>Bir neçə mənbə seçin və hamısını birlikdə açın. Uğurlu idxal əvvəlki seriyaları və ölçmələri əvəz edir.</DialogDescription></DialogHeader>
+        <DialogHeader><DialogTitle>Qovluq və ZIP / RAR import</DialogTitle><DialogDescription>Bir neçə mənbə seçin və hamısını birlikdə açın. Uğurlu idxal əvvəlki seriyaları və ölçmələri əvəz edir.</DialogDescription></DialogHeader>
         <div className="source-buttons">
           <Button variant="outline" disabled={importBusy} onClick={() => folderRef.current?.click()}><FolderOpen size={16}/> Qovluq seç</Button>
-          <Button variant="outline" disabled={importBusy} onClick={() => zipRef.current?.click()}><FileArchive size={16}/> ZIP seç</Button>
+          <Button variant="outline" disabled={importBusy} onClick={() => zipRef.current?.click()}><FileArchive size={16}/> ZIP / RAR seç</Button>
         </div>
         <div className="source-list" aria-live="polite" onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }} onDrop={e => { e.preventDefault(); void (async () => { const files = await filesFromDrop(e.dataTransfer.items, e.dataTransfer.files); if (files.length) setImportQueue(current => [...current, { id: ++sourceSerial.current, label: `${files.length} əlavə fayl`, files }]); })().catch(err => setStatus(`Mənbə oxuna bilmədi: ${String(err)}`)); }}>
           {importQueue.length ? importQueue.map(source => <div className="source-row" key={source.id}><span><strong>{source.label}</strong><small>{source.files.length} fayl</small></span><button aria-label={`${source.label} siyahıdan sil`} disabled={importBusy} onClick={() => setImportQueue(current => current.filter(item => item.id !== source.id))}><Trash2 size={15}/></button></div>)

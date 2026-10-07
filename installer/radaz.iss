@@ -31,6 +31,7 @@ Source: "..\outputs\desktop-stage\public\radaz.ico"; DestDir: "{app}"; Flags: ig
 [Icons]
 Name: "{autodesktop}\RADAZ"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\launcher.ps1"""; WorkingDir: "{app}"; IconFilename: "{app}\radaz.ico"; Check: WantShortcuts
 Name: "{autoprograms}\RADAZ"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\launcher.ps1"""; WorkingDir: "{app}"; IconFilename: "{app}\radaz.ico"; Check: WantShortcuts
+Name: "{userstartup}\RADAZ"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\launcher.ps1"""; WorkingDir: "{app}"; IconFilename: "{app}\radaz.ico"; Check: WantStartup
 
 [Run]
 Filename: "{app}\versions\{#ProductVersion}\runtime\python\python.exe"; Parameters: """{app}\versions\{#ProductVersion}\bridge\radaz_desktop.py"" initialize --install-root ""{app}"" --no-shortcuts"; Flags: runhidden waituntilterminated
@@ -45,4 +46,9 @@ Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile
 function WantShortcuts: Boolean;
 begin
   Result := ExpandConstant('{param:NoShortcuts|0}') <> '1';
+end;
+
+function WantStartup: Boolean;
+begin
+  Result := ExpandConstant('{param:NoStartup|0}') <> '1';
 end;
